@@ -1651,6 +1651,276 @@ function renderCorebox() {
 for (const id in S.logs) (S.logs[id].corebox.defects||[]).forEach(d=>{ if(!d.id) d.id=Math.random().toString(36).slice(2,9); });
 if (S.activeTab==="corebox") renderCorebox();
 </script>
+<script id="dashboard">
+"use strict";
+/* ============ Geotechnical analytics dashboard ============ */
+const DZ = { green:"#147447", dark:"#0B4938", ink:"#18201C", sec:"#68716C", meta:"#8A938E",
+  border:"#DDE2DE", grid:"#ECEFEC",
+  strata:{ FILL:"#d9d2c4", SOIL:"#e9ece8", RES:"#cdd8cf", XW:"#b9c9bd", HW:"#9db5a4", MW:"#7f9d88", SW:"#5f8a6f", FR:"#3f7355" } };
+let dzBh = "ALL";
+
+function dzClassify(id) { // ordered strata per borehole
+  const L = S.logs[id]; if (!L) return [];
+  const out = [];
+  for (const r of L.soil) {
+    const f=num(r.from), t=num(r.to); if (f==null||t==null||t<=f) continue;
+    let cls = "SOIL";
+    if (r.fillNatural==="FILL" || /FILL/i.test(r.material||"")) cls="FILL";
+    else if (/residual/i.test(r.origin||"") || /Residual/i.test(r.material||"")) cls="RES";
+    else if (r.fillNatural==="BEDROCK" || IS_ROCK_MAT(r.material)) cls="XW";
+    out.push({f,t,cls,label:r.material||"soil"});
+  }
+  for (const r of L.rock) {
+    if (r.defectType) continue;
+    const f=num(r.from), t=num(r.to); if (f==null||t==null||t<=f) continue;
+    const w=(r.weathering||"MW").replace("RS","XW");
+    out.push({f,t,cls:DZ.strata[w]?w:"MW",label:(r.rockType||"rock")+" "+(r.weathering||"")});
+  }
+  return out.sort((a,b)=>a.f-b.f);
+}
+function dzDepth(id) { const b=S.boreholes.find(x=>x.id===id); const s=dzClassify(id);
+  return Math.max(num(b?.termDepth)||0, ...s.map(x=>x.t), 0); }
+function dzRockTop(id) { const s=dzClassify(id).filter(x=>["XW","HW","MW","SW","FR"].includes(x.cls)); return s.length? Math.min(...s.map(x=>x.f)) : null; }
+function dzFillBase(id) { const s=dzClassify(id).filter(x=>x.cls==="FILL"); return s.length? Math.max(...s.map(x=>x.t)) : null; }
+function dzBhList() { return dzBh==="ALL" ? S.boreholes.map(b=>b.id) : [dzBh]; }
+const dzFmt = v => v==null? "—" : (Math.round(v*100)/100).toFixed(2);
+
+/* --- SVG helpers --- */
+function dzAxisY(maxD, x, top, h) { // depth axis increasing downward
+  let s=`<line x1="${x}" y1="${top}" x2="${x}" y2="${top+h}" stroke="${DZ.border}"/>`;
+  const step = maxD>20?5:maxD>8?2:1;
+  for (let d=0; d<=maxD+0.001; d+=step) {
+    const y=top+d/maxD*h;
+    s+=`<line x1="${x-3}" y1="${y}" x2="${x}" y2="${y}" stroke="${DZ.sec}" stroke-width=".6"/>
+        <text x="${x-6}" y="${y+3}" font-size="10" fill="${DZ.sec}" text-anchor="end">${d}</text>`;
+  }
+  return s;
+}
+function dzProfileSVG() {
+  const ids = dzBhList(); if (!ids.length) return `<div class="dz-empty">No boreholes yet.</div>`;
+  const maxD = Math.max(...ids.map(dzDepth), 1);
+  const W=Math.max(420, 90+ids.length*72), H=280, top=26, h=H-46, x0=46, cw=34;
+  let s=`<svg class="dz-svg" viewBox="0 0 ${W} ${H}" style="width:100%;max-width:${W}px">`;
+  s+=`<text x="10" y="14" font-size="10" fill="${DZ.meta}">DEPTH (m)</text>`;
+  s+=dzAxisY(maxD, x0, top, h);
+  ids.forEach((id,i)=>{
+    const cx = x0+28+i*72;
+    s+=`<text x="${cx+cw/2}" y="${top-8}" font-size="11" font-weight="600" fill="${DZ.ink}" text-anchor="middle">${esc(id)}</text>`;
+    const strata = dzClassify(id);
+    if (!strata.length) { s+=`<rect x="${cx}" y="${top}" width="${cw}" height="${h*0.04}" fill="none" stroke="${DZ.border}" stroke-dasharray="3 2"/>`; return; }
+    for (const seg of strata) {
+      const y1=top+seg.f/maxD*h, y2=top+seg.t/maxD*h;
+      s+=`<rect x="${cx}" y="${y1}" width="${cw}" height="${Math.max(1,y2-y1)}" fill="${DZ.strata[seg.cls]}" stroke="#18201C" stroke-width=".5">
+          <title>${esc(id)}\n${dzFmt(seg.f)}–${dzFmt(seg.t)} m\n${esc(seg.label)}</title></rect>`;
+    }
+    const rt=dzRockTop(id);
+    if (rt!=null) s+=`<line x1="${cx-3}" y1="${top+rt/maxD*h}" x2="${cx+cw+3}" y2="${top+rt/maxD*h}" stroke="#9a7018" stroke-width="1.2" stroke-dasharray="4 2"/>`;
+  });
+  s+=`</svg>`;
+  const leg = Object.entries({FILL:"Fill",SOIL:"Natural soil",RES:"Residual",XW:"XW",HW:"HW",MW:"MW",SW:"SW",FR:"FR"})
+    .map(([k,l])=>`<span style="font-size:11px;color:${DZ.sec};margin-right:10px"><span style="display:inline-block;width:10px;height:10px;background:${DZ.strata[k]};border:1px solid #999;margin-right:3px;vertical-align:-1px"></span>${l}</span>`).join("");
+  return s+`<div style="margin-top:6px">${leg}<span style="font-size:11px;color:#9a7018;margin-left:6px">╌ rock level</span></div>`;
+}
+function dzDepthBarsSVG() {
+  const ids=dzBhList(); if(!ids.length) return `<div class="dz-empty">No boreholes yet.</div>`;
+  const maxD=Math.max(...ids.map(dzDepth),1), W=430, rh=22, H=ids.length*rh+34;
+  let s=`<svg class="dz-svg" viewBox="0 0 ${W} ${H}" style="width:100%">`;
+  ids.forEach((id,i)=>{
+    const y=14+i*rh, d=dzDepth(id), bw=(d/maxD)*(W-140);
+    s+=`<text x="52" y="${y+11}" font-size="11" fill="${DZ.ink}" text-anchor="end" font-weight="600">${esc(id)}</text>`;
+    let x=60;
+    for (const seg of dzClassify(id)) {
+      const w=(seg.t-seg.f)/maxD*(W-140);
+      s+=`<rect x="${x+(seg.f/maxD)*(W-140)}" y="${y}" width="${Math.max(0.5,w)}" height="14" fill="${DZ.strata[seg.cls]}"><title>${esc(id)} ${dzFmt(seg.f)}–${dzFmt(seg.t)} m — ${esc(seg.label)}</title></rect>`;
+    }
+    s+=`<rect x="60" y="${y}" width="${Math.max(1,bw)}" height="14" fill="none" stroke="${DZ.border}"/>`;
+    s+=`<text x="${64+bw}" y="${y+11}" font-size="11" fill="${DZ.sec}">${dzFmt(d)} m</text>`;
+  });
+  s+=`<text x="60" y="${H-6}" font-size="10" fill="${DZ.meta}">Depth (m) →  stacked by stratigraphy</text></svg>`;
+  return s;
+}
+function dzSptSVG() {
+  const ids=dzBhList();
+  const pts=[];
+  for (const id of ids) for (const t of (S.logs[id]?.spt||[])) {
+    const d=num(t.depth); if (d==null) continue;
+    pts.push({id, d, n: t.refusal? null : num(t.n)??num(calcN(t)), refusal:t.refusal, raw:t});
+  }
+  if (!pts.length) return `<div class="dz-empty">No SPT results available${dzBh!=="ALL"?" for "+esc(dzBh):""}.</div>`;
+  const maxD=Math.max(...pts.map(p=>p.d),1)*1.1, maxN=Math.max(...pts.map(p=>p.n||0),50)*1.08;
+  const W=430,H=270,top=24,h=H-52,x0=44,cw=W-70;
+  let s=`<svg class="dz-svg" viewBox="0 0 ${W} ${H}" style="width:100%">`;
+  s+=dzAxisY(maxD,x0,top,h);
+  for (let n=0;n<=maxN;n+=10){ const x=x0+n/maxN*cw;
+    s+=`<line x1="${x}" y1="${top}" x2="${x}" y2="${top+h}" stroke="${DZ.grid}"/>
+        <text x="${x}" y="${top+h+12}" font-size="9.5" fill="${DZ.sec}" text-anchor="middle">${n}</text>`; }
+  s+=`<text x="${x0+cw/2}" y="${H-4}" font-size="10" fill="${DZ.meta}" text-anchor="middle">SPT N-value</text>`;
+  const byBh={}; pts.forEach(p=>(byBh[p.id]=byBh[p.id]||[]).push(p));
+  const tones=["#147447","#5f8a6f","#9db5a4","#0B4938","#7f9d88"];
+  Object.entries(byBh).forEach(([id,list],bi)=>{
+    list.sort((a,b)=>a.d-b.d);
+    const col=tones[bi%tones.length];
+    const line=list.filter(p=>p.n!=null).map(p=>`${x0+p.n/maxN*cw},${top+p.d/maxD*h}`).join(" ");
+    if (line.includes(" ")) s+=`<polyline points="${line}" fill="none" stroke="${col}" stroke-width="1.4" opacity=".8"/>`;
+    for (const p of list) {
+      const y=top+p.d/maxD*h;
+      if (p.refusal||p.n==null) s+=`<text x="${x0+cw-8}" y="${y+3}" font-size="10" fill="#9a7018" font-weight="600" text-anchor="middle">R<title>${esc(id)} — ${dzFmt(p.d)} m — Refusal</title></text>`;
+      else s+=`<circle cx="${x0+p.n/maxN*cw}" cy="${y}" r="3.4" fill="${col}"><title>${esc(id)}\nDepth ${dzFmt(p.d)} m\nN = ${p.n}${p.raw.b1!==""?`\nBlows ${p.raw.b1},${p.raw.b2},${p.raw.b3}`:""}</title></circle>`;
+    }
+    s+=`<text x="${x0+6}" y="${top+12+bi*12}" font-size="10" fill="${col}" font-weight="600">● ${esc(id)}</text>`;
+  });
+  s+=`</svg>`;
+  const valid=pts.filter(p=>p.n!=null).map(p=>p.n).sort((a,b)=>a-b);
+  const med=valid.length? valid[Math.floor(valid.length/2)] : "—";
+  return s+`<div style="font-size:11.5px;color:${DZ.sec};margin-top:4px">Tests: <b>${pts.length}</b> · Median N: <b>${med}</b> · Refusals: <b>${pts.filter(p=>p.refusal).length}</b> · Max valid N: <b>${valid.at(-1)??"—"}</b></div>`;
+}
+function dzIs50SVG() {
+  const ids=dzBhList(); const pts=[];
+  for (const id of ids) for (const r of (S.logs[id]?.rock||[])) {
+    const v=num(r.is50); if (v==null||v==="") continue;
+    pts.push({id, d:num(r.from), v, lith:r.rockType||""});
+  }
+  if (!pts.length) return `<div class="dz-empty">No point-load Is(50) results available${dzBh!=="ALL"?" for "+esc(dzBh):""}. Enter Is50 values in the Rock Log.</div>`;
+  const maxD=Math.max(...pts.map(p=>p.d||0),1)*1.1, maxV=Math.max(...pts.map(p=>p.v),1)*1.15;
+  const W=430,H=270,top=24,h=H-52,x0=44,cw=W-70;
+  let s=`<svg class="dz-svg" viewBox="0 0 ${W} ${H}" style="width:100%">`+dzAxisY(maxD,x0,top,h);
+  const step=maxV>4?1:0.5;
+  for (let v=0;v<=maxV;v+=step){ const x=x0+v/maxV*cw;
+    s+=`<line x1="${x}" y1="${top}" x2="${x}" y2="${top+h}" stroke="${DZ.grid}"/><text x="${x}" y="${top+h+12}" font-size="9.5" fill="${DZ.sec}" text-anchor="middle">${Math.round(v*10)/10}</text>`; }
+  s+=`<text x="${x0+cw/2}" y="${H-4}" font-size="10" fill="${DZ.meta}" text-anchor="middle">Is(50), MPa — ▲ axial</text>`;
+  for (const p of pts) {
+    const x=x0+p.v/maxV*cw, y=top+(p.d||0)/maxD*h;
+    s+=`<path d="M ${x} ${y-4} L ${x-4} ${y+3} L ${x+4} ${y+3} Z" fill="${DZ.green}"><title>${esc(p.id)}\nDepth ${dzFmt(p.d)} m\nIs(50) = ${p.v} MPa\n${esc(p.lith)}</title></path>`;
+  }
+  return s+`</svg><div style="font-size:11.5px;color:${DZ.sec};margin-top:4px">Samples: <b>${pts.length}</b> · Range: <b>${Math.min(...pts.map(p=>p.v))}–${Math.max(...pts.map(p=>p.v))} MPa</b></div>`;
+}
+function dzCoverageSVG() {
+  const ids=dzBhList(); if(!ids.length) return `<div class="dz-empty">No boreholes yet.</div>`;
+  const maxD=Math.max(...ids.map(dzDepth),1);
+  const W=430, rh=26, H=ids.length*rh+30;
+  let s=`<svg class="dz-svg" viewBox="0 0 ${W} ${H}" style="width:100%">`;
+  let any=false;
+  ids.forEach((id,i)=>{
+    const y=12+i*rh;
+    s+=`<text x="50" y="${y+4}" font-size="11" font-weight="600" fill="${DZ.ink}" text-anchor="end">${esc(id)}</text>`;
+    s+=`<line x1="58" y1="${y}" x2="${58+(dzDepth(id)/maxD)*(W-110)}" y2="${y}" stroke="${DZ.border}" stroke-width="3"/>`;
+    const L=S.logs[id]||{};
+    for (const smp of (L.samples||[])) { const d=num(smp.from); if(d==null) continue; any=true;
+      s+=`<circle cx="${58+d/maxD*(W-110)}" cy="${y}" r="4" fill="${DZ.green}"><title>${esc(id)} — ${esc(smp.sid||"sample")} @ ${dzFmt(d)} m\n${esc(smp.tests||smp.stype||"sample")}</title></circle>`; }
+    for (const r of (L.rock||[])) { const v=num(r.is50); if(v==null) continue; any=true;
+      const x=58+(num(r.from)||0)/maxD*(W-110);
+      s+=`<path d="M ${x} ${y-5} L ${x-4} ${y+3} L ${x+4} ${y+3} Z" fill="#9a7018"><title>${esc(id)} PLT @ ${dzFmt(num(r.from))} m — Is(50) ${v} MPa</title></path>`; }
+  });
+  s+=`<text x="58" y="${H-4}" font-size="10" fill="${DZ.meta}">Depth (m) → · ● sample · ▲ point load</text></svg>`;
+  return any? s : `<div class="dz-empty">No laboratory-tested samples recorded yet.</div>`;
+}
+function dzSummaryStrip() {
+  const ids=dzBhList();
+  const fills=ids.map(id=>[id,dzFillBase(id)]).filter(x=>x[1]!=null);
+  const rocks=ids.map(id=>[id,dzRockTop(id)]).filter(x=>x[1]!=null);
+  const deepFill=fills.length? fills.reduce((a,b)=>b[1]>a[1]?b:a):null;
+  const shRock=rocks.length? rocks.reduce((a,b)=>b[1]<a[1]?b:a):null;
+  const dpRock=rocks.length? rocks.reduce((a,b)=>b[1]>a[1]?b:a):null;
+  const avg=rocks.length? rocks.reduce((s,x)=>s+x[1],0)/rocks.length : null;
+  const cell=(l,v)=>`<div style="flex:1;min-width:130px"><div style="font-size:11px;color:${DZ.meta}">${l}</div><div style="font-size:14px;font-weight:600;color:${DZ.ink};font-variant-numeric:tabular-nums">${v}</div></div>`;
+  return `<div style="display:flex;gap:14px;flex-wrap:wrap;padding:8px 0 2px">`+
+    cell("Deepest fill", deepFill? `${deepFill[0]} — ${dzFmt(deepFill[1])} m`:"—")+
+    cell("Shallowest rock", shRock? `${shRock[0]} — ${dzFmt(shRock[1])} m`:"—")+
+    cell("Deepest rock level", dpRock? `${dpRock[0]} — ${dzFmt(dpRock[1])} m`:"—")+
+    cell("Average rock depth", avg!=null? dzFmt(avg)+" m":"—")+`</div>`;
+}
+
+function renderDashboard() {
+  const page = document.getElementById("page-dashboard");
+  const ids = S.boreholes.map(b=>b.id);
+  const nBh = ids.length;
+  const logged = ids.filter(id=>dzClassify(id).length>0).length;
+  const nSpt = ids.reduce((s,id)=>s+(S.logs[id]?.spt||[]).filter(t=>num(t.depth)!=null).length,0);
+  const nDef = ids.reduce((s,id)=>s+((S.logs[id]?.corebox?.defects)||[]).length,0);
+  const { errs } = validate();
+  const P = S.project;
+  const panel = (title, meta, body) => `<div class="dz-panel"><h3>${title}</h3>${meta?`<div class="meta">${meta}</div>`:""}<div class="bd">${body}</div></div>`;
+  page.innerHTML = `<div class="dz">
+    <div class="dz-rail">
+      <div class="brand"><b>STS</b><span>GEOTECHNICS</span></div>
+      <div class="dz-nav">
+        <a class="on">Dashboard</a>
+        <a data-go="project">Project Setup</a>
+        <a data-go="boreholes">Boreholes</a>
+        <a data-go="soil">Soil Logs</a>
+        <a data-go="rock">Rock Logs</a>
+        <a data-go="corebox">Corebox</a>
+        <a data-go="spt">SPT &amp; Field Tests</a>
+        <a data-go="samples">Samples</a>
+        <a data-go="preview">Reports (PDF)</a>
+        <a data-go="export">Export</a>
+      </div>
+      <div class="foot">AS 1726:2017 · NSW<br>${esc(P.projectNumber||"No project number")}</div>
+    </div>
+    <div class="dz-main">
+      <div class="dz-h1">${esc(P.projectName||"Geotechnical Investigation")}</div>
+      <div class="dz-sub">${esc(P.clientName||"—")} · ${esc([P.siteAddress,P.suburb].filter(Boolean).join(", ")||"site address not set")} · ${esc(P.projectNumber||"")}</div>
+      <div class="dz-cards">
+        <div class="dz-card"><div class="lbl">BOREHOLES</div><div class="num">${nBh}</div><div class="sec">in this project</div><a data-go="boreholes">View boreholes →</a></div>
+        <div class="dz-card"><div class="lbl">LOGGED</div><div class="num">${logged}</div><div class="sec">${nBh?Math.round(logged/nBh*100):0}% of boreholes</div><a data-go="soil">View logs →</a></div>
+        <div class="dz-card"><div class="lbl">SPT TESTS</div><div class="num">${nSpt}</div><div class="sec">across all boreholes</div><a data-go="spt">View SPT →</a></div>
+        <div class="dz-card"><div class="lbl">${errs.length?"NEEDS ATTENTION":"DEFECTS LOGGED"}</div><div class="num" style="${errs.length?"color:#9a7018":""}">${errs.length||nDef}</div><div class="sec">${errs.length?"validation issues":"corebox discontinuities"}</div><a data-go="${errs.length?"export":"corebox"}">${errs.length?"Review →":"Open corebox →"}</a></div>
+      </div>
+      <div class="dz-grid2">
+        ${panel("Boreholes","status and progress",`<table class="dz-t"><thead><tr><th>ID</th><th>Depth (m)</th><th>Planned</th><th>Progress</th><th>Status</th></tr></thead><tbody>`+
+          (S.boreholes.map(b=>{ const d=dzDepth(b.id), pl=num(b.plannedDepth)||num(b.termDepth)||d;
+            const pc=pl?Math.min(100,Math.round(d/pl*100)):0;
+            const st = dzClassify(b.id).length? (num(b.termDepth)!=null?"Complete":"Logging") : "Data Entry";
+            return `<tr data-go="soil" data-bh="${esc(b.id)}"><td><b>${esc(b.id)}</b></td><td>${dzFmt(d)}</td><td>${pl?dzFmt(pl):"—"}</td>
+              <td><span class="dz-prog"><i style="width:${pc}%"></i></span> <span style="font-size:11px;color:${DZ.sec}">${pc}%</span></td>
+              <td><span class="dz-pill ${st==="Complete"?"":"warn"}">${st}</span></td></tr>`; }).join("")||"")+`</tbody></table>`)}
+        ${panel("Recent activity","current session",`<div class="dz-act">`+
+          ids.slice(0,6).flatMap(id=>{ const L=S.logs[id]; const items=[];
+            if ((L.corebox?.defects||[]).length) items.push(`<div><b>${esc(id)}</b> — ${L.corebox.defects.length} corebox discontinuities marked <span>· synced to rock log</span></div>`);
+            if (L.rock.some(r=>r.tcr!==""&&r.tcr!=null)) { const u=L.rock.find(r=>r.tcr!==""&&r.tcr!=null); items.push(`<div><b>${esc(id)}</b> core metrics <span>· TCR ${u.tcr}% · RQD ${u.rqd}%</span></div>`); }
+            if (L.spt.some(t=>num(t.depth)!=null)) { const t=L.spt.find(t=>num(t.depth)!=null); items.push(`<div><b>${esc(id)}</b> SPT ${dzFmt(num(t.depth))} m <span>· N=${t.n||calcN(t)}</span></div>`); }
+            return items; }).slice(0,8).join("")||`<div class="dz-empty">No activity yet — start logging.</div>`+`</div>`)}
+      </div>
+      <div class="dz-filter">Filters: <select id="dzBhSel"><option value="ALL" ${dzBh==="ALL"?"selected":""}>All boreholes</option>${ids.map(id=>`<option ${dzBh===id?"selected":""}>${esc(id)}</option>`).join("")}</select>
+        <span style="color:${DZ.meta}">All analytics respond to this filter · depth axes increase downward</span></div>
+      ${panel("Subsurface profile comparison","stratigraphy per borehole — hover intervals for approved descriptions", dzProfileSVG()+dzSummaryStrip())}
+      <div class="dz-grid2">
+        ${panel("Borehole depths","total investigated depth, stacked by stratigraphy", dzDepthBarsSVG())}
+        ${panel("Corebox test coverage","laboratory-tested samples by depth", dzCoverageSVG())}
+      </div>
+      <div class="dz-grid2">
+        ${panel("SPT N-value profile","field penetration resistance vs depth", dzSptSVG())}
+        ${panel("Point load Is(50) profile","rock strength index vs depth", dzIs50SVG())}
+      </div>
+      <div class="dz-grid2">
+        ${panel("UCS results","", `<div class="dz-empty">No UCS results available for this project.<br><span style="font-size:11px">UCS entry ships with the laboratory module.</span></div>`)}
+        ${panel("Shrink-swell / moisture","", `<div class="dz-empty">No laboratory shrink-swell or moisture content values recorded.<br><span style="font-size:11px">Request tests via the Samples tab checkboxes.</span></div>`)}
+      </div>
+    </div>
+  </div>`;
+  page.querySelectorAll("[data-go]").forEach(el=>el.addEventListener("click", ()=>{
+    const bh=el.dataset.bh; if (bh) S.activeBh=bh;
+    showTab(el.dataset.go);
+  }));
+  const sel=page.querySelector("#dzBhSel");
+  if (sel) sel.addEventListener("change", ()=>{ dzBh=sel.value; renderDashboard(); });
+}
+
+/* register dashboard tab */
+(function(){
+  const pageHost = document.querySelector(".content");
+  if (!document.getElementById("page-dashboard")) {
+    const d=document.createElement("div"); d.className="tabpage"; d.id="page-dashboard"; pageHost.prepend(d);
+  }
+  TABS.unshift("dashboard");
+  const nav=document.querySelector(".topbar");
+  const first=nav.querySelector('.navtab[data-tab="project"]');
+  if (first && !nav.querySelector('[data-tab="dashboard"]')) {
+    const t=document.createElement("div"); t.className="navtab"; t.dataset.tab="dashboard"; t.textContent="Dashboard";
+    nav.insertBefore(t, first);
+  }
+})();
+</script>
 <script id="pdf-v2">
 "use strict";
 /* ============ PDF v2 — STS/OpenGround reference layout ============ */
@@ -2410,6 +2680,51 @@ document.addEventListener("change", e=>{
     const fn = tr.querySelector('select[data-k="fillNatural"]'); if (fn) fn.value = "BEDROCK"; save(); }
 });
 </script>
+<style id="dash-css">
+  body.dashmax .leftpanel, body.dashmax .rightpanel, body.dashmax .statusbar { display:none; }
+  .dz { display:flex; min-height:calc(100vh - 46px); background:#F6F7F5; margin:-12px; }
+  .dz-rail { width:210px; flex-shrink:0; background:#0D523E; color:#fff; display:flex; flex-direction:column; }
+  .dz-rail .brand { padding:18px 16px 14px; }
+  .dz-rail .brand b { font-size:17px; letter-spacing:.5px; }
+  .dz-rail .brand span { display:block; font-size:10px; color:#9fc3b5; letter-spacing:1.5px; }
+  .dz-nav { flex:1; }
+  .dz-nav a { display:block; padding:9px 16px; color:#cfe0d8; font-size:13px; cursor:pointer; text-decoration:none; }
+  .dz-nav a:hover { background:#0F603B; color:#fff; }
+  .dz-nav a.on { background:#147447; color:#fff; }
+  .dz-rail .foot { padding:12px 16px; font-size:11px; color:#9fc3b5; border-top:1px solid #0F603B; }
+  .dz-main { flex:1; padding:22px 26px; overflow:auto; min-width:0; }
+  .dz-h1 { font-size:26px; font-weight:600; color:#18201C; }
+  .dz-sub { font-size:12.5px; color:#68716C; margin:2px 0 16px; }
+  .dz-cards { display:grid; grid-template-columns:repeat(auto-fit,minmax(180px,1fr)); gap:12px; margin-bottom:18px; }
+  .dz-card { background:#fff; border:1px solid #DDE2DE; border-radius:8px; padding:14px 16px; transition:border-color .15s; }
+  .dz-card:hover { border-color:#b8c4bd; }
+  .dz-card .lbl { font-size:12px; font-weight:500; color:#68716C; }
+  .dz-card .num { font-size:28px; font-weight:600; color:#18201C; font-variant-numeric:tabular-nums; }
+  .dz-card .sec { font-size:11px; color:#8A938E; }
+  .dz-card a { font-size:11.5px; color:#147447; cursor:pointer; text-decoration:none; }
+  .dz-grid2 { display:grid; grid-template-columns:1fr 1fr; gap:14px; margin-bottom:18px; }
+  @media (max-width:1100px){ .dz-grid2{ grid-template-columns:1fr; } }
+  .dz-panel { background:#fff; border:1px solid #DDE2DE; border-radius:8px; overflow:hidden; }
+  .dz-panel h3 { font-size:14.5px; font-weight:600; color:#18201C; padding:12px 16px 4px; }
+  .dz-panel .meta { font-size:11px; color:#8A938E; padding:0 16px 8px; }
+  .dz-panel .bd { padding:6px 16px 14px; }
+  .dz-empty { color:#8A938E; font-size:12px; padding:26px 0; text-align:center; }
+  table.dz-t { width:100%; border-collapse:collapse; font-size:12.5px; }
+  table.dz-t th { text-align:left; color:#68716C; font-weight:500; font-size:11.5px; padding:6px 8px; border-bottom:1px solid #ECEFEC; }
+  table.dz-t td { padding:7px 8px; border-bottom:1px solid #ECEFEC; color:#18201C; font-variant-numeric:tabular-nums; }
+  table.dz-t tr:hover td { background:#F6F7F5; cursor:pointer; }
+  .dz-pill { display:inline-block; padding:1px 8px; border-radius:9px; font-size:11px; background:#EAF3ED; color:#147447; }
+  .dz-pill.warn { background:#faf3e3; color:#9a7018; }
+  .dz-prog { display:inline-block; width:70px; height:4px; background:#ECEFEC; border-radius:2px; vertical-align:middle; }
+  .dz-prog i { display:block; height:4px; background:#147447; border-radius:2px; }
+  .dz-filter { display:flex; gap:8px; align-items:center; margin:4px 0 14px; font-size:12px; color:#68716C; }
+  .dz-filter select { height:28px; border:1px solid #DDE2DE; border-radius:6px; background:#fff; font-size:12px; padding:0 6px; }
+  .dz-svg text { font-family:inherit; }
+  .dz-act { font-size:12px; }
+  .dz-act div { padding:7px 0; border-bottom:1px solid #ECEFEC; }
+  .dz-act b { color:#18201C; font-weight:500; }
+  .dz-act span { color:#8A938E; }
+</style>
 <script id="v6-as1726-codes">
 "use strict";
 /* v6: AS 1726 code migration — PL/CU/IR become Shape attributes of JT; VD → V */
@@ -2788,6 +3103,31 @@ function buildPdf(bhId) {
   }
   return doc;
 }
+</script>
+<script id="dashboard-boot">
+"use strict";
+/* final wiring: dashboard tab uses the final showTab chain */
+(function(){
+  const _showTabF = showTab;
+  showTab = function(tab){
+    document.body.classList.toggle("dashmax", tab==="dashboard");
+    if (tab==="dashboard") {
+      S.activeTab="dashboard";
+      document.querySelectorAll(".navtab").forEach(n=>n.classList.toggle("active", n.dataset.tab==="dashboard"));
+      TABS.forEach(t=>{ const el=document.getElementById("page-"+t); if(el) el.classList.toggle("show", t==="dashboard"); });
+      renderDashboard();
+      localStorage.setItem("autosoil-logger", JSON.stringify(S));
+      return;
+    }
+    _showTabF(tab);
+  };
+  document.querySelectorAll(".navtab").forEach(n=>{
+    const nn=n.cloneNode(true); n.parentNode.replaceChild(nn,n);
+    nn.addEventListener("click", ()=>showTab(nn.dataset.tab));
+  });
+  if (!S.activeTab || S.activeTab==="project") showTab("dashboard");
+  else showTab(S.activeTab);
+})();
 </script>
 </body>
 </html>
