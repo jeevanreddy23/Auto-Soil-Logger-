@@ -88,6 +88,18 @@ let F = JSON.parse(localStorage.getItem("geoflow")||"null") || {
   project: { projectNumber:"", clientName:"", siteAddress:"", loggedBy:"" },
   boreholes: [], logs: {}, activeBh: null, screen: "boreholes", pending: 0, lastSync: null
 };
+if (!F.syncKey) F.syncKey = "__autosoil_project__";
+let PROJECTS_CACHE = JSON.parse(localStorage.getItem("geoflow-remote-projects")||"[]");
+function switchProject(key, meta){
+  if (key===F.syncKey) return;
+  localStorage.setItem("geoflow-slot-"+F.syncKey, JSON.stringify(F));
+  const raw = localStorage.getItem("geoflow-slot-"+key);
+  F = raw? JSON.parse(raw) : { project:{ projectNumber:meta?.number||"", clientName:meta?.client||"", siteAddress:meta?.address||"", loggedBy:"" },
+    boreholes:[], logs:{}, activeBh:null, screen:"boreholes", pending:0, lastSync:null, syncKey:key };
+  F.syncKey = key;
+  save(false); render();
+  if (online()) doSync(false);
+}
 function blankLogs(){ return { soil:[], rock:[], spt:[], samples:[], drilling:[], gw:{state:"",depth:"",remarks:""}, photos:[], corebox:{img:null,rows:[],defects:[]} }; }
 function save(dirty=true){ if (dirty){ F.pending=(F.pending||0)+1; if (F.activeBh && F.logs[F.activeBh]) F.logs[F.activeBh]._touched=true; } localStorage.setItem("geoflow", JSON.stringify(F)); pill(); }
 function normLogs(id){ F.logs[id] = Object.assign(blankLogs(), F.logs[id]||{}); if(!F.logs[id].gw) F.logs[id].gw={state:"",depth:"",remarks:""}; return F.logs[id]; }
@@ -122,7 +134,16 @@ async function doSync(manual){
     /* pull server project state and merge boreholes we don't have */
     const res = await fetch(SYNC_URL, {headers:h});
     let server = null;
-    if (res.ok) { const data=await res.json(); server=(data.boreholes||{})["__autosoil_project__"]?.rows?.[0]||null; }
+    if (res.ok) { const data=await res.json();
+      const all = data.boreholes||{};
+      /* refresh remote project directory for the picker */
+      PROJECTS_CACHE = Object.entries(all)
+        .filter(([k])=>k==="__autosoil_project__"||k.startsWith("__project_"))
+        .map(([k,v])=>{ const p=v?.rows?.[0]?.project||{};
+          return { key:k, number:p.projectNumber||"(no number)", name:p.projectName||"", client:p.clientName||"", address:p.siteAddress||"" }; });
+      localStorage.setItem("geoflow-remote-projects", JSON.stringify(PROJECTS_CACHE));
+      server = all[F.syncKey]?.rows?.[0]||null;
+    }
     if (server) {
       for (const b of (server.boreholes||[])) if (!F.boreholes.some(x=>x.id===b.id)) { F.boreholes.push(b); F.logs[b.id]=server.logs?.[b.id]||blankLogs(); }
       if (!F.project.projectNumber && server.project) F.project={projectNumber:server.project.projectNumber,clientName:server.project.clientName,siteAddress:server.project.siteAddress,loggedBy:server.project.loggedBy};
@@ -148,7 +169,7 @@ async function doSync(manual){
         agg:false, ass:s.tests.includes("ASS"), contam:s.tests.includes("Contamination"), remarks:(s.remarks||"")+" (field)" }; });
       if (fl.gw && fl.gw.state) merged.project.groundwater = fl.gw.state + (fl.gw.depth? ` at ${fl.gw.depth} m`:"") + (fl.gw.remarks? " — "+fl.gw.remarks : "");
     }
-    const push = await fetch(SYNC_URL, { method:"POST", headers:h, body: JSON.stringify({ location:"__autosoil_project__", rows:[merged] }) });
+    const push = await fetch(SYNC_URL, { method:"POST", headers:h, body: JSON.stringify({ location:F.syncKey, rows:[merged] }) });
     if (!push.ok) throw new Error("HTTP "+push.status);
     F.pending = 0; F.lastSync = now(); save(false); pill(); render();
     if (manual) alert("Synced to GeoLogger web ✓");
@@ -173,7 +194,12 @@ function render(){
   pill();
 }
 function scrBoreholes(){
-  return `<h2 class="screen">${esc(F.project.projectNumber||"Project")} <span class="tag">${F.boreholes.length} BH</span></h2>
+  const picker = PROJECTS_CACHE.length>1 || (PROJECTS_CACHE.length===1 && PROJECTS_CACHE[0].key!==F.syncKey) ?
+    `<div class="card"><label class="f">Project workspace</label>
+      <select class="f" id="pjPick">${PROJECTS_CACHE.map(p=>`<option value="${esc(p.key)}" ${p.key===F.syncKey?"selected":""}>${esc(p.number)} — ${esc(p.name||p.client||"")}</option>`).join("")}
+      ${PROJECTS_CACHE.some(p=>p.key===F.syncKey)?"":`<option value="${esc(F.syncKey)}" selected>${esc(F.project.projectNumber||"current")}</option>`}</select>
+      <div class="meta" style="margin-top:4px">Synced with the GeoLogger website — pick the project you're working on.</div></div>` : "";
+  return `<h2 class="screen">${esc(F.project.projectNumber||"Project")} <span class="tag">${F.boreholes.length} BH</span></h2>` + picker + `
   <div class="card">
     <label class="f">Project No.</label><input class="f" data-p="projectNumber" value="${esc(F.project.projectNumber)}">
     <div class="row2"><div><label class="f">Client</label><input class="f" data-p="clientName" value="${esc(F.project.clientName)}"></div>
@@ -295,6 +321,8 @@ function scrReview(){
 /* ---- wiring ---- */
 function wire(m, s){
   m.querySelectorAll("[data-p]").forEach(i=>i.addEventListener("input",()=>{ F.project[i.dataset.p]=i.value; save(); }));
+  const pj=m.querySelector("#pjPick");
+  if (pj) pj.addEventListener("change",()=>{ const meta=PROJECTS_CACHE.find(p=>p.key===pj.value); switchProject(pj.value, meta); });
   m.querySelectorAll("[data-open]").forEach(c=>c.addEventListener("click",()=>{ F.activeBh=c.dataset.open; normLogs(F.activeBh); F.draft=null; go("log"); }));
   const add=m.querySelector("#addBh");
   if (add) add.addEventListener("click",()=>{ const id=prompt("Borehole ID:","BH"+String(F.boreholes.length+1).padStart(2,"0"));
