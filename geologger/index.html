@@ -3133,6 +3133,35 @@ function buildPdf(bhId) {
   return doc;
 }
 </script>
+<script id="v11-field-merge">
+"use strict";
+/* web pushSync merges in field-app boreholes before pushing, so GeoFlow data is never overwritten */
+async function pushSync() {
+  try {
+    const h = syncHeaders();
+    try {
+      const res = await fetch(SYNC_URL, { headers: h });
+      if (res.ok) {
+        const data = await res.json();
+        const server = (data.boreholes||{})["__autosoil_project__"]?.rows?.[0];
+        if (server) {
+          let added = false;
+          for (const b of (server.boreholes||[])) if (!S.boreholes.some(x=>x.id===b.id)) {
+            S.boreholes.push(b); S.logs[b.id] = server.logs?.[b.id] || blankLogs(); added = true;
+          }
+          if (added) { cb2Migrate(); localStorage.setItem("autosoil-logger", JSON.stringify(S)); refreshLeftPanel(); }
+        }
+      }
+    } catch(e) {}
+    const lean = JSON.parse(JSON.stringify(S));
+    for (const k in lean.logs) if (lean.logs[k].corebox) lean.logs[k].corebox.img = null;
+    const res2 = await fetch(SYNC_URL, { method:"POST", headers:h, body: JSON.stringify({ location:"__autosoil_project__", rows:[lean] }) });
+    if (res2.status === 401) { setSync("err","sync off — click to set key"); return; }
+    if (!res2.ok) throw 0;
+    setSync("ok","synced");
+  } catch(e) { setSync("off","local only"); }
+}
+</script>
 <script id="dashboard-boot">
 "use strict";
 /* final wiring: dashboard tab uses the final showTab chain */
