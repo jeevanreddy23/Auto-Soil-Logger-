@@ -1,0 +1,383 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+<meta name="theme-color" content="#0D523E">
+<link rel="manifest" href="manifest.webmanifest">
+<title>STS GeoFlow — Field Logging</title>
+<style>
+  :root { --g:#0D523E; --ga:#147447; --ink:#18201C; --sec:#68716C; --bd:#DDE2DE; --soft:#F6F7F5; --warn:#9a7018; --err:#b3392f; }
+  * { box-sizing:border-box; margin:0; padding:0; -webkit-tap-highlight-color:transparent; }
+  body { font-family:Roboto,Inter,system-ui,sans-serif; background:var(--soft); color:var(--ink); padding-bottom:64px; }
+  header { background:var(--g); color:#fff; padding:10px 14px; display:flex; align-items:center; gap:10px; position:sticky; top:0; z-index:20; }
+  header b { font-size:17px; }
+  header small { color:#9fc3b5; font-size:10px; letter-spacing:1px; display:block; }
+  .pill { margin-left:auto; font-size:11.5px; padding:4px 10px; border-radius:12px; background:#0F603B; color:#cfe0d8; white-space:nowrap; }
+  .pill.off { background:#5c4a12; color:#f5e5b8; }
+  .pill.ok { background:#12613c; color:#c9f0d9; }
+  main { padding:12px; max-width:640px; margin:0 auto; }
+  .card { background:#fff; border:1px solid var(--bd); border-radius:12px; padding:14px; margin-bottom:10px; }
+  .card h3 { font-size:15px; margin-bottom:8px; }
+  .card .meta { font-size:12px; color:var(--sec); }
+  .btn { display:inline-flex; align-items:center; justify-content:center; min-height:46px; padding:0 16px; border-radius:10px;
+    border:1px solid var(--bd); background:#fff; color:var(--ink); font-size:15px; font-weight:500; cursor:pointer; }
+  .btn.primary { background:var(--ga); border-color:var(--ga); color:#fff; }
+  .btn.block { width:100%; margin-top:8px; }
+  .btn:active { opacity:.85; }
+  .chips { display:flex; flex-wrap:wrap; gap:7px; margin:6px 0 10px; }
+  .chip { min-height:40px; padding:8px 13px; border-radius:20px; border:1px solid var(--bd); background:#fff; font-size:14px; cursor:pointer; }
+  .chip.on { background:var(--ga); border-color:var(--ga); color:#fff; }
+  label.f { display:block; font-size:12.5px; color:var(--sec); font-weight:500; margin:10px 0 3px; }
+  input.f, select.f, textarea.f { width:100%; min-height:46px; border:1px solid var(--bd); border-radius:10px; padding:10px 12px; font-size:16px; background:#fff; font-family:inherit; }
+  textarea.f { min-height:60px; }
+  .row2 { display:flex; gap:8px; } .row2 > * { flex:1; }
+  .depthbtns { display:flex; gap:7px; margin:6px 0; }
+  .depthbtns .chip { flex:1; text-align:center; font-variant-numeric:tabular-nums; justify-content:center; display:flex; align-items:center; }
+  nav.bottom { position:fixed; left:0; right:0; bottom:0; background:#fff; border-top:1px solid var(--bd); display:flex; z-index:30; }
+  nav.bottom button { flex:1; min-height:56px; border:none; background:none; font-size:11px; color:var(--sec); cursor:pointer; }
+  nav.bottom button.on { color:var(--ga); font-weight:600; }
+  nav.bottom button span { display:block; font-size:19px; }
+  .prev { background:#f2f6f3; border:1px solid #d5e3d9; border-radius:10px; padding:10px 12px; font-size:14px; font-family:Georgia,serif; margin:8px 0; }
+  .vwarn { color:var(--warn); font-size:13px; padding:3px 0; }
+  .verr { color:var(--err); font-size:13px; padding:3px 0; }
+  .vok { color:var(--ga); font-size:13px; }
+  .list-item { display:flex; align-items:center; gap:10px; padding:11px 4px; border-bottom:1px solid #ECEFEC; font-size:14px; }
+  .list-item .grow { flex:1; min-width:0; }
+  .list-item small { color:var(--sec); display:block; font-size:12px; }
+  .del { color:var(--err); background:none; border:none; font-size:18px; padding:8px; cursor:pointer; }
+  .photo-grid { display:grid; grid-template-columns:repeat(auto-fill,minmax(100px,1fr)); gap:8px; }
+  .photo-grid img { width:100%; height:100px; object-fit:cover; border-radius:8px; border:1px solid var(--bd); }
+  .tag { font-size:11px; background:#EAF3ED; color:var(--ga); border-radius:8px; padding:2px 8px; }
+  h2.screen { font-size:20px; margin:4px 0 12px; }
+</style>
+</head>
+<body>
+<header>
+  <div><b>STS GeoFlow</b><small>FIELD LOGGING · AS 1726</small></div>
+  <div class="pill" id="syncPill">…</div>
+</header>
+<main id="main"></main>
+<nav class="bottom" id="nav">
+  <button data-s="boreholes"><span>◨</span>Boreholes</button>
+  <button data-s="log"><span>✎</span>Log</button>
+  <button data-s="spt"><span>▼</span>SPT</button>
+  <button data-s="photos"><span>📷</span>Photos</button>
+  <button data-s="review"><span>✓</span>Review</button>
+</nav>
+<script>
+"use strict";
+/* ============ STS GeoFlow — offline-first field app ============ */
+if ("serviceWorker" in navigator) navigator.serviceWorker.register("sw.js").catch(()=>{});
+const SYNC_URL = "/api/v1/geologger/logs";
+const MATERIALS = ["TOPSOIL","FILL","CLAY","Silty CLAY","Sandy CLAY","Gravelly CLAY","SILT","Sandy SILT","Clayey SILT","SAND","Silty SAND","Clayey SAND","Gravelly SAND","GRAVEL","Sandy GRAVEL","Clayey GRAVEL","Residual soil","Extremely weathered rock","SANDSTONE","SHALE","SILTSTONE"];
+const COLOURS = ["brown","dark brown","red-brown","yellow-brown","orange-brown","grey","dark grey","light grey","grey-brown","black","mottled"];
+const MOIST = ["dry","moist","wet"];
+const CONS = ["very soft","soft","firm","stiff","very stiff","hard"];
+const DENS = ["very loose","loose","medium dense","dense","very dense"];
+const PLAST = ["non-plastic","low plasticity","low to medium plasticity","medium plasticity","medium to high plasticity","high plasticity"];
+const EXTRAS = ["trace fine grained sand","with fine to medium grained sand","trace fine sub-angular gravel","with fine to medium sub-angular gravel","with low plasticity silt","rootlets","ironstone gravels","brick fragments"];
+const GW_OPTS = ["GWNE","Water struck","Seepage","Standing water","Dry"];
+const num = v => { const n = parseFloat(v); return isNaN(n)? null : n; };
+const esc = s => String(s??"").replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/"/g,"&quot;");
+const uid = () => Math.random().toString(36).slice(2,9);
+const now = () => new Date().toISOString();
+
+/* ---- state ---- */
+let F = JSON.parse(localStorage.getItem("geoflow")||"null") || {
+  project: { projectNumber:"", clientName:"", siteAddress:"", loggedBy:"" },
+  boreholes: [], logs: {}, activeBh: null, screen: "boreholes", pending: 0, lastSync: null
+};
+function blankLogs(){ return { soil:[], rock:[], spt:[], samples:[], drilling:[], gw:{state:"",depth:"",remarks:""}, photos:[], corebox:{img:null,rows:[],defects:[]} }; }
+function save(dirty=true){ if (dirty) F.pending=(F.pending||0)+1; localStorage.setItem("geoflow", JSON.stringify(F)); pill(); }
+function L(){ return F.logs[F.activeBh] || blankLogs(); }
+function bh(){ return F.boreholes.find(b=>b.id===F.activeBh); }
+
+/* ---- description generator (AS 1726, STS format) ---- */
+const GRAN = m => /SAND|GRAVEL/i.test(m) && !/CLAY|SILT/.test((m||"").split(" ")[0]);
+function soilDesc(r){
+  if (!r.material) return "";
+  const parts=[]; if (r.plasticity) parts.push(r.plasticity); if (r.colour) parts.push(r.colour);
+  let out = r.material + ": " + parts.join(", ");
+  const ext=(r.extras||[]).join(" ").trim();
+  if (ext) out += (parts.length?", ":"") + (r.extras||[]).join(", ");
+  if (r.fill) out = "FILL: " + out;
+  return out;
+}
+
+/* ---- sync ---- */
+function online(){ return navigator.onLine; }
+function pill(){
+  const el=document.getElementById("syncPill");
+  if (!online()) { el.className="pill off"; el.textContent=`Offline — ${F.pending||0} pending`; }
+  else if (F.pending) { el.className="pill"; el.textContent=`Online — ${F.pending} to sync`; }
+  else { el.className="pill ok"; el.textContent="All synced"; }
+}
+async function doSync(manual){
+  if (!online()) { pill(); if (manual) alert("Offline — changes are stored on this device and will sync when signal returns."); return; }
+  try {
+    const key = localStorage.getItem("geologger-api-key")||"";
+    const h = {"Content-Type":"application/json"}; if (key) h["X-Autosoil-Api-Key"]=key;
+    /* pull server project state and merge boreholes we don't have */
+    const res = await fetch(SYNC_URL, {headers:h});
+    let server = null;
+    if (res.ok) { const data=await res.json(); server=(data.boreholes||{})["__autosoil_project__"]?.rows?.[0]||null; }
+    if (server) {
+      for (const b of (server.boreholes||[])) if (!F.boreholes.some(x=>x.id===b.id)) { F.boreholes.push(b); F.logs[b.id]=server.logs?.[b.id]||blankLogs(); }
+      if (!F.project.projectNumber && server.project) F.project={projectNumber:server.project.projectNumber,clientName:server.project.clientName,siteAddress:server.project.siteAddress,loggedBy:server.project.loggedBy};
+    }
+    /* push merged: field data wins for field-entered boreholes */
+    const merged = server || { project:{}, boreholes:[], logs:{}, activeBh:null, activeTab:"dashboard" };
+    merged.project = Object.assign({}, merged.project, Object.fromEntries(Object.entries(F.project).filter(([k,v])=>v)));
+    for (const b of F.boreholes) {
+      const i = merged.boreholes.findIndex(x=>x.id===b.id);
+      if (i>=0) merged.boreholes[i] = Object.assign({}, merged.boreholes[i], b); else merged.boreholes.push(b);
+      const ml = merged.logs[b.id] || (merged.logs[b.id] = { soil:[],rock:[],spt:[],samples:[],corebox:{img:null,natW:0,natH:0,rows:[],defects:[],snap:0.01,layers:{scale:true,grid:true,defects:true,zones:true,labels:true,rows:true},includeMB:false} });
+      const fl = F.logs[b.id]||blankLogs();
+      /* map field records into web schema */
+      ml.soil = fl.soil.map(r=>({ from:r.from, to:r.to, material:r.material, secondary:(r.extras||[])[0]||"", colour:r.colour, moisture:r.moisture,
+        consistency:r.consistency, plasticity:r.plasticity, structure:"", origin:r.fill?"fill":"", inclusions:(r.extras||[]).slice(1).join(", "),
+        fillNatural:r.fill?"FILL":"NATURAL", uscs:"", description:r.desc||soilDesc(r), descTouched:true, samples:"", sptN:"", dcp:"", envNotes:"", remarks:(r.remarks||"")+" (field)" }));
+      ml.spt = fl.spt.map(t=>({ depth:t.depth, seat:t.seat, b1:t.b1, b2:t.b2, b3:t.b3, n:t.n, refusal:!!t.refusal, hammer:"", energy:"", recovery:t.recovery||"", soilDesc:"", remarks:(t.remarks||"")+" (field)" }));
+      ml.samples = fl.samples.map(s=>({ sid:s.sid, from:s.from, to:s.to, stype:s.type||"", container:s.container||"", tests:(s.tests||[]).join(", "),
+        mc:(s.tests||[]).includes("Moisture content"), att:(s.tests||[]).includes("Atterberg"), psd:(s.tests||[]).includes("PSD"), cbr:(s.tests||[]).includes("CBR"),
+        agg:false, ass:(s.tests||[]).includes("ASS"), contam:(s.tests||[]).includes("Contamination"), remarks:(s.remarks||"")+" (field)" }));
+      if (fl.gw && fl.gw.state) merged.project.groundwater = fl.gw.state + (fl.gw.depth? ` at ${fl.gw.depth} m`:"") + (fl.gw.remarks? " — "+fl.gw.remarks : "");
+    }
+    const push = await fetch(SYNC_URL, { method:"POST", headers:h, body: JSON.stringify({ location:"__autosoil_project__", rows:[merged] }) });
+    if (!push.ok) throw new Error("HTTP "+push.status);
+    F.pending = 0; F.lastSync = now(); save(false); pill(); render();
+    if (manual) alert("Synced to GeoLogger web ✓");
+  } catch(e) { pill(); if (manual) alert("Sync failed: "+e.message+"\nData remains safe on this device."); }
+}
+window.addEventListener("online", ()=>{ pill(); doSync(false); });
+window.addEventListener("offline", pill);
+setInterval(()=>{ if (F.pending && online()) doSync(false); }, 60000);
+
+/* ---- navigation ---- */
+function go(s){ F.screen=s; save(false); render(); window.scrollTo(0,0); }
+document.querySelectorAll("#nav button").forEach(b=>b.addEventListener("click",()=>go(b.dataset.s)));
+
+/* ---- screens ---- */
+function render(){
+  document.querySelectorAll("#nav button").forEach(b=>b.classList.toggle("on", b.dataset.s===F.screen));
+  const m=document.getElementById("main");
+  const need = ["log","spt","photos","review"].includes(F.screen) && !F.activeBh;
+  const s = need? "boreholes" : F.screen;
+  m.innerHTML = ({boreholes:scrBoreholes, log:scrLog, spt:scrSpt, photos:scrPhotos, review:scrReview})[s]();
+  wire(m, s);
+  pill();
+}
+function scrBoreholes(){
+  return `<h2 class="screen">${esc(F.project.projectNumber||"Project")} <span class="tag">${F.boreholes.length} BH</span></h2>
+  <div class="card">
+    <label class="f">Project No.</label><input class="f" data-p="projectNumber" value="${esc(F.project.projectNumber)}">
+    <div class="row2"><div><label class="f">Client</label><input class="f" data-p="clientName" value="${esc(F.project.clientName)}"></div>
+    <div><label class="f">Logged by</label><input class="f" data-p="loggedBy" value="${esc(F.project.loggedBy)}"></div></div>
+  </div>` +
+  F.boreholes.map(b=>{ const l=F.logs[b.id]||blankLogs();
+    const depth=Math.max(...l.soil.map(r=>num(r.to)||0), ...l.drilling.map(d=>num(d.to)||0), 0);
+    return `<div class="card" data-open="${esc(b.id)}">
+      <h3>${esc(b.id)} <span class="tag">${b.termDepth?`terminated ${b.termDepth} m`:(depth?depth.toFixed(1)+" m":"not started")}</span></h3>
+      <div class="meta">${l.soil.length} intervals · ${l.spt.length} SPT · ${l.samples.length} samples · ${l.photos.length} photos</div>
+      <button class="btn primary block">Open ${esc(b.id)} →</button></div>`; }).join("") +
+  `<button class="btn block" id="addBh">＋ Add borehole</button>`;
+}
+function scrLog(){
+  const l=L(); const last=l.soil.at(-1);
+  const from = last? last.to : 0;
+  const d = F.draft || (F.draft = { from, to:"", material:"", colour:"", moisture:"", consistency:"", plasticity:"", extras:[], fill:false, remarks:"" });
+  const chip=(k,v,label)=>`<button class="chip ${d[k]===v?"on":""}" data-ck="${k}" data-cv="${esc(v)}">${esc(label||v)}</button>`;
+  const isGran = GRAN(d.material);
+  return `<h2 class="screen">${esc(F.activeBh)} — Soil interval</h2>
+  <div class="card">
+    <div class="row2">
+      <div><label class="f">From (m)</label><input class="f" type="number" step="0.01" id="dFrom" value="${d.from}"></div>
+      <div><label class="f">To (m)</label><input class="f" type="number" step="0.01" id="dTo" value="${esc(d.to)}"></div>
+    </div>
+    <div class="depthbtns">${[0.1,0.2,0.5,1.0].map(v=>`<button class="chip" data-plus="${v}">+${v}</button>`).join("")}</div>
+    <label class="f">Material</label><div class="chips">${MATERIALS.slice(0,12).map(v=>chip("material",v)).join("")}
+      <select class="f" id="dMatSel" style="min-height:40px;width:auto"><option value="">more…</option>${MATERIALS.slice(12).map(v=>`<option>${v}</option>`).join("")}</select></div>
+    <button class="chip ${d.fill?"on":""}" data-ck="fill" data-cv="1">FILL</button>
+    <label class="f">Colour</label><div class="chips">${COLOURS.slice(0,7).map(v=>chip("colour",v)).join("")}</div>
+    <label class="f">Moisture</label><div class="chips">${MOIST.map(v=>chip("moisture",v)).join("")}</div>
+    <label class="f">${isGran?"Density":"Consistency"}</label><div class="chips">${(isGran?DENS:CONS).map(v=>chip("consistency",v)).join("")}</div>
+    ${isGran?"":`<label class="f">Plasticity</label><div class="chips">${PLAST.map(v=>chip("plasticity",v)).join("")}</div>`}
+    <label class="f">Constituents</label><div class="chips">${EXTRAS.map(v=>`<button class="chip ${(d.extras||[]).includes(v)?"on":""}" data-ex="${esc(v)}">${esc(v)}</button>`).join("")}</div>
+    <div class="prev" id="descPrev">${esc(soilDesc(d)||"— build the description with the chips above —")}</div>
+    <label class="f">Remarks</label><input class="f" id="dRem" value="${esc(d.remarks)}">
+    <button class="btn primary block" id="saveIv">Save interval ✓</button>
+  </div>
+  <div class="card"><h3>Logged intervals</h3>
+    ${l.soil.map((r,i)=>`<div class="list-item"><div class="grow"><b>${r.from}–${r.to} m</b><small>${esc(r.desc||soilDesc(r))}</small></div><button class="del" data-di="${i}">🗑</button></div>`).join("")||'<div class="meta">None yet.</div>'}
+  </div>
+  <div class="card"><h3>Drilling / groundwater</h3>
+    <div class="chips">${GW_OPTS.map(v=>`<button class="chip ${l.gw.state===v?"on":""}" data-gw="${v}">${v}</button>`).join("")}</div>
+    <div class="row2"><div><label class="f">Water depth (m)</label><input class="f" type="number" id="gwD" value="${esc(l.gw.depth)}"></div>
+    <div><label class="f">Terminated at (m)</label><input class="f" type="number" id="termD" value="${esc(bh()?.termDepth??"")}"></div></div>
+  </div>`;
+}
+function scrSpt(){
+  const l=L();
+  return `<h2 class="screen">${esc(F.activeBh)} — SPT</h2>
+  <div class="card">
+    <div class="row2"><div><label class="f">Depth (m)</label><input class="f" type="number" step="0.01" id="sD"></div>
+    <div><label class="f">Seating</label><input class="f" type="number" id="sSeat"></div></div>
+    <div class="row2">
+      <div><label class="f">1st 150</label><input class="f" type="number" id="sB1"></div>
+      <div><label class="f">2nd 150</label><input class="f" type="number" id="sB2"></div>
+      <div><label class="f">3rd 150</label><input class="f" type="number" id="sB3"></div>
+    </div>
+    <div class="row2"><button class="chip" id="sRef" style="flex:1;justify-content:center;display:flex;align-items:center">Refusal / HB</button>
+      <div class="prev" style="flex:1;margin:6px 0 0;text-align:center" id="sN">N = —</div></div>
+    <button class="btn primary block" id="sSave">Save SPT ✓</button>
+  </div>
+  <div class="card"><h3>Tests</h3>
+    ${l.spt.map((t,i)=>`<div class="list-item"><div class="grow"><b>${t.depth} m</b><small>${t.b1||"—"},${t.b2||"—"},${t.b3||"—"} · N=${t.refusal?"R":t.n}</small></div><button class="del" data-si="${i}">🗑</button></div>`).join("")||'<div class="meta">None yet.</div>'}
+  </div>
+  <div class="card"><h3>Sample</h3>
+    <div class="row2"><div><label class="f">From (m)</label><input class="f" type="number" id="smF"></div>
+    <div><label class="f">To (m)</label><input class="f" type="number" id="smT"></div></div>
+    <label class="f">Type</label><div class="chips">${["D","U","S","B","Jar","Tube","Bag"].map(v=>`<button class="chip" data-smtype="${v}">${v}</button>`).join("")}</div>
+    <label class="f">Tests required</label><div class="chips">${["Moisture content","Atterberg","PSD","CBR","Shrink-swell","UCS","Point load","ASS","Contamination"].map(v=>`<button class="chip" data-smtest="${v}">${v}</button>`).join("")}</div>
+    <button class="btn primary block" id="smSave">Save sample ✓</button>
+    ${l.samples.map((s,i)=>`<div class="list-item"><div class="grow"><b>${esc(s.sid)}</b><small>${s.from}–${s.to} m · ${esc((s.tests||[]).join(", ")||s.type||"")}</small></div><button class="del" data-smi="${i}">🗑</button></div>`).join("")}
+  </div>`;
+}
+function scrPhotos(){
+  const l=L();
+  return `<h2 class="screen">${esc(F.activeBh)} — Photos</h2>
+  <div class="card">
+    <label class="btn primary block" style="line-height:46px;text-align:center">📷 Take / add photo
+      <input type="file" id="phFile" accept="image/*" capture="environment" style="display:none"></label>
+    <div class="row2" style="margin-top:8px">
+      <div><label class="f">Depth (m)</label><input class="f" type="number" id="phD"></div>
+      <div><label class="f">Caption</label><input class="f" id="phC" placeholder="e.g. corebox 1, SPT setup"></div>
+    </div>
+    <div class="meta" id="phGps">GPS: acquiring…</div>
+  </div>
+  <div class="card"><h3>${l.photos.length} photos</h3>
+    <div class="photo-grid">${l.photos.map((p,i)=>`<div><img src="${p.img}"><small style="font-size:10px;color:var(--sec)">${p.depth?p.depth+" m · ":""}${esc(p.caption||"")}</small></div>`).join("")}</div>
+  </div>`;
+}
+function scrReview(){
+  const l=L(); const b=bh(); const errs=[], warns=[];
+  if (!F.project.projectNumber) errs.push("Project number required");
+  if (!F.project.loggedBy) errs.push("Logged by required");
+  if (!l.gw.state) errs.push("Groundwater state not recorded");
+  const iv=l.soil.slice().sort((a,b2)=>num(a.from)-num(b2.from));
+  iv.forEach((r,i)=>{ if (num(r.to)<=num(r.from)) errs.push(`Interval ${r.from}–${r.to}: from ≥ to`);
+    if (i>0 && num(r.from)>num(iv[i-1].to)+0.011) warns.push(`Gap ${iv[i-1].to}–${r.from} m not logged`);
+    if (i>0 && num(r.from)<num(iv[i-1].to)-0.011) errs.push(`Overlap at ${r.from} m`); });
+  const term=num(b?.termDepth);
+  if (term!=null) { const deepest=Math.max(...iv.map(r=>num(r.to)||0), ...l.spt.map(t=>num(t.depth)||0), 0);
+    if (deepest>term+0.011) errs.push(`Records deeper (${deepest} m) than termination ${term} m`); }
+  for (const t of l.spt) if (t.b2===""||t.b3==="") if(!t.refusal) warns.push(`SPT at ${t.depth} m missing blow counts`);
+  return `<h2 class="screen">${esc(F.activeBh)} — Review & sync</h2>
+  <div class="card">
+    ${errs.map(e=>`<div class="verr">✗ ${esc(e)}</div>`).join("")}
+    ${warns.map(w=>`<div class="vwarn">⚠ ${esc(w)}</div>`).join("")}
+    ${!errs.length&&!warns.length?'<div class="vok">✓ No validation issues</div>':""}
+  </div>
+  <div class="card"><h3>Ready</h3><div class="meta">
+    ${l.soil.length} soil intervals · ${l.spt.length} SPT · ${l.samples.length} samples · ${l.photos.length} photos<br>
+    Groundwater: ${esc(l.gw.state||"—")}${l.gw.depth?` at ${l.gw.depth} m`:""}<br>
+    Last sync: ${F.lastSync? new Date(F.lastSync).toLocaleString() : "never"} · Pending changes: ${F.pending||0}
+  </div>
+  <button class="btn primary block" id="syncNow" ${errs.length?'style="opacity:.55"':""}>${errs.length?"Sync draft (has errors)":"Submit & sync to GeoLogger ✓"}</button>
+  <button class="btn block" id="setKey">API key…</button></div>`;
+}
+
+/* ---- wiring ---- */
+function wire(m, s){
+  m.querySelectorAll("[data-p]").forEach(i=>i.addEventListener("input",()=>{ F.project[i.dataset.p]=i.value; save(); }));
+  m.querySelectorAll("[data-open]").forEach(c=>c.addEventListener("click",()=>{ F.activeBh=c.dataset.open; if(!F.logs[F.activeBh])F.logs[F.activeBh]=blankLogs(); F.draft=null; go("log"); }));
+  const add=m.querySelector("#addBh");
+  if (add) add.addEventListener("click",()=>{ const id=prompt("Borehole ID:","BH"+String(F.boreholes.length+1).padStart(2,"0"));
+    if(!id||F.logs[id])return; F.boreholes.push({id,termDepth:"",termReason:""}); F.logs[id]=blankLogs(); F.activeBh=id; F.draft=null; save(); go("log"); });
+  if (s==="log"){
+    const d=F.draft;
+    const upd=()=>{ document.getElementById("descPrev").textContent = soilDesc(d)||"—"; };
+    m.querySelectorAll("[data-ck]").forEach(c=>c.addEventListener("click",()=>{
+      const k=c.dataset.ck;
+      if (k==="fill") d.fill=!d.fill; else d[k] = d[k]===c.dataset.cv? "" : c.dataset.cv;
+      render(); }));
+    m.querySelectorAll("[data-ex]").forEach(c=>c.addEventListener("click",()=>{
+      const v=c.dataset.ex; d.extras=d.extras||[];
+      d.extras.includes(v)? d.extras.splice(d.extras.indexOf(v),1) : d.extras.push(v);
+      c.classList.toggle("on"); upd(); }));
+    m.querySelectorAll("[data-plus]").forEach(c=>c.addEventListener("click",()=>{
+      const f=num(document.getElementById("dFrom").value)||0;
+      document.getElementById("dTo").value=(Math.round((f+parseFloat(c.dataset.plus))*100)/100); d.to=document.getElementById("dTo").value; }));
+    const sel=m.querySelector("#dMatSel"); if (sel) sel.addEventListener("change",()=>{ if(sel.value){ d.material=sel.value; render(); } });
+    ["dFrom","dTo","dRem"].forEach(id=>{ const el=m.querySelector("#"+id); if(el) el.addEventListener("input",()=>{ d.from=num(document.getElementById("dFrom").value)??d.from; d.to=document.getElementById("dTo").value; d.remarks=document.getElementById("dRem").value; }); });
+    m.querySelector("#saveIv").addEventListener("click",()=>{
+      d.from=num(document.getElementById("dFrom").value); d.to=num(document.getElementById("dTo").value);
+      if (d.from==null||d.to==null||d.to<=d.from) return alert("Check From/To depths");
+      if (!d.material) return alert("Pick a material");
+      d.desc=soilDesc(d);
+      L().soil.push(JSON.parse(JSON.stringify(d)));
+      F.draft={ from:d.to, to:"", material:d.material, colour:d.colour, moisture:d.moisture, consistency:d.consistency, plasticity:d.plasticity, extras:[], fill:false, remarks:"" };
+      save(); render(); });
+    m.querySelectorAll("[data-di]").forEach(b=>b.addEventListener("click",e=>{ e.stopPropagation(); L().soil.splice(+b.dataset.di,1); save(); render(); }));
+    m.querySelectorAll("[data-gw]").forEach(c=>c.addEventListener("click",()=>{ L().gw.state=c.dataset.gw; save(); render(); }));
+    const gwD=m.querySelector("#gwD"); if(gwD) gwD.addEventListener("input",()=>{ L().gw.depth=gwD.value; save(); });
+    const tD=m.querySelector("#termD"); if(tD) tD.addEventListener("input",()=>{ if(bh()) bh().termDepth=tD.value; save(); });
+  }
+  if (s==="spt"){
+    let refusal=false, smType="", smTests=[];
+    const calc=()=>{ const b2=num(document.getElementById("sB2").value), b3=num(document.getElementById("sB3").value);
+      document.getElementById("sN").textContent = refusal? "N = R" : (b2!=null&&b3!=null? "N = "+(b2+b3) : "N = —"); };
+    ["sB1","sB2","sB3"].forEach(id=>m.querySelector("#"+id).addEventListener("input",calc));
+    m.querySelector("#sRef").addEventListener("click",e=>{ refusal=!refusal; e.target.classList.toggle("on"); calc(); });
+    m.querySelector("#sSave").addEventListener("click",()=>{
+      const dpt=num(document.getElementById("sD").value); if (dpt==null) return alert("Enter depth");
+      if (L().spt.some(t=>num(t.depth)===dpt)) return alert("SPT already exists at this depth");
+      const b2=num(document.getElementById("sB2").value), b3=num(document.getElementById("sB3").value);
+      L().spt.push({ depth:dpt, seat:document.getElementById("sSeat").value, b1:document.getElementById("sB1").value,
+        b2:document.getElementById("sB2").value, b3:document.getElementById("sB3").value,
+        n: refusal? "R" : (b2!=null&&b3!=null? String(b2+b3):""), refusal, recovery:"", remarks:"" });
+      save(); render(); });
+    m.querySelectorAll("[data-si]").forEach(b=>b.addEventListener("click",()=>{ L().spt.splice(+b.dataset.si,1); save(); render(); }));
+    m.querySelectorAll("[data-smtype]").forEach(c=>c.addEventListener("click",()=>{ smType=c.dataset.smtype;
+      m.querySelectorAll("[data-smtype]").forEach(x=>x.classList.toggle("on",x===c)); }));
+    m.querySelectorAll("[data-smtest]").forEach(c=>c.addEventListener("click",()=>{
+      const v=c.dataset.smtest; smTests.includes(v)? smTests.splice(smTests.indexOf(v),1):smTests.push(v); c.classList.toggle("on"); }));
+    m.querySelector("#smSave").addEventListener("click",()=>{
+      const f=num(document.getElementById("smF").value); if (f==null) return alert("Enter sample depth");
+      L().samples.push({ sid:`${F.activeBh}_${f.toFixed(2)}${document.getElementById("smT").value?"-"+num(document.getElementById("smT").value).toFixed(2):""}`,
+        from:f, to:num(document.getElementById("smT").value)??f, type:smType, container:"", tests:smTests.slice(), remarks:"" });
+      save(); render(); });
+    m.querySelectorAll("[data-smi]").forEach(b=>b.addEventListener("click",()=>{ L().samples.splice(+b.dataset.smi,1); save(); render(); }));
+  }
+  if (s==="photos"){
+    let gps=null;
+    if (navigator.geolocation) navigator.geolocation.getCurrentPosition(
+      p=>{ gps={lat:p.coords.latitude,lng:p.coords.longitude,acc:p.coords.accuracy};
+        const el=document.getElementById("phGps"); if(el) el.textContent=`GPS: ${gps.lat.toFixed(6)}, ${gps.lng.toFixed(6)} (±${Math.round(gps.acc)} m)`; },
+      ()=>{ const el=document.getElementById("phGps"); if(el) el.textContent="GPS unavailable — photos still saved."; }, {timeout:8000});
+    m.querySelector("#phFile").addEventListener("change",e=>{
+      const f=e.target.files[0]; if(!f) return;
+      const rd=new FileReader();
+      rd.onload=()=>{ const img=new Image(); img.onload=()=>{
+        const cv=document.createElement("canvas"); const sc=Math.min(1, 900/img.width);
+        cv.width=img.width*sc; cv.height=img.height*sc;
+        cv.getContext("2d").drawImage(img,0,0,cv.width,cv.height);
+        L().photos.push({ id:uid(), img:cv.toDataURL("image/jpeg",0.62), depth:document.getElementById("phD").value,
+          caption:document.getElementById("phC").value, ts:now(), gps });
+        save(); render(); };
+        img.src=rd.result; };
+      rd.readAsDataURL(f); });
+  }
+  if (s==="review"){
+    m.querySelector("#syncNow").addEventListener("click",()=>doSync(true));
+    m.querySelector("#setKey").addEventListener("click",()=>{
+      const k=prompt("AutoSoil API key (leave empty if none):", localStorage.getItem("geologger-api-key")||"");
+      if (k===null) return; if (k) localStorage.setItem("geologger-api-key",k); else localStorage.removeItem("geologger-api-key"); });
+  }
+}
+render();
+if (online() && F.pending) doSync(false);
+</script>
+</body>
+</html>
