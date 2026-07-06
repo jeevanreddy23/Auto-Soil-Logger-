@@ -2819,6 +2819,26 @@ save = function() {
 const T = { title:22, bhid:24, metaL:8, metaV:8, colHead:5.6, desc:6.2, code:6, defect:5.8, depth:6, foot:6, sheet:9 };
 /* line-weight tokens */
 const LW = { frame:0.6, section:0.4, col:0.25, interval:0.18, tick:0.1 };
+/* ---- typography fitting engine: measure first, fit second, draw third ---- */
+function fitSize(doc, text, maxW, pref, min) {
+  doc.setFontSize(pref);
+  const w = doc.getTextWidth(String(text));
+  if (w <= maxW || w === 0) return pref;
+  return Math.max(min, Math.floor(pref * maxW / w * 10) / 10);
+}
+function trimToW(doc, text, maxW) {
+  let t = String(text ?? "");
+  if (doc.getTextWidth(t) <= maxW) return t;
+  while (t.length > 1 && doc.getTextWidth(t + "…") > maxW) t = t.slice(0, -1);
+  return t + "…";
+}
+function vtextFit(doc, text, x, y, maxLen, pref, min) { // rotated text must stay inside cell height
+  const sz = fitSize(doc, text, maxLen, pref, min);
+  doc.setFontSize(sz);
+  let t = String(text);
+  if (doc.getTextWidth(t) > maxLen) t = trimToW(doc, t, maxLen);
+  doc.text(t, x, y, { angle: 90 });
+}
 
 function pdfHatch(doc, x, w, y1, y2, m) { /* B/W lithology patterns */
   doc.setDrawColor(0); doc.setFillColor(255,255,255);
@@ -2866,7 +2886,7 @@ function buildPdf(bhId) {
   const RL0 = num(B.rl)??num(P.groundRL);
   const HY=17, HH=42, bandY=59, bandH=18, bodyY=77, bodyB=271, SC=1000/52;
   const GW = gwDepth(P,B);
-  let sheet = 0;
+  let sheet = 0, qaLogo = false;
 
   function vtext(t,x,y,fs){ doc.setFontSize(fs||T.colHead); doc.text(String(t), x, y, {angle:90}); }
   function header() {
@@ -2878,7 +2898,7 @@ function buildPdf(bhId) {
     // Official STS logo (brand colour permitted); falls back to text if image missing
     let logoDrawn = false;
     if (typeof STS_LOGO !== "undefined" && STS_LOGO) {
-      try { doc.addImage(STS_LOGO, "JPEG", MX+2.5, HY+1.2, 39, 17.6); logoDrawn = true; } catch(e) {}
+      try { doc.addImage(STS_LOGO, "JPEG", MX+2.5, HY+1.2, 39, 17.6); logoDrawn = true; qaLogo = true; } catch(e) {}
     }
     if (!logoDrawn) {
       doc.setTextColor(23,102,72); doc.setFont("helvetica","bolditalic"); doc.setFontSize(22);
@@ -2889,25 +2909,29 @@ function buildPdf(bhId) {
       doc.text("CONSULTING GEOTECHNICAL ENGINEERS", MX+22, HY+18, {align:"center"});
     }
     doc.setTextColor(0);
-    doc.setFont("helvetica","normal"); doc.setFontSize(T.title);
-    doc.text("BOREHOLE LOG", MX+89, HY+13.5, {align:"center"});
-    doc.setFontSize(T.bhid);
-    const idtxt = doc.splitTextToSize(`BH ID: ${bhId}`, 42);
-    doc.text(idtxt, RX-1.5, HY+9, {align:"right"});
+    /* title cell 61–150 mm, BH ID cell 150–196 mm — fitted, never crossing */
+    doc.setFont("helvetica","normal");
+    doc.setFontSize(fitSize(doc, "BOREHOLE LOG", 86, T.title, 14));
+    doc.text("BOREHOLE LOG", 106, HY+13.5, {align:"center"});
+    doc.setFontSize(10);
+    doc.text("BH ID:", RX-1.5, HY+8, {align:"right"});
+    doc.setFontSize(fitSize(doc, bhId, 43, T.bhid, 10));
+    doc.text(trimToW(doc, bhId, 43), RX-1.5, HY+16.5, {align:"right"});
     doc.setLineWidth(LW.section); doc.line(MX, HY+20, RX, HY+20);
     doc.setFontSize(T.metaL);
     const rows = [
-      [["Client",P.clientName,MX+0.5,12],["Date",P.dateInvestigation||P.dateLogged,131.5,16]],
-      [["Job No.",P.projectNumber,MX+0.5,12],["Logged By",P.loggedBy,131.5,16],["Review By",P.reviewBy||P.checkedBy,166,15]],
-      [["Address",[P.siteAddress,P.suburb].filter(Boolean).join(", "),MX+0.5,12],["Location #",P.locationNo||P.lga,131.5,16]],
-      [["Drilling Contractor",P.drillingContractor,MX+0.5,27],["Surface RL",(B.rl||P.groundRL)?`≈${B.rl||P.groundRL} m (${P.datum||"AHD"})`:"—",100,16],["Drill Bit",P.drillBit,152,12]],
-      [["Plant",P.drillRig,MX+0.5,27],["Inclination",P.inclination?P.inclination+"°":"90°",100,16],["Hole Ø (mm)",P.holeDia,152,16]],
+      [["Client",P.clientName,MX+0.5,12,110],["Date",P.dateInvestigation||P.dateLogged,131.5,16,30]],
+      [["Job No.",P.projectNumber,MX+0.5,12,110],["Logged By",P.loggedBy,131.5,16,16],["Review By",P.reviewBy||P.checkedBy,166,15,13]],
+      [["Address",[P.siteAddress,P.suburb].filter(Boolean).join(", "),MX+0.5,12,110],["Location #",P.locationNo||P.lga,131.5,16,30]],
+      [["Drilling Contractor",P.drillingContractor,MX+0.5,27,52],["Surface RL",(B.rl||P.groundRL)?`~${B.rl||P.groundRL} m (${P.datum||"AHD"})`:"—",100,16,32],["Drill Bit",P.drillBit,152,12,30]],
+      [["Plant",P.drillRig,MX+0.5,27,52],["Inclination",P.inclination?P.inclination+"°":"90°",100,16,32],["Hole Ø (mm)",P.holeDia,152,16,26]],
     ];
     let y=HY+24.3;
     for (const row of rows) {
-      for (const [l,v,x,lw2] of row) {
+      for (const [l,v,x,lw2,vw] of row) {
         doc.setFont("helvetica","bold"); doc.text(l, x, y);
-        doc.setFont("helvetica","normal"); doc.text(String(v||"—").slice(0,62), x+lw2, y);
+        doc.setFont("helvetica","normal");
+        doc.text(trimToW(doc, String(v||"—"), vw||40), x+lw2, y);
       }
       y+=4.3;
     }
@@ -2927,8 +2951,10 @@ function buildPdf(bhId) {
     doc.rect(MX, bandY, RX-MX, bandH);
     doc.setFont("helvetica","bold"); doc.setTextColor(0);
     for (const c of cols) {
-      if (c.rot) vtext(c.label, c.x+c.w/2+1.2, bandY+bandH-1.2, Math.min(5.6, c.w>=7?5.6:4.8));
-      else { doc.setFontSize(c.fs||T.colHead); doc.text(doc.splitTextToSize(c.label,c.w-2), c.x+c.w/2, bandY+(c.mid?bandH/2:4), {align:"center"}); }
+      if (c.rot) vtextFit(doc, c.label, c.x+c.w/2+1.2, bandY+bandH-1.2, bandH-2, c.w>=7?5.6:4.8, 3.8);
+      else { doc.setFontSize(c.fs||T.colHead);
+        const lines = doc.splitTextToSize(c.label, c.w-2).slice(0, 3);
+        doc.text(lines, c.x+c.w/2, bandY+(c.mid?bandH/2:4), {align:"center"}); }
     }
     doc.setFont("helvetica","normal");
   }
@@ -2981,7 +3007,7 @@ function buildPdf(bhId) {
       if (num(r.from)>=d0) {
         doc.setFontSize(T.desc); doc.setTextColor(0);
         const txt=doc.splitTextToSize(r.description||soilDescription(r), C[4].w-3);
-        doc.text(txt.slice(0,Math.max(2,Math.floor((y2-y1-1)/2.9))), C[4].x+1.5, y1+2.8);
+        doc.text(txt.slice(0, Math.max(1, Math.floor((y2-y1-1.4)/2.7))), C[4].x+1.5, y1+2.8);
         const cy=(y1+y2)/2+1;
         doc.setFontSize(T.code);
         doc.text(r.uscs||"-", C[5].x+C[5].w/2, cy, {align:"center"});
@@ -2999,7 +3025,7 @@ function buildPdf(bhId) {
       const y=yOf(m2.d);
       let ty=Math.max(y+1.5, lastY+3);
       if (ty>y+2) { doc.setLineWidth(LW.tick); doc.line(C[1].x+0.5, y, C[1].x+1.6, ty-1); }
-      m2.lines.forEach((ln,li)=>doc.text(ln, C[1].x+2, ty+li*2.6));
+      m2.lines.forEach((ln,li)=>doc.text(trimToW(doc, ln, C[1].w-3), C[1].x+2, ty+li*2.6));
       lastY = ty + (m2.lines.length-1)*2.6;
     }
     if (soilEnd<=d0+10 && coreStart!=null) {
@@ -3055,7 +3081,7 @@ function buildPdf(bhId) {
         if (RL0!=null) doc.text((RL0-num(r.from)).toFixed(2), C[6].x+0.8, y1+2.2);
         doc.setFontSize(T.desc);
         const txt=doc.splitTextToSize(r.description||rockDescription(r), C[7].w-3);
-        doc.text(txt.slice(0,Math.max(2,Math.floor((y2-y1-1)/2.9))), C[7].x+1.5, y1+2.8);
+        doc.text(txt.slice(0, Math.max(1, Math.floor((y2-y1-1.4)/2.7))), C[7].x+1.5, y1+2.8);
       }
       const cy=(y1+y2)/2;
       doc.setFontSize(T.code);
@@ -3078,7 +3104,7 @@ function buildPdf(bhId) {
       doc.line(C[10].x+0.5, y, C[10].x+2.2, y);
       let ty=Math.max(y+1, lastY+2.8); lastY=ty;
       if (ty>y+2) doc.line(C[10].x+2.2, y, C[10].x+2.8, ty-0.8);
-      doc.text(`${d.from.toFixed(2)}${d.to?("-"+d.to.toFixed(2)):""}: ${d.code}`, C[10].x+3, ty);
+      doc.text(trimToW(doc, `${d.from.toFixed(2)}${d.to?("-"+d.to.toFixed(2)):""}: ${d.code}`, C[10].w-4), C[10].x+3, ty);
     }
     // fracture spacing — grey interval bars on log scale
     const bps=defs.filter(d=>!d.to).map(d=>d.from).filter(d=>d>=d0&&d<d0+10).sort((a,b)=>a-b);
@@ -3090,7 +3116,8 @@ function buildPdf(bhId) {
       doc.setDrawColor(0); doc.setLineWidth(LW.tick); doc.rect(C[11].x, yOf(a), C[11].w*fr, yOf(b)-yOf(a)); }
     if (termD!=null && termD>=d0 && termD<d0+10) {
       const y=yOf(termD); doc.setDrawColor(0); doc.setLineWidth(LW.section); doc.line(MX,y,RX,y);
-      doc.setFontSize(T.desc); doc.text(`Terminated at ${termD.toFixed(2)}m. ${B.termReason||"Target Depth Reached."}`, C[7].x+1.5, y+3.4);
+      doc.setFontSize(T.desc);
+      doc.text(trimToW(doc, `Terminated at ${termD.toFixed(2)}m. ${B.termReason||"Target Depth Reached."}`, C[7].w-3), C[7].x+1.5, y+3.4);
     }
     if (d0===rockWins[0] && d0>0) { doc.setFont("helvetica","italic"); doc.setFontSize(T.desc);
       doc.text("Log continued from previous page.", C[7].x+C[7].w/2, bodyY+4, {align:"center"}); doc.setFont("helvetica","normal"); }
@@ -3101,6 +3128,8 @@ function buildPdf(bhId) {
     try { const ratio=L.corebox.natH/L.corebox.natW, iw=W-2*MX, ih=Math.min(iw*ratio,250);
       doc.addImage(L.corebox.img,"JPEG",MX,22,iw,ih); } catch(e){}
   }
+  doc.__qa = { logo: qaLogo, sheets: sheet };
+  if (!qaLogo) setStatus("⚠ PDF QA: STS logo failed to render — check before issuing");
   return doc;
 }
 </script>
