@@ -1963,7 +1963,7 @@ function buildPdf(bhId) {
 /* ============ COREBOX v3 — 3-mode workspace, minimal chrome ============ */
 CB_GROUPS.zone.codes.SWZ = "Slightly weathered zone";
 CODE_INFO.SWZ = { group:"zone", name:"Slightly weathered zone", color:"#911eb4" };
-let cb3Mode = "log", cb3Drawer = false, cb3Undo = [];
+let cb3Mode = "log", cb3Drawer = false, cb3Undo = [], cb3RowSel = null;
 const CB_DEFAULTS = JSON.parse(localStorage.getItem("cb-defaults")||"{}");
 function cb3Remember(d) {
   CB_DEFAULTS[d.code] = { orientation:d.orientation, persistence:d.persistence, aperture:d.aperture, apertureThk:d.apertureThk,
@@ -2021,7 +2021,7 @@ function renderCorebox() {
   ${cb3Mode==="scale"?`<div class="cb3-head" style="padding:4px 8px">
     <button class="btn" id="cbAuto" ${c.img?"":"disabled"}>Auto-detect rows</button>
     <button class="btn ${cb2Mode==="row"?"primary":""}" id="cbRowMode" ${c.img?"":"disabled"}>Draw scale</button>
-    <span class="hint">drag a line along each core run → type its from/to depths</span>
+    <span class="hint">drag a line along each core run → type its from/to depths · click a drawn scale + <b>Del</b> to remove</span>
     <span id="cb3rows" style="display:flex;gap:6px;flex-wrap:wrap;font-size:11.5px"></span>
     <span class="spacer" style="flex:1"></span>
     <button class="btn primary" id="cbConfirmScale" ${c.rows.length?"":"disabled"}>Confirm scale →</button>
@@ -2053,11 +2053,17 @@ function renderCorebox() {
   function drawOverlays() {
     inner.querySelectorAll(".cb2-band,.cb2-line,.cb2-lbl,.cb2-tick,.cb2-rowline").forEach(x=>x.remove());
     const lw=Math.max(1.2,2/cbZoom), fs=Math.max(9,11/cbZoom);
-    if (cb3Mode==="scale") for (const r of c.rows) {
+    if (cb3Mode==="scale") c.rows.forEach((r,ri)=>{
+      const sel = cb3RowSel===ri;
       const d=document.createElement("div"); d.className="cb2-rowline";
-      d.style.cssText=`left:${r.x1}px;top:${r.y1}px;width:${r.x2-r.x1}px;height:${r.y2-r.y1}px;border-width:${1/cbZoom}px`;
+      d.style.cssText=`left:${r.x1}px;top:${r.y1}px;width:${r.x2-r.x1}px;height:${r.y2-r.y1}px;border-width:${(sel?2.5:1)/cbZoom}px;${sel?"border-color:#ff5252;border-style:solid;background:rgba(255,82,82,.12)":""}`;
       inner.appendChild(d);
-    }
+      if (sel) { const lb=document.createElement("div"); lb.className="cb2-lbl";
+        lb.style.cssText=`left:${r.x2-(60/cbZoom)}px;top:${r.y1-(16/cbZoom)}px;font-size:${Math.max(9,11/cbZoom)}px;background:#ff5252;pointer-events:auto;cursor:pointer`;
+        lb.textContent=`✕ delete R${ri+1} (Del)`;
+        lb.addEventListener("mousedown", ev=>{ ev.stopPropagation(); c.rows.splice(ri,1); cb3RowSel=null; save(); renderCorebox(); });
+        inner.appendChild(lb); }
+    });
     for (const r of c.rows) { // depth ticks (all modes when calibrated)
       if (num(r.start)==null||num(r.end)==null) continue;
       const span=r.end-r.start;
@@ -2236,9 +2242,15 @@ function renderCorebox() {
         if (dx>30) { x1=Math.min(cb2Drag.x1,p.x); x2=Math.max(cb2Drag.x1,p.x); }
         else { x1=Math.round(c.natW*0.03); x2=Math.round(c.natW*0.97); }
         const row={y1,y2,x1,x2, start: prev&&num(prev.end)!=null?prev.end:"", end: prev&&num(prev.end)!=null?Math.round((prev.end+1)*100)/100:""};
-        c.rows.push(row); c.rows.sort((a,b)=>a.y1-b.y1); save(); renderCorebox();
+        c.rows.push(row); c.rows.sort((a,b)=>a.y1-b.y1); cb3RowSel=null; save(); renderCorebox();
         const inp=document.querySelector(`#cb3rows [data-ri="${c.rows.indexOf(row)}"][data-rk="start"]`);
         if (inp) { inp.focus(); inp.select(); }
+      } else {
+        // plain click in SCALE mode selects the scale row under the cursor for deletion
+        const hit = c.rows.findIndex(r=>p.y>=r.y1 && p.y<=r.y2);
+        cb3RowSel = hit>=0 ? hit : null;
+        drawOverlays();
+        if (hit>=0) setStatus(`Scale row R${hit+1} selected — press Delete to remove, or drag elsewhere to draw`);
       }
       cb2Drag=null; return;
     }
@@ -2267,7 +2279,10 @@ function renderCorebox() {
     if (S.activeTab!=="corebox") return;
     const inField = /INPUT|SELECT|TEXTAREA/.test(document.activeElement?.tagName||"");
     if (e.key==="Enter" && cb2Sel && !inField) { e.preventDefault(); const d=c.defects.find(x=>x.id===cb2Sel); if(d) saveInsp(d); return; }
-    if (e.key==="Escape") { cb2Sel=null; drawOverlays(); return; }
+    if (e.key==="Escape") { cb2Sel=null; cb3RowSel=null; cb2Drag=null; drawOverlays(); return; }
+    if (e.key==="Delete" && cb3Mode==="scale" && cb3RowSel!=null && !inField) {
+      c.rows.splice(cb3RowSel,1); cb3RowSel=null; save(); renderCorebox(); return;
+    }
     if (inField) return;
     const k=e.key.toLowerCase();
     if (e.ctrlKey && k==="z") { e.preventDefault(); const s2=cb3Undo.pop(); if(s2){ c.defects=JSON.parse(s2); save(); renderCorebox(); } return; }
