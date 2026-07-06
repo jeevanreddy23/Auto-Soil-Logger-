@@ -89,8 +89,9 @@ let F = JSON.parse(localStorage.getItem("geoflow")||"null") || {
   boreholes: [], logs: {}, activeBh: null, screen: "boreholes", pending: 0, lastSync: null
 };
 function blankLogs(){ return { soil:[], rock:[], spt:[], samples:[], drilling:[], gw:{state:"",depth:"",remarks:""}, photos:[], corebox:{img:null,rows:[],defects:[]} }; }
-function save(dirty=true){ if (dirty) F.pending=(F.pending||0)+1; localStorage.setItem("geoflow", JSON.stringify(F)); pill(); }
-function L(){ return F.logs[F.activeBh] || blankLogs(); }
+function save(dirty=true){ if (dirty){ F.pending=(F.pending||0)+1; if (F.activeBh && F.logs[F.activeBh]) F.logs[F.activeBh]._touched=true; } localStorage.setItem("geoflow", JSON.stringify(F)); pill(); }
+function normLogs(id){ F.logs[id] = Object.assign(blankLogs(), F.logs[id]||{}); if(!F.logs[id].gw) F.logs[id].gw={state:"",depth:"",remarks:""}; return F.logs[id]; }
+function L(){ return F.activeBh? normLogs(F.activeBh) : blankLogs(); }
 function bh(){ return F.boreholes.find(b=>b.id===F.activeBh); }
 
 /* ---- description generator (AS 1726, STS format) ---- */
@@ -134,14 +135,17 @@ async function doSync(manual){
       if (i>=0) merged.boreholes[i] = Object.assign({}, merged.boreholes[i], b); else merged.boreholes.push(b);
       const ml = merged.logs[b.id] || (merged.logs[b.id] = { soil:[],rock:[],spt:[],samples:[],corebox:{img:null,natW:0,natH:0,rows:[],defects:[],snap:0.01,layers:{scale:true,grid:true,defects:true,zones:true,labels:true,rows:true},includeMB:false} });
       const fl = F.logs[b.id]||blankLogs();
-      /* map field records into web schema */
-      ml.soil = fl.soil.map(r=>({ from:r.from, to:r.to, material:r.material, secondary:(r.extras||[])[0]||"", colour:r.colour, moisture:r.moisture,
+      if (!(b._field || fl._touched)) continue;   /* untouched server boreholes: never remap */
+      /* map field-schema records into web schema; pass web-schema rows through untouched */
+      ml.soil = (fl.soil||[]).map(r=> !("extras" in r || "desc" in r) ? r : ({ from:r.from, to:r.to, material:r.material,
+        secondary:(r.extras||[])[0]||"", colour:r.colour, moisture:r.moisture,
         consistency:r.consistency, plasticity:r.plasticity, structure:"", origin:r.fill?"fill":"", inclusions:(r.extras||[]).slice(1).join(", "),
         fillNatural:r.fill?"FILL":"NATURAL", uscs:"", description:r.desc||soilDesc(r), descTouched:true, samples:"", sptN:"", dcp:"", envNotes:"", remarks:(r.remarks||"")+" (field)" }));
-      ml.spt = fl.spt.map(t=>({ depth:t.depth, seat:t.seat, b1:t.b1, b2:t.b2, b3:t.b3, n:t.n, refusal:!!t.refusal, hammer:"", energy:"", recovery:t.recovery||"", soilDesc:"", remarks:(t.remarks||"")+" (field)" }));
-      ml.samples = fl.samples.map(s=>({ sid:s.sid, from:s.from, to:s.to, stype:s.type||"", container:s.container||"", tests:(s.tests||[]).join(", "),
-        mc:(s.tests||[]).includes("Moisture content"), att:(s.tests||[]).includes("Atterberg"), psd:(s.tests||[]).includes("PSD"), cbr:(s.tests||[]).includes("CBR"),
-        agg:false, ass:(s.tests||[]).includes("ASS"), contam:(s.tests||[]).includes("Contamination"), remarks:(s.remarks||"")+" (field)" }));
+      ml.spt = (fl.spt||[]).map(t=> ("hammer" in t) ? t : ({ depth:t.depth, seat:t.seat, b1:t.b1, b2:t.b2, b3:t.b3, n:t.n, refusal:!!t.refusal, hammer:"", energy:"", recovery:t.recovery||"", soilDesc:"", remarks:(t.remarks||"")+" (field)" }));
+      ml.samples = (fl.samples||[]).map(s=>{ if (!Array.isArray(s.tests)) return s;
+        return { sid:s.sid, from:s.from, to:s.to, stype:s.type||"", container:s.container||"", tests:s.tests.join(", "),
+        mc:s.tests.includes("Moisture content"), att:s.tests.includes("Atterberg"), psd:s.tests.includes("PSD"), cbr:s.tests.includes("CBR"),
+        agg:false, ass:s.tests.includes("ASS"), contam:s.tests.includes("Contamination"), remarks:(s.remarks||"")+" (field)" }; });
       if (fl.gw && fl.gw.state) merged.project.groundwater = fl.gw.state + (fl.gw.depth? ` at ${fl.gw.depth} m`:"") + (fl.gw.remarks? " — "+fl.gw.remarks : "");
     }
     const push = await fetch(SYNC_URL, { method:"POST", headers:h, body: JSON.stringify({ location:"__autosoil_project__", rows:[merged] }) });
@@ -176,10 +180,10 @@ function scrBoreholes(){
     <div><label class="f">Logged by</label><input class="f" data-p="loggedBy" value="${esc(F.project.loggedBy)}"></div></div>
   </div>` +
   F.boreholes.map(b=>{ const l=F.logs[b.id]||blankLogs();
-    const depth=Math.max(...l.soil.map(r=>num(r.to)||0), ...l.drilling.map(d=>num(d.to)||0), 0);
+    const depth=Math.max(...(l.soil||[]).map(r=>num(r.to)||0), ...(l.drilling||[]).map(d=>num(d.to)||0), 0);
     return `<div class="card" data-open="${esc(b.id)}">
       <h3>${esc(b.id)} <span class="tag">${b.termDepth?`terminated ${b.termDepth} m`:(depth?depth.toFixed(1)+" m":"not started")}</span></h3>
-      <div class="meta">${l.soil.length} intervals · ${l.spt.length} SPT · ${l.samples.length} samples · ${l.photos.length} photos</div>
+      <div class="meta">${(l.soil||[]).length} intervals · ${(l.spt||[]).length} SPT · ${(l.samples||[]).length} samples · ${(l.photos||[]).length} photos</div>
       <button class="btn primary block">Open ${esc(b.id)} →</button></div>`; }).join("") +
   `<button class="btn block" id="addBh">＋ Add borehole</button>`;
 }
@@ -291,10 +295,10 @@ function scrReview(){
 /* ---- wiring ---- */
 function wire(m, s){
   m.querySelectorAll("[data-p]").forEach(i=>i.addEventListener("input",()=>{ F.project[i.dataset.p]=i.value; save(); }));
-  m.querySelectorAll("[data-open]").forEach(c=>c.addEventListener("click",()=>{ F.activeBh=c.dataset.open; if(!F.logs[F.activeBh])F.logs[F.activeBh]=blankLogs(); F.draft=null; go("log"); }));
+  m.querySelectorAll("[data-open]").forEach(c=>c.addEventListener("click",()=>{ F.activeBh=c.dataset.open; normLogs(F.activeBh); F.draft=null; go("log"); }));
   const add=m.querySelector("#addBh");
   if (add) add.addEventListener("click",()=>{ const id=prompt("Borehole ID:","BH"+String(F.boreholes.length+1).padStart(2,"0"));
-    if(!id||F.logs[id])return; F.boreholes.push({id,termDepth:"",termReason:""}); F.logs[id]=blankLogs(); F.activeBh=id; F.draft=null; save(); go("log"); });
+    if(!id||F.logs[id])return; F.boreholes.push({id,termDepth:"",termReason:"",_field:true}); F.logs[id]=blankLogs(); F.logs[id]._touched=true; F.activeBh=id; F.draft=null; save(); go("log"); });
   if (s==="log"){
     const d=F.draft;
     const upd=()=>{ document.getElementById("descPrev").textContent = soilDesc(d)||"—"; };
