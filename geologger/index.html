@@ -3187,5 +3187,288 @@ async function pushSync() {
   else showTab(S.activeTab);
 })();
 </script>
+<style id="pj-css">
+  .pj-cards { display:grid; grid-template-columns:repeat(auto-fill,minmax(330px,1fr)); gap:14px; }
+  .pj-card { background:#fff; border:1px solid #DDE2DE; border-radius:10px; padding:16px; transition:border-color .15s; }
+  .pj-card:hover { border-color:#147447; }
+  .pj-card h3 { font-size:15px; color:#18201C; }
+  .pj-card .num { font-size:12px; color:#147447; font-weight:600; }
+  .pj-card .meta { font-size:12px; color:#68716C; margin:3px 0; }
+  .pj-status { display:inline-block; font-size:10.5px; padding:2px 9px; border-radius:9px; background:#EAF3ED; color:#147447; font-weight:600; letter-spacing:.4px; }
+  .pj-status.arch { background:#eee; color:#888; }
+  .pj-counts { display:flex; gap:12px; font-size:11.5px; color:#68716C; margin:8px 0; font-variant-numeric:tabular-nums; }
+  .pj-counts b { color:#18201C; }
+  .pj-actions { display:flex; gap:6px; margin-top:10px; flex-wrap:wrap; }
+  .pj-actions .btn { height:28px; font-size:12px; }
+  .pj-top { display:flex; gap:10px; align-items:center; margin-bottom:16px; flex-wrap:wrap; }
+  .pj-top input, .pj-top select { height:32px; border:1px solid #DDE2DE; border-radius:6px; padding:0 8px; font-size:13px; background:#fff; }
+  .wz-steps { display:flex; gap:4px; margin-bottom:14px; flex-wrap:wrap; }
+  .wz-steps span { font-size:11.5px; padding:5px 11px; border-radius:14px; background:#ECEFEC; color:#68716C; }
+  .wz-steps span.on { background:#147447; color:#fff; }
+  .wz-steps span.done { background:#EAF3ED; color:#147447; }
+  .scope-cards { display:grid; grid-template-columns:repeat(auto-fill,minmax(150px,1fr)); gap:8px; }
+  .scope-card { border:1px solid #DDE2DE; border-radius:8px; padding:10px; cursor:pointer; background:#fff; font-size:12.5px; text-align:center; }
+  .scope-card.on { border-color:#147447; background:#EAF3ED; }
+  .scope-card input { width:56px; margin-top:6px; text-align:center; border:1px solid #DDE2DE; border-radius:4px; height:24px; }
+  .ctxbar { font-size:12px; color:var(--og-blue-dark); font-weight:600; margin-right:8px; max-width:210px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+</style>
+<script id="v12-projects">
+"use strict";
+/* ============ Multi-project workspace ============ */
+const PJ_STATUSES = ["DRAFT","PLANNING","SCHEDULED","FIELDWORK","LOGGING","LABORATORY","REPORT PREPARATION","TECHNICAL REVIEW","CLIENT REVIEW","FINAL","COMPLETED","ARCHIVED"];
+const PJ_TYPES = ["Geotechnical Investigation","Detailed Site Investigation","Preliminary Site Investigation","Pavement Investigation","Residential Site Classification","Foundation Assessment","Pile Inspection","Footing Inspection","Working Platform Assessment","DCP Testing","Plate Load Testing","Proof Rolling","Groundwater Investigation","Salinity Assessment","Acid Sulfate Soil Investigation","Contamination Investigation","Construction Monitoring","Slope Stability Assessment","Rock Excavation Assessment","Custom Project"];
+const PJ_SCOPE = ["Boreholes","Test Pits","Hand Augers","DCP Testing","SPT Testing","CPT","Plate Load Testing","Proof Rolling","Pile Inspections","Footing Inspections","Rock Core Logging","Groundwater Monitoring","Infiltration Testing","Laboratory Testing","Pavement Investigation"];
+let PJ = JSON.parse(localStorage.getItem("geoflow-projects")||"null");
+if (!PJ) { /* migrate existing single-project data into project #1 */
+  const pid = "p_" + Math.random().toString(36).slice(2,8);
+  PJ = { activePid: pid, projects: [{ pid,
+    name: S.project.projectName || "Geotechnical Investigation",
+    number: S.project.projectNumber || "—", client: S.project.clientName || "",
+    address: [S.project.siteAddress,S.project.suburb].filter(Boolean).join(", "),
+    pm: S.project.loggedBy || "", status: "LOGGING", types: ["Geotechnical Investigation"],
+    scope: {}, team: {}, dates: {}, docs: [], archived: false,
+    syncKey: "__autosoil_project__", created: new Date().toISOString(), updated: new Date().toISOString(),
+    activity: [{ t: new Date().toISOString(), m: "Project migrated from single-workspace data" }] }] };
+  localStorage.setItem("autosoil-prj-"+pid, JSON.stringify(S));
+  localStorage.setItem("geoflow-projects", JSON.stringify(PJ));
+}
+function pjSave(){ localStorage.setItem("geoflow-projects", JSON.stringify(PJ)); }
+function pjActive(){ return PJ.projects.find(p=>p.pid===PJ.activePid); }
+function pjLog(m){ const p=pjActive(); if(!p) return; (p.activity=p.activity||[]).unshift({t:new Date().toISOString(),m}); p.activity=p.activity.slice(0,40); p.updated=new Date().toISOString(); pjSave(); }
+function pjSnapshot(){ if (PJ.activePid) localStorage.setItem("autosoil-prj-"+PJ.activePid, JSON.stringify(S)); }
+function pjFreshState(meta){
+  const st = { project: Object.fromEntries(PROJECT_FIELDS.map(f=>[f[0], f[0]==="state"?"NSW":""])),
+    boreholes: [blankBh("BH01")], logs: { BH01: blankLogs() }, activeBh: "BH01", activeTab: "dashboard" };
+  st.project.projectNumber=meta.number; st.project.projectName=meta.name; st.project.clientName=meta.client;
+  st.project.siteAddress=meta.address||""; st.project.loggedBy=meta.pm||""; st.project.companyName="STS GEOTECHNICS PTY LTD";
+  return st;
+}
+function pjOpen(pid){
+  if (pid===PJ.activePid) { showTab("dashboard"); return; }
+  pjSnapshot();
+  PJ.activePid = pid; pjSave();
+  const meta = pjActive();
+  const raw = localStorage.getItem("autosoil-prj-"+pid);
+  S = raw? JSON.parse(raw) : pjFreshState(meta);
+  for (const b of S.boreholes) if (!S.logs[b.id]) S.logs[b.id] = blankLogs();
+  cb2Migrate();
+  localStorage.setItem("autosoil-logger", JSON.stringify(S));
+  pjLog("Project opened");
+  refreshLeftPanel(); refreshValidation(); pjCtxBar();
+  showTab("dashboard");
+}
+/* per-project server sync key */
+function pjSyncKey(){ return pjActive()?.syncKey || ("__project_" + (PJ.activePid||"x") + "__"); }
+const _push12 = pushSync;
+pushSync = async function(){
+  const key = pjSyncKey();
+  try {
+    const h = syncHeaders();
+    const lean = JSON.parse(JSON.stringify(S));
+    for (const k in lean.logs) if (lean.logs[k].corebox) lean.logs[k].corebox.img = null;
+    if (key === "__autosoil_project__") return _push12(); // default project keeps field-app merge path
+    const res = await fetch(SYNC_URL, { method:"POST", headers:h, body: JSON.stringify({ location:key, rows:[lean] }) });
+    if (res.status===401) { setSync("err","sync off — click to set key"); return; }
+    if (!res.ok) throw 0;
+    setSync("ok","synced");
+  } catch(e){ setSync("off","local only"); }
+};
+/* progress metrics per project */
+function pjMetrics(p){
+  let st = null;
+  if (p.pid===PJ.activePid) st = S;
+  else { try { st = JSON.parse(localStorage.getItem("autosoil-prj-"+p.pid)||"null"); } catch(e){} }
+  if (!st) return { bh:0, logged:0, spt:0, samples:0, depth:0 };
+  const ids = (st.boreholes||[]).map(b=>b.id);
+  const logged = ids.filter(id=>{ const l=st.logs?.[id]; return l && ((l.soil||[]).some(r=>r.material) || (l.rock||[]).some(r=>r.rockType)); }).length;
+  return { bh: ids.length, logged,
+    spt: ids.reduce((s,id)=>s+((st.logs?.[id]?.spt)||[]).filter(t=>t.depth!==""&&t.depth!=null).length,0),
+    samples: ids.reduce((s,id)=>s+((st.logs?.[id]?.samples)||[]).filter(x=>x.sid).length,0),
+    depth: ids.reduce((s,id)=>{ const b=(st.boreholes||[]).find(x=>x.id===id); return s+(parseFloat(b?.termDepth)||0); },0) };
+}
+/* ---------- portfolio screen ---------- */
+let pjFilter = { q:"", status:"ACTIVE", sort:"updated" };
+function renderProjects(){
+  const page = document.getElementById("page-projects");
+  let list = PJ.projects.slice();
+  if (pjFilter.status==="ACTIVE") list = list.filter(p=>!p.archived);
+  else if (pjFilter.status==="ARCHIVED") list = list.filter(p=>p.archived);
+  else if (pjFilter.status!=="ALL") list = list.filter(p=>p.status===pjFilter.status && !p.archived);
+  if (pjFilter.q) { const q=pjFilter.q.toLowerCase(); list=list.filter(p=>(p.number+" "+p.name+" "+p.client+" "+p.address).toLowerCase().includes(q)); }
+  list.sort((a,b)=> pjFilter.sort==="number"? String(a.number).localeCompare(String(b.number)) :
+    pjFilter.sort==="client"? String(a.client).localeCompare(String(b.client)) : String(b.updated).localeCompare(String(a.updated)));
+  page.innerHTML = `<div class="dz" style="min-height:calc(100vh - 46px)">
+    <div class="dz-rail"><div class="brand"><b>STS</b><span>GEOFLOW</span></div>
+      <div class="dz-nav"><a class="on">Projects</a><a data-pjgo="dashboard">Current project</a><a data-pjgo="export">Reports</a></div>
+      <div class="foot">${PJ.projects.filter(p=>!p.archived).length} active · ${PJ.projects.filter(p=>p.archived).length} archived</div></div>
+    <div class="dz-main">
+      <div class="dz-h1">Projects</div>
+      <div class="dz-sub">Manage investigations, field data, laboratory results and reporting from one workspace.</div>
+      <div class="pj-top">
+        <button class="btn primary" id="pjNew" style="height:34px">＋ NEW PROJECT</button>
+        <input id="pjQ" placeholder="Search projects…" value="${esc(pjFilter.q)}" style="flex:1;min-width:160px">
+        <select id="pjStatus">${["ACTIVE","ALL","ARCHIVED",...PJ_STATUSES.filter(s=>s!=="ARCHIVED")].map(s=>`<option ${pjFilter.status===s?"selected":""}>${s}</option>`).join("")}</select>
+        <select id="pjSort"><option value="updated" ${pjFilter.sort==="updated"?"selected":""}>Recently updated</option><option value="number" ${pjFilter.sort==="number"?"selected":""}>Project number</option><option value="client" ${pjFilter.sort==="client"?"selected":""}>Client</option></select>
+      </div>
+      <div class="pj-cards">
+      ${list.map(p=>{ const m=pjMetrics(p);
+        const prog = m.bh? Math.round(m.logged/m.bh*100):0;
+        const scope = Object.entries(p.scope||{}).filter(([k,v])=>v>0).map(([k,v])=>`${k.split(" ")[0]}: ${v}`).slice(0,4).join(" · ");
+        return `<div class="pj-card">
+        <div class="num">${esc(p.number)}</div><h3>${esc(p.name)}</h3>
+        <div class="meta">${esc(p.client||"—")}</div><div class="meta">${esc(p.address||"—")}${p.pm?` · PM: ${esc(p.pm)}`:""}</div>
+        <span class="pj-status ${p.archived?"arch":""}">${p.archived?"ARCHIVED":esc(p.status)}</span>
+        <div class="pj-counts"><span><b>${m.bh}</b> BH</span><span><b>${m.spt}</b> SPT</span><span><b>${m.samples}</b> samples</span><span><b>${m.depth.toFixed(1)}</b> m drilled</span></div>
+        <div style="display:flex;align-items:center;gap:8px"><span class="dz-prog" style="width:110px"><i style="width:${prog}%"></i></span><span style="font-size:11px;color:#68716C">${prog}% logged${scope?" · "+esc(scope):""}</span></div>
+        <div class="meta" style="margin-top:4px">Updated ${new Date(p.updated).toLocaleDateString()} ${new Date(p.updated).toLocaleTimeString([],{hour:"2-digit",minute:"2-digit"})}</div>
+        <div class="pj-actions">
+          <button class="btn primary" data-pjopen="${p.pid}">Open</button>
+          <button class="btn" data-pjstatus="${p.pid}">Status</button>
+          <button class="btn" data-pjdup="${p.pid}">Duplicate</button>
+          <button class="btn" data-pjarch="${p.pid}">${p.archived?"Restore":"Archive"}</button>
+        </div></div>`; }).join("") || `<div class="dz-empty" style="grid-column:1/-1">No projects match.</div>`}
+      </div>
+    </div></div>`;
+  page.querySelector("#pjNew").onclick = ()=>renderWizard();
+  page.querySelector("#pjQ").addEventListener("input", e=>{ pjFilter.q=e.target.value; renderProjects(); });
+  page.querySelector("#pjStatus").addEventListener("change", e=>{ pjFilter.status=e.target.value; renderProjects(); });
+  page.querySelector("#pjSort").addEventListener("change", e=>{ pjFilter.sort=e.target.value; renderProjects(); });
+  page.querySelectorAll("[data-pjgo]").forEach(a=>a.onclick=()=>showTab(a.dataset.pjgo));
+  page.querySelectorAll("[data-pjopen]").forEach(b=>b.onclick=()=>pjOpen(b.dataset.pjopen));
+  page.querySelectorAll("[data-pjstatus]").forEach(b=>b.onclick=()=>{
+    const p=PJ.projects.find(x=>x.pid===b.dataset.pjstatus);
+    const s=prompt("Status:\n"+PJ_STATUSES.join(" · "), p.status);
+    if (s && PJ_STATUSES.includes(s.toUpperCase())) { p.status=s.toUpperCase();
+      (p.activity=p.activity||[]).unshift({t:new Date().toISOString(),m:"Status → "+p.status}); p.updated=new Date().toISOString(); pjSave(); renderProjects(); }});
+  page.querySelectorAll("[data-pjdup]").forEach(b=>b.onclick=()=>{
+    const src=PJ.projects.find(x=>x.pid===b.dataset.pjdup);
+    const numv=prompt("New project number:", src.number+"-B"); if (!numv) return;
+    const pid="p_"+Math.random().toString(36).slice(2,8);
+    PJ.projects.unshift(Object.assign(JSON.parse(JSON.stringify(src)), { pid, number:numv, status:"DRAFT", archived:false,
+      syncKey:"__project_"+pid+"__", created:new Date().toISOString(), updated:new Date().toISOString(),
+      activity:[{t:new Date().toISOString(),m:"Duplicated from "+src.number+" (structure only — no field data copied)"}] }));
+    localStorage.setItem("autosoil-prj-"+pid, JSON.stringify(pjFreshState(PJ.projects[0])));
+    pjSave(); renderProjects(); });
+  page.querySelectorAll("[data-pjarch]").forEach(b=>b.onclick=()=>{
+    const p=PJ.projects.find(x=>x.pid===b.dataset.pjarch); p.archived=!p.archived;
+    (p.activity=p.activity||[]).unshift({t:new Date().toISOString(),m:p.archived?"Project archived":"Project restored"}); pjSave(); renderProjects(); });
+}
+/* ---------- new project wizard ---------- */
+let WZ = null;
+function renderWizard(){
+  if (!WZ) WZ = { step:0, d:{ name:"", number:"", types:[], desc:"", client:"", contact:"", email:"", phone:"",
+    address:"", suburb:"", state:"NSW", postcode:"", lga:"", proposed:"", scope:{}, pm:"", reviewer:"", engineer:"", tech:"", driller:"",
+    fieldStart:"", fieldEnd:"", draftDue:"", finalDue:"" } };
+  const page = document.getElementById("page-projects");
+  const d = WZ.d;
+  const STEPS = ["Project","Client","Site","Scope","Team & dates","Review"];
+  const f=(l,k,ph="",type="text")=>`<div class="fld"><label>${l}</label><input type="${type}" data-w="${k}" value="${esc(d[k])}" placeholder="${ph}"></div>`;
+  const bodies = [
+    `<div class="formgrid">${f("Project name *","name")}${f("STS project number *","number","e.g. 26/0845")}
+      <div class="fld wide"><label>Project types</label><div class="chips" style="display:flex;flex-wrap:wrap;gap:5px">${PJ_TYPES.map(t=>`<button type="button" class="code-btn ${d.types.includes(t)?"on":""}" data-wt="${esc(t)}" style="${d.types.includes(t)?"background:#147447;color:#fff":""}">${esc(t)}</button>`).join("")}</div></div>
+      <div class="fld wide"><label>Description</label><textarea data-w="desc">${esc(d.desc)}</textarea></div></div>`,
+    `<div class="formgrid">${f("Client company *","client")}${f("Contact person","contact")}${f("Email","email")}${f("Phone","phone")}</div>
+     <p class="hint" style="padding:0 12px 10px">${PJ.projects.filter(p=>p.client).length? "Existing clients: "+[...new Set(PJ.projects.map(p=>p.client).filter(Boolean))].slice(0,6).map(c=>`<a style="color:#147447;cursor:pointer" data-wc="${esc(c)}">${esc(c)}</a>`).join(" · ") : ""}</p>`,
+    `<div class="formgrid">${f("Street address *","address")}${f("Suburb *","suburb")}${f("State","state")}${f("Postcode","postcode")}${f("LGA","lga")}${f("Proposed development","proposed")}</div>`,
+    `<p class="hint" style="padding:6px 12px">Select field activities and quantities — the project dashboard generates progress trackers from this scope.</p>
+     <div class="scope-cards" style="padding:0 12px 12px">${PJ_SCOPE.map(sName=>{ const v=d.scope[sName]||0;
+       return `<div class="scope-card ${v>0?"on":""}" data-ws="${esc(sName)}">${esc(sName)}<br><input type="number" min="0" data-wsq="${esc(sName)}" value="${v||""}" placeholder="qty" onclick="event.stopPropagation()"></div>`; }).join("")}</div>`,
+    `<div class="formgrid">${f("Project manager","pm")}${f("Senior reviewer","reviewer")}${f("Geotechnical engineer","engineer")}${f("Field technician","tech")}${f("Driller","driller")}
+      ${f("Fieldwork start","fieldStart","","date")}${f("Fieldwork completion","fieldEnd","","date")}${f("Draft report due","draftDue","","date")}${f("Final report due","finalDue","","date")}</div>`,
+    `<div style="padding:12px;font-size:13px;line-height:1.9">
+      <b>${esc(d.number||"—")}</b> — ${esc(d.name||"—")}<br>
+      Types: ${d.types.map(esc).join(", ")||"—"}<br>
+      Client: ${esc(d.client||"—")}${d.contact?` (${esc(d.contact)})`:""}<br>
+      Site: ${esc([d.address,d.suburb,d.state,d.postcode].filter(Boolean).join(", ")||"—")}<br>
+      Scope: ${Object.entries(d.scope).filter(([k,v])=>v>0).map(([k,v])=>`${k}: ${v}`).join(" · ")||"—"}<br>
+      Team: ${[d.pm,d.reviewer,d.engineer].filter(Boolean).map(esc).join(", ")||"—"}<br>
+      Dates: ${[d.fieldStart,d.finalDue].filter(Boolean).join(" → ")||"—"}</div>`
+  ];
+  page.innerHTML = `<div style="max-width:860px;margin:18px auto;padding:0 14px">
+    <div class="dz-h1" style="font-size:22px">New project</div>
+    <div class="wz-steps">${STEPS.map((s,i)=>`<span class="${i===WZ.step?"on":i<WZ.step?"done":""}">${i+1}. ${s}</span>`).join("")}</div>
+    <div class="panel" style="border-radius:10px">${bodies[WZ.step]}
+      <div class="toolbar" style="border-top:1px solid var(--og-border);border-bottom:none">
+        <button class="btn" id="wzCancel">Cancel</button><span class="spacer"></span>
+        ${WZ.step>0?'<button class="btn" id="wzBack">← Back</button>':""}
+        ${WZ.step<5?'<button class="btn primary" id="wzNext">Continue →</button>':'<button class="btn primary" id="wzCreate">CREATE PROJECT ✓</button>'}
+      </div></div></div>`;
+  page.querySelectorAll("[data-w]").forEach(i=>i.addEventListener("input",()=>{ d[i.dataset.w]=i.value; }));
+  page.querySelectorAll("[data-wt]").forEach(b=>b.onclick=()=>{ const t=b.dataset.wt;
+    d.types.includes(t)? d.types.splice(d.types.indexOf(t),1) : d.types.push(t); renderWizard(); });
+  page.querySelectorAll("[data-wc]").forEach(a=>a.onclick=()=>{ d.client=a.dataset.wc; renderWizard(); });
+  page.querySelectorAll("[data-ws]").forEach(c=>c.addEventListener("click",()=>{
+    const k=c.dataset.ws; d.scope[k]=d.scope[k]?0:1; renderWizard(); }));
+  page.querySelectorAll("[data-wsq]").forEach(i=>i.addEventListener("input",()=>{ d.scope[i.dataset.wsq]=parseInt(i.value)||0; }));
+  const back=page.querySelector("#wzBack"); if (back) back.onclick=()=>{ WZ.step--; renderWizard(); };
+  page.querySelector("#wzCancel").onclick=()=>{ WZ=null; renderProjects(); };
+  const next=page.querySelector("#wzNext");
+  if (next) next.onclick=()=>{ if (WZ.step===0 && (!d.name||!d.number)) return alert("Project name and number are required");
+    if (WZ.step===1 && !d.client) return alert("Client company is required");
+    if (WZ.step===2 && (!d.address||!d.suburb)) return alert("Street address and suburb are required");
+    WZ.step++; renderWizard(); };
+  const create=page.querySelector("#wzCreate");
+  if (create) create.onclick=()=>{
+    const pid="p_"+Math.random().toString(36).slice(2,8);
+    const meta={ pid, name:d.name, number:d.number, client:d.client, address:[d.address,d.suburb].filter(Boolean).join(", "),
+      pm:d.pm, status:"PLANNING", types:d.types.slice(), scope:Object.fromEntries(Object.entries(d.scope).filter(([k,v])=>v>0)),
+      team:{pm:d.pm,reviewer:d.reviewer,engineer:d.engineer,tech:d.tech,driller:d.driller},
+      dates:{fieldStart:d.fieldStart,fieldEnd:d.fieldEnd,draftDue:d.draftDue,finalDue:d.finalDue},
+      docs:[], archived:false, syncKey:"__project_"+pid+"__",
+      created:new Date().toISOString(), updated:new Date().toISOString(),
+      activity:[{t:new Date().toISOString(),m:"Project created"}] };
+    PJ.projects.unshift(meta);
+    const st=pjFreshState(meta);
+    st.project.suburb=d.suburb; st.project.postcode=d.postcode; st.project.lga=d.lga;
+    st.project.checkedBy=d.reviewer; st.project.reviewBy=d.reviewer;
+    localStorage.setItem("autosoil-prj-"+pid, JSON.stringify(st));
+    pjSave(); WZ=null; pjOpen(pid);
+  };
+}
+/* ---------- context bar + tab wiring ---------- */
+function pjCtxBar(){
+  let el=document.getElementById("pjCtx");
+  const p=pjActive(); if (!p) return;
+  if (!el) { el=document.createElement("span"); el.id="pjCtx"; el.className="ctxbar"; el.style.cursor="pointer";
+    el.title="Back to all projects";
+    const nav=document.querySelector(".topbar h1"); nav.after(el);
+    el.addEventListener("click",()=>showTab("projects")); }
+  el.textContent = "📁 " + p.number + " — " + (p.name||"").slice(0,26);
+}
+(function(){
+  const host=document.querySelector(".content");
+  if (!document.getElementById("page-projects")) { const dv=document.createElement("div"); dv.className="tabpage"; dv.id="page-projects"; host.prepend(dv); }
+  TABS.unshift("projects");
+  const nav=document.querySelector(".topbar");
+  const dashTab=nav.querySelector('[data-tab="dashboard"]');
+  if (dashTab && !nav.querySelector('[data-tab="projects"]')) {
+    const t=document.createElement("div"); t.className="navtab"; t.dataset.tab="projects"; t.textContent="Projects";
+    nav.insertBefore(t, dashTab);
+  }
+  const _showTabP = showTab;
+  showTab = function(tab){
+    if (tab==="projects") {
+      pjSnapshot();
+      document.body.classList.add("dashmax");
+      S.activeTab="projects";
+      document.querySelectorAll(".navtab").forEach(n=>n.classList.toggle("active", n.dataset.tab==="projects"));
+      TABS.forEach(t=>{ const el=document.getElementById("page-"+t); if(el) el.classList.toggle("show", t==="projects"); });
+      renderProjects();
+      localStorage.setItem("autosoil-logger", JSON.stringify(S));
+      return;
+    }
+    _showTabP(tab);
+    pjCtxBar();
+    const p=pjActive(); if (p) { p.updated=new Date().toISOString(); pjSave(); }
+  };
+  document.querySelectorAll(".navtab").forEach(n=>{
+    const nn=n.cloneNode(true); n.parentNode.replaceChild(nn,n);
+    nn.addEventListener("click", ()=>showTab(nn.dataset.tab));
+  });
+  window.addEventListener("beforeunload", pjSnapshot);
+  pjCtxBar();
+  showTab("projects");
+})();
+</script>
 </body>
 </html>
