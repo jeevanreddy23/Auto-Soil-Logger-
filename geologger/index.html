@@ -2976,8 +2976,8 @@ function buildPdf(bhId) {
   }
   const yOfFn = d0 => (d => bodyY + (d-d0)*SC);
 
-  /* ---------- soil sheets ---------- */
-  if (soil.length) for (let pg=0; pg<soilPages; pg++) {
+  /* ---------- soil sheets (always at least one sheet when no cored pages) ---------- */
+  if (soil.length || !rockWins.length) for (let pg=0; pg<Math.max(1,soilPages); pg++) {
     if (sheet>0) doc.addPage();
     const d0=pg*10, yOf=yOfFn(d0);
     const C=[ {x:MX,w:7,label:"GROUND WATER LEVELS",rot:1},
