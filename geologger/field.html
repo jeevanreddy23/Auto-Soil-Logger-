@@ -7,7 +7,7 @@
 <link rel="manifest" href="manifest.webmanifest">
 <title>STS GeoFlow — Field Logging</title>
 <style>
-  :root { --g:#0D523E; --ga:#147447; --ink:#18201C; --sec:#68716C; --bd:#DDE2DE; --soft:#F6F7F5; --warn:#9a7018; --err:#b3392f; }
+  :root { --g:#0D523E; --ga:#147447; --ink:#18201C; --sec:#68716C; --bd:#DDE2DE; --soft:#F3F5F3; --warn:#9a7018; --err:#b3392f; }
   * { box-sizing:border-box; margin:0; padding:0; -webkit-tap-highlight-color:transparent; }
   body { font-family:Roboto,Inter,system-ui,sans-serif; background:var(--soft); color:var(--ink); padding-bottom:64px; }
   header { background:var(--g); color:#fff; padding:10px 14px; display:flex; align-items:center; gap:10px; position:sticky; top:0; z-index:20; }
@@ -16,22 +16,27 @@
   .pill { margin-left:auto; font-size:11.5px; padding:4px 10px; border-radius:12px; background:#0F603B; color:#cfe0d8; white-space:nowrap; }
   .pill.off { background:#5c4a12; color:#f5e5b8; }
   .pill.ok { background:#12613c; color:#c9f0d9; }
+  .avatar { width:32px; height:32px; border-radius:50%; background:#fff; color:var(--g); font-weight:700; font-size:12px; display:flex; align-items:center; justify-content:center; cursor:pointer; }
   main { padding:12px; max-width:640px; margin:0 auto; }
-  .card { background:#fff; border:1px solid var(--bd); border-radius:12px; padding:14px; margin-bottom:10px; }
+  .card { background:#fff; border:1px solid var(--bd); border-radius:14px; padding:14px; margin-bottom:10px; }
   .card h3 { font-size:15px; margin-bottom:8px; }
   .card .meta { font-size:12px; color:var(--sec); }
   .btn { display:inline-flex; align-items:center; justify-content:center; min-height:46px; padding:0 16px; border-radius:10px;
     border:1px solid var(--bd); background:#fff; color:var(--ink); font-size:15px; font-weight:500; cursor:pointer; }
   .btn.primary { background:var(--ga); border-color:var(--ga); color:#fff; }
   .btn.block { width:100%; margin-top:8px; }
+  .btn.big { min-height:64px; font-size:17px; font-weight:600; border-radius:14px; flex-direction:column; }
+  .btn.big small { font-weight:400; font-size:11.5px; opacity:.85; }
   .btn:active { opacity:.85; }
   .chips { display:flex; flex-wrap:wrap; gap:7px; margin:6px 0 10px; }
   .chip { min-height:40px; padding:8px 13px; border-radius:20px; border:1px solid var(--bd); background:#fff; font-size:14px; cursor:pointer; }
   .chip.on { background:var(--ga); border-color:var(--ga); color:#fff; }
   label.f { display:block; font-size:12.5px; color:var(--sec); font-weight:500; margin:10px 0 3px; }
+  label.f em { color:var(--err); font-style:normal; }
   input.f, select.f, textarea.f { width:100%; min-height:46px; border:1px solid var(--bd); border-radius:10px; padding:10px 12px; font-size:16px; background:#fff; font-family:inherit; }
   textarea.f { min-height:60px; }
   .row2 { display:flex; gap:8px; } .row2 > * { flex:1; }
+  .row3 { display:flex; gap:8px; } .row3 > * { flex:1; }
   .depthbtns { display:flex; gap:7px; margin:6px 0; }
   .depthbtns .chip { flex:1; text-align:center; font-variant-numeric:tabular-nums; justify-content:center; display:flex; align-items:center; }
   nav.bottom { position:fixed; left:0; right:0; bottom:0; background:#fff; border-top:1px solid var(--bd); display:flex; z-index:30; }
@@ -49,25 +54,59 @@
   .photo-grid { display:grid; grid-template-columns:repeat(auto-fill,minmax(100px,1fr)); gap:8px; }
   .photo-grid img { width:100%; height:100px; object-fit:cover; border-radius:8px; border:1px solid var(--bd); }
   .tag { font-size:11px; background:#EAF3ED; color:var(--ga); border-radius:8px; padding:2px 8px; }
+  .tag.warn { background:#f7efd8; color:var(--warn); }
   h2.screen { font-size:20px; margin:4px 0 12px; }
+  .sect { font-size:11.5px; letter-spacing:1.2px; color:var(--sec); font-weight:600; margin:16px 2px 8px; }
+  .qgrid { display:grid; grid-template-columns:repeat(3,1fr); gap:8px; }
+  .qbtn { background:#fff; border:1px solid var(--bd); border-radius:12px; min-height:64px; font-size:13px; font-weight:500; cursor:pointer; color:var(--ink); }
+  .qbtn span { display:block; font-size:22px; margin-bottom:2px; }
+  .pbar { height:8px; background:#E6EBE7; border-radius:6px; overflow:hidden; margin:8px 0 4px; }
+  .pbar i { display:block; height:100%; background:var(--ga); border-radius:6px; }
+  .wizbar { height:5px; background:#E6EBE7; border-radius:4px; overflow:hidden; margin:6px 0 14px; }
+  .wizbar i { display:block; height:100%; background:var(--ga); }
+  .tl { border-left:2px solid var(--bd); margin:8px 0 4px 8px; padding-left:14px; }
+  .tl .tli { position:relative; padding:5px 0; font-size:13.5px; }
+  .tl .tli::before { content:""; position:absolute; left:-19px; top:11px; width:8px; height:8px; border-radius:50%; background:var(--ga); }
+  .tl .tli small { color:var(--sec); }
+  .tcard { border:2px solid var(--bd); border-radius:12px; padding:12px; font-size:14px; font-weight:500; cursor:pointer; background:#fff; text-align:center; min-height:60px; display:flex; align-items:center; justify-content:center; }
+  .tcard.on { border-color:var(--ga); background:#EAF3ED; color:var(--g); }
+  .tgrid { display:grid; grid-template-columns:repeat(2,1fr); gap:8px; margin:8px 0; }
+  #toast { position:fixed; bottom:72px; left:50%; transform:translateX(-50%); background:#123B2C; color:#d7ecdf; padding:8px 18px;
+    border-radius:20px; font-size:13px; z-index:60; opacity:0; transition:opacity .25s; pointer-events:none; white-space:nowrap; }
+  .sheet-bg { position:fixed; inset:0; background:rgba(10,20,15,.45); z-index:50; display:flex; align-items:flex-end; }
+  .sheet { background:#fff; border-radius:16px 16px 0 0; width:100%; max-width:640px; margin:0 auto; padding:16px 16px 24px; max-height:80vh; overflow:auto; }
+  .sheet h3 { margin-bottom:6px; }
+  .qrow { display:flex; align-items:center; gap:10px; padding:9px 2px; border-bottom:1px solid #ECEFEC; font-size:13.5px; }
+  .qrow .st { margin-left:auto; font-size:12px; color:var(--sec); white-space:nowrap; }
+  @media (min-width:768px){
+    body { padding-bottom:0; padding-left:100px; }
+    nav.bottom { left:0; top:0; bottom:0; right:auto; width:100px; flex-direction:column; justify-content:flex-start; border-top:none; border-right:1px solid var(--bd); padding-top:64px; }
+    nav.bottom button { flex:0 0 66px; }
+    main { max-width:900px; }
+    .qgrid { grid-template-columns:repeat(6,1fr); }
+    .tgrid { grid-template-columns:repeat(3,1fr); }
+    .cols2 { display:grid; grid-template-columns:1fr 1fr; gap:10px; align-items:start; }
+  }
 </style>
 </head>
 <body>
 <header>
   <div><b>STS GeoFlow</b><small>FIELD LOGGING · AS 1726</small></div>
   <div class="pill" id="syncPill">…</div>
+  <div class="avatar" id="avatar">·</div>
 </header>
 <main id="main"></main>
+<div id="toast">Saved on device ✓</div>
 <nav class="bottom" id="nav">
-  <button data-s="boreholes"><span>◨</span>Boreholes</button>
-  <button data-s="log"><span>✎</span>Log</button>
-  <button data-s="spt"><span>▼</span>SPT</button>
+  <button data-s="home"><span>⌂</span>Home</button>
+  <button data-s="jobs"><span>▦</span>Jobs</button>
+  <button data-s="bh"><span>✎</span>Log</button>
   <button data-s="photos"><span>📷</span>Photos</button>
-  <button data-s="review"><span>✓</span>Review</button>
+  <button data-s="sync"><span>⇅</span>Sync</button>
 </nav>
 <script>
 "use strict";
-/* ============ STS GeoFlow — offline-first field app ============ */
+/* ============ STS GeoFlow — offline-first field workspace ============ */
 if ("serviceWorker" in navigator) navigator.serviceWorker.register("sw.js").catch(()=>{});
 const SYNC_URL = "/api/v1/geologger/logs";
 const MATERIALS = ["TOPSOIL","FILL","CLAY","Silty CLAY","Sandy CLAY","Gravelly CLAY","SILT","Sandy SILT","Clayey SILT","SAND","Silty SAND","Clayey SAND","Gravelly SAND","GRAVEL","Sandy GRAVEL","Clayey GRAVEL","Residual soil","Extremely weathered rock","SANDSTONE","SHALE","SILTSTONE"];
@@ -78,6 +117,10 @@ const DENS = ["very loose","loose","medium dense","dense","very dense"];
 const PLAST = ["non-plastic","low plasticity","low to medium plasticity","medium plasticity","medium to high plasticity","high plasticity"];
 const EXTRAS = ["trace fine grained sand","with fine to medium grained sand","trace fine sub-angular gravel","with fine to medium sub-angular gravel","with low plasticity silt","rootlets","ironstone gravels","brick fragments"];
 const GW_OPTS = ["GWNE","Water struck","Seepage","Standing water","Dry"];
+const PH_TYPES = ["Site","Borehole","Soil Sample","SPT","DCP","Corebox","Groundwater","Termination"];
+const INV_TYPES = ["Boreholes","SPT","DCP","Rock Coring","Test Pits","Hand Augers","Groundwater Monitoring","Sampling","Corebox Photography","Laboratory Testing"];
+const BH_STATUS = ["NOT_STARTED","DRILLING","SOIL_LOGGING","ROCK_CORING","WAITING_REVIEW","COMPLETE"];
+const ROLES = ["Technician","Driller","Engineer"];
 const num = v => { const n = parseFloat(v); return isNaN(n)? null : n; };
 const esc = s => String(s??"").replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/"/g,"&quot;");
 const uid = () => Math.random().toString(36).slice(2,9);
@@ -86,25 +129,37 @@ const now = () => new Date().toISOString();
 /* ---- state ---- */
 let F = JSON.parse(localStorage.getItem("geoflow")||"null") || {
   project: { projectNumber:"", clientName:"", siteAddress:"", loggedBy:"" },
-  boreholes: [], logs: {}, activeBh: null, screen: "boreholes", pending: 0, lastSync: null
+  boreholes: [], logs: {}, activeBh: null, screen: "home", pending: 0, lastSync: null
 };
 if (!F.syncKey) F.syncKey = "__autosoil_project__";
+if (!F.role) F.role = "Technician";
 let PROJECTS_CACHE = JSON.parse(localStorage.getItem("geoflow-remote-projects")||"[]");
+/* new-job wizard drafts (global, independent of project slots) */
+let WIZ = JSON.parse(localStorage.getItem("geoflow-wizards")||"[]");
+function saveWiz(){ localStorage.setItem("geoflow-wizards", JSON.stringify(WIZ)); }
 function switchProject(key, meta){
   if (key===F.syncKey) return;
   localStorage.setItem("geoflow-slot-"+F.syncKey, JSON.stringify(F));
   const raw = localStorage.getItem("geoflow-slot-"+key);
+  const role = F.role;
   F = raw? JSON.parse(raw) : { project:{ projectNumber:meta?.number||"", clientName:meta?.client||"", siteAddress:meta?.address||"", loggedBy:"" },
-    boreholes:[], logs:{}, activeBh:null, screen:"boreholes", pending:0, lastSync:null, syncKey:key };
-  F.syncKey = key;
+    boreholes:[], logs:{}, activeBh:null, screen:"jobs", pending:0, lastSync:null, syncKey:key };
+  F.syncKey = key; F.role = role;
   save(false); render();
   if (online()) doSync(false);
 }
 function blankLogs(){ return { soil:[], rock:[], spt:[], samples:[], drilling:[], gw:{state:"",depth:"",remarks:""}, photos:[], corebox:{img:null,rows:[],defects:[]} }; }
-function save(dirty=true){ if (dirty){ F.pending=(F.pending||0)+1; if (F.activeBh && F.logs[F.activeBh]) F.logs[F.activeBh]._touched=true; } localStorage.setItem("geoflow", JSON.stringify(F)); pill(); }
+let _toastT = null;
+function toast(msg){ const t=document.getElementById("toast"); t.textContent=msg||"Saved on device ✓"; t.style.opacity="1";
+  clearTimeout(_toastT); _toastT=setTimeout(()=>t.style.opacity="0", 1400); }
+function save(dirty=true){ if (dirty){ F.pending=(F.pending||0)+1; if (F.activeBh && F.logs[F.activeBh]) F.logs[F.activeBh]._touched=true; }
+  localStorage.setItem("geoflow", JSON.stringify(F)); pill(); if (dirty) toast(); }
 function normLogs(id){ F.logs[id] = Object.assign(blankLogs(), F.logs[id]||{}); if(!F.logs[id].gw) F.logs[id].gw={state:"",depth:"",remarks:""}; return F.logs[id]; }
 function L(){ return F.activeBh? normLogs(F.activeBh) : blankLogs(); }
 function bh(){ return F.boreholes.find(b=>b.id===F.activeBh); }
+function curDepth(id){ const l=F.logs[id]||blankLogs(); const b=F.boreholes.find(x=>x.id===id)||{};
+  return Math.max(...(l.soil||[]).map(r=>num(r.to)||0), ...(l.spt||[]).map(t=>num(t.depth)||0),
+    ...(l.drilling||[]).map(d=>num(d.to)||0), num(b.progressDepth)||0, 0); }
 
 /* ---- description generator (AS 1726, STS format) ---- */
 const GRAN = m => /SAND|GRAVEL/i.test(m) && !/CLAY|SILT/.test((m||"").split(" ")[0]);
@@ -120,14 +175,20 @@ function soilDesc(r){
 
 /* ---- sync ---- */
 function online(){ return navigator.onLine; }
+function wifiOnlyBlocked(){ /* best-effort: only block auto-sync on known-cellular connections when the setting is ON */
+  if (localStorage.getItem("geoflow-wifi")!=="1") return false;
+  const c = navigator.connection; return !!(c && c.type==="cellular"); }
 function pill(){
   const el=document.getElementById("syncPill");
-  if (!online()) { el.className="pill off"; el.textContent=`Offline — ${F.pending||0} pending`; }
-  else if (F.pending) { el.className="pill"; el.textContent=`Online — ${F.pending} to sync`; }
-  else { el.className="pill ok"; el.textContent="All synced"; }
+  if (!online()) { el.className="pill off"; el.textContent=`Offline · ${F.pending||0} pending`; }
+  else if (F.pending) { el.className="pill"; el.textContent=`Online · ${F.pending} to sync`; }
+  else { el.className="pill ok"; el.textContent="All synced ✓"; }
+  const av=document.getElementById("avatar");
+  if (av) av.textContent = (F.project.loggedBy||"·").split(/[\/,\s]+/)[0].slice(0,2).toUpperCase()||"·";
 }
 async function doSync(manual){
   if (!online()) { pill(); if (manual) alert("Offline — changes are stored on this device and will sync when signal returns."); return; }
+  if (!manual && wifiOnlyBlocked()) { pill(); return; }
   try {
     const key = localStorage.getItem("geologger-api-key")||"";
     const h = {"Content-Type":"application/json"}; if (key) h["X-Autosoil-Api-Key"]=key;
@@ -146,7 +207,7 @@ async function doSync(manual){
     }
     if (server) {
       for (const b of (server.boreholes||[])) if (!F.boreholes.some(x=>x.id===b.id)) { F.boreholes.push(b); F.logs[b.id]=server.logs?.[b.id]||blankLogs(); }
-      if (!F.project.projectNumber && server.project) F.project={projectNumber:server.project.projectNumber,clientName:server.project.clientName,siteAddress:server.project.siteAddress,loggedBy:server.project.loggedBy};
+      if (!F.project.projectNumber && server.project) F.project=Object.assign({},F.project,{projectNumber:server.project.projectNumber,clientName:server.project.clientName,siteAddress:server.project.siteAddress,loggedBy:server.project.loggedBy});
     }
     /* push merged: field data wins for field-entered boreholes */
     const merged = server || { project:{}, boreholes:[], logs:{}, activeBh:null, activeTab:"dashboard" };
@@ -179,40 +240,243 @@ window.addEventListener("online", ()=>{ pill(); doSync(false); });
 window.addEventListener("offline", pill);
 setInterval(()=>{ if (F.pending && online()) doSync(false); }, 60000);
 
-/* ---- navigation ---- */
-function go(s){ F.screen=s; save(false); render(); window.scrollTo(0,0); }
+/* ---- navigation + session context ---- */
+function go(s){
+  if (["bh","log","spt","photos","review"].includes(s) && !F.activeBh) s="jobs";
+  F.screen=s;
+  if (["bh","log","spt","photos","review"].includes(s)) F.lastCtx = { screen:s, bh:F.activeBh, ts:Date.now() };
+  save(false); render(); window.scrollTo(0,0);
+}
 document.querySelectorAll("#nav button").forEach(b=>b.addEventListener("click",()=>go(b.dataset.s)));
+document.getElementById("avatar").addEventListener("click",()=>{
+  const i=(ROLES.indexOf(F.role)+1)%ROLES.length; F.role=ROLES[i]; save(false); toast("Role: "+F.role); render(); });
+
+/* ---- bottom sheet helper ---- */
+function sheet(html, wireFn){
+  const bg=document.createElement("div"); bg.className="sheet-bg";
+  bg.innerHTML=`<div class="sheet">${html}</div>`;
+  bg.addEventListener("click",e=>{ if(e.target===bg) bg.remove(); });
+  document.body.appendChild(bg);
+  if (wireFn) wireFn(bg, ()=>bg.remove());
+  return bg;
+}
 
 /* ---- screens ---- */
+const SCREENS = ()=>({ home:scrHome, jobs:scrJobs, wizard:scrWizard, bh:scrBh, log:scrLog, spt:scrSpt, photos:scrPhotos, sync:scrSync, review:scrReview });
 function render(){
-  document.querySelectorAll("#nav button").forEach(b=>b.classList.toggle("on", b.dataset.s===F.screen));
+  let s=F.screen; const map=SCREENS();
+  if (!map[s]) s="home";
+  if (["bh","log","spt","photos","review"].includes(s) && !F.activeBh) s="jobs";
+  const navS = ({home:"home",jobs:"jobs",wizard:"jobs",bh:"bh",log:"bh",spt:"bh",review:"bh",photos:"photos",sync:"sync"})[s];
+  document.querySelectorAll("#nav button").forEach(b=>b.classList.toggle("on", b.dataset.s===navS));
   const m=document.getElementById("main");
-  const need = ["log","spt","photos","review"].includes(F.screen) && !F.activeBh;
-  const s = need? "boreholes" : F.screen;
-  m.innerHTML = ({boreholes:scrBoreholes, log:scrLog, spt:scrSpt, photos:scrPhotos, review:scrReview})[s]();
+  m.innerHTML = map[s]();
   wire(m, s);
   pill();
 }
-function scrBoreholes(){
+
+/* ---------- HOME ---------- */
+function greeting(){ const h=new Date().getHours(); return h<12?"Good morning":h<17?"Good afternoon":"Good evening"; }
+function scrHome(){
+  const d=new Date(); const dateStr=d.toLocaleDateString(undefined,{weekday:"long",day:"numeric",month:"long"});
+  /* recovery card: unfinished work from a previous session */
+  const rec = F.lastCtx && F.lastCtx.bh && F.pending>0 ?
+    `<div class="card" style="border-color:var(--ga)">
+      <h3>Recover field session</h3>
+      <div class="meta">${esc(F.lastCtx.bh)} · last saved ${new Date(F.lastCtx.ts).toLocaleTimeString([],{hour:"numeric",minute:"2-digit"})} · ${F.pending} unsynced change${F.pending>1?"s":""}</div>
+      <button class="btn primary block" id="resumeSess">Resume session →</button>
+    </div>` : "";
+  /* continue-work card for the active project */
+  const lastBh = F.lastCtx?.bh && F.boreholes.some(b=>b.id===F.lastCtx.bh) ? F.lastCtx.bh : (F.activeBh || F.boreholes[0]?.id);
+  let cont="";
+  if (lastBh){
+    const b=F.boreholes.find(x=>x.id===lastBh)||{}; const dep=curDepth(lastBh); const plan=num(b.planned)||num(b.termDepth)||0;
+    const pct = plan? Math.min(100, Math.round(dep/plan*100)) : 0;
+    cont = `<div class="sect">CONTINUE WORK</div>
+    <div class="card">
+      <h3>${esc(F.project.projectNumber||"Project")} <span class="tag">${esc(b.status||"IN PROGRESS")}</span></h3>
+      <div class="meta">${esc(F.project.siteAddress||F.project.clientName||"")}</div>
+      <div style="margin-top:8px;font-size:15px"><b>${esc(lastBh)}</b> · Current ${dep.toFixed(2)} m${plan?` of ${plan.toFixed(1)} m planned`:""}</div>
+      ${plan?`<div class="pbar"><i style="width:${pct}%"></i></div><div class="meta">${pct}%</div>`:""}
+      <div class="meta" style="margin-top:6px">${online()? (F.pending?`Online · ${F.pending} changes to sync`:"All synced ✓") : `Offline · ${F.pending||0} changes pending`}</div>
+      <button class="btn primary block" id="contBh" data-bh="${esc(lastBh)}">Continue logging →</button>
+    </div>`;
+  }
+  /* drafts */
+  const drafts = WIZ.length? `<div class="sect">JOB DRAFTS</div>` + WIZ.map(w=>`
+    <div class="card"><h3>${esc(w.job.projectNumber||"(no number)")} <span class="tag warn">DRAFT</span></h3>
+      <div class="meta">${esc(w.job.projectName||w.job.clientName||"New job")} · step ${w.step} of 5 · saved ${new Date(w.updated).toLocaleString()}</div>
+      <div class="row2" style="margin-top:8px">
+        <button class="btn primary" data-wiz="${w.id}">Continue setup</button>
+        <button class="btn" data-wizdel="${w.id}">Delete</button>
+      </div></div>`).join("") : "";
+  /* role-ordered quick actions */
+  const QA = { Technician:["soil","spt","sample","photo","water","prog"],
+               Driller:["prog","water","photo","spt","soil","sample"],
+               Engineer:["soil","spt","sample","photo","water","prog"] }[F.role]||[];
+  const QDEF = { soil:["◱","Soil"], spt:["▼","SPT"], sample:["◰","Sample"], photo:["📷","Photo"], water:["💧","Water"], prog:["⏱","Progress"] };
+  /* recent jobs (other project workspaces) */
+  const recent = PROJECTS_CACHE.filter(p=>p.key!==F.syncKey).slice(0,3);
+  return `
+  <div style="margin:2px 2px 10px"><div class="meta">${esc(dateStr)}</div>
+    <h2 class="screen" style="margin:2px 0 0">${greeting()}${F.project.loggedBy?", "+esc(F.project.loggedBy.split(/[\/,]/)[0]):""}</h2>
+    <div class="meta">Ready for field logging? · Role: <b>${esc(F.role)}</b> <span style="font-size:11px">(tap avatar to change)</span></div></div>
+  ${rec}
+  <button class="btn primary big block" id="newJob">＋ START NEW JOB<small>Create project &amp; boreholes</small></button>
+  ${drafts}
+  ${cont}
+  <div class="sect">QUICK ACTIONS</div>
+  <div class="qgrid">${QA.map(k=>`<button class="qbtn" data-qa="${k}"><span>${QDEF[k][0]}</span>${QDEF[k][1]}</button>`).join("")}</div>
+  ${recent.length?`<div class="sect">RECENT JOBS</div>`+recent.map(p=>`
+    <div class="list-item" data-pj="${esc(p.key)}" style="background:#fff;border:1px solid var(--bd);border-radius:12px;margin-bottom:6px;padding:11px 12px;cursor:pointer">
+      <div class="grow"><b>${esc(p.number)}</b><small>${esc(p.name||p.client||"")}</small></div><span style="color:var(--sec)">→</span></div>`).join(""):""}`;
+}
+
+/* ---------- JOBS (project + boreholes) ---------- */
+function scrJobs(){
   const picker = PROJECTS_CACHE.length>1 || (PROJECTS_CACHE.length===1 && PROJECTS_CACHE[0].key!==F.syncKey) ?
     `<div class="card"><label class="f">Project workspace</label>
       <select class="f" id="pjPick">${PROJECTS_CACHE.map(p=>`<option value="${esc(p.key)}" ${p.key===F.syncKey?"selected":""}>${esc(p.number)} — ${esc(p.name||p.client||"")}</option>`).join("")}
       ${PROJECTS_CACHE.some(p=>p.key===F.syncKey)?"":`<option value="${esc(F.syncKey)}" selected>${esc(F.project.projectNumber||"current")}</option>`}</select>
       <div class="meta" style="margin-top:4px">Synced with the GeoLogger website — pick the project you're working on.</div></div>` : "";
-  return `<h2 class="screen">${esc(F.project.projectNumber||"Project")} <span class="tag">${F.boreholes.length} BH</span></h2>` + picker + `
+  return `<h2 class="screen">${esc(F.project.projectNumber||"Project")} <span class="tag">${F.boreholes.length} BH</span>${F.project.status?` <span class="tag">${esc(F.project.status)}</span>`:""}</h2>` + picker + `
   <div class="card">
     <label class="f">Project No.</label><input class="f" data-p="projectNumber" value="${esc(F.project.projectNumber)}">
     <div class="row2"><div><label class="f">Client</label><input class="f" data-p="clientName" value="${esc(F.project.clientName)}"></div>
     <div><label class="f">Logged by</label><input class="f" data-p="loggedBy" value="${esc(F.project.loggedBy)}"></div></div>
-  </div>` +
+  </div><div class="cols2">` +
   F.boreholes.map(b=>{ const l=F.logs[b.id]||blankLogs();
-    const depth=Math.max(...(l.soil||[]).map(r=>num(r.to)||0), ...(l.drilling||[]).map(d=>num(d.to)||0), 0);
+    const depth=curDepth(b.id); const plan=num(b.planned)||0;
     return `<div class="card" data-open="${esc(b.id)}">
-      <h3>${esc(b.id)} <span class="tag">${b.termDepth?`terminated ${b.termDepth} m`:(depth?depth.toFixed(1)+" m":"not started")}</span></h3>
+      <h3>${esc(b.id)} <span class="tag">${b.termDepth?`terminated ${b.termDepth} m`:(depth?depth.toFixed(1)+" m":(plan?`planned ${plan.toFixed(1)} m`:"not started"))}</span>${b.status?` <span class="tag">${esc(b.status)}</span>`:""}</h3>
       <div class="meta">${(l.soil||[]).length} intervals · ${(l.spt||[]).length} SPT · ${(l.samples||[]).length} samples · ${(l.photos||[]).length} photos</div>
-      <button class="btn primary block">Open ${esc(b.id)} →</button></div>`; }).join("") +
-  `<button class="btn block" id="addBh">＋ Add borehole</button>`;
+      ${plan?`<div class="pbar"><i style="width:${Math.min(100,Math.round(depth/plan*100))}%"></i></div>`:""}
+      <button class="btn primary block">Open ${esc(b.id)} →</button></div>`; }).join("") + `</div>
+  <div class="row2"><button class="btn" id="addBh" style="flex:1">＋ Add borehole</button>
+  <button class="btn" id="batchBh" style="flex:1">⧉ Batch create</button></div>`;
 }
+
+/* ---------- NEW JOB WIZARD ---------- */
+function newWizDraft(){ return { id:uid(), step:1, updated:now(), status:"DRAFT",
+  job:{ projectNumber:"", jobNumber:"", projectName:"", clientName:"", clientContact:"", po:"", proposal:"", pm:"", fieldEngineer:"", loggedBy:F.project.loggedBy||"" },
+  site:{ address:"", suburb:"", state:"NSW", postcode:"", locationNo:"", lga:"", coordSystem:"MGA2020", datum:"AHD", notes:"", lat:"", lng:"", acc:"", gpsTime:"", easting:"", northing:"" },
+  invest:{ types:[], contractor:"", rig:"", method:"", diameter:"", bit:"", start:"", end:"" },
+  bhs:[] }; }
+function curWiz(){ return WIZ.find(w=>w.id===F.wizId); }
+const wf = (obj,key,label,req,type)=>`<label class="f">${label}${req?' <em>*</em>':""}</label><input class="f" ${type?`type="${type}"`:""} data-w="${obj}.${key}" value="${esc(curWiz()?.[obj]?.[key]??"")}">`;
+function scrWizard(){
+  const w=curWiz(); if (!w) return scrHome();
+  const pct=w.step*20;
+  const hdr=(t)=>`<h2 class="screen">New job — ${t}</h2>
+    <div class="meta">Step ${w.step} of 5</div><div class="wizbar"><i style="width:${pct}%"></i></div>`;
+  const foot=(nextLabel)=>`<div class="row2" style="margin-top:14px">
+    <button class="btn" id="wizDraft">Save draft</button>
+    ${w.step>1?'<button class="btn" id="wizBack">← Back</button>':""}
+    <button class="btn primary" id="wizNext">${nextLabel}</button></div>`;
+  if (w.step===1) return hdr("Job details")+`<div class="card">
+    ${wf("job","projectNumber","Project Number",1)}
+    <div class="row2"><div>${wf("job","jobNumber","Job Number")}</div><div>${wf("job","po","Purchase Order")}</div></div>
+    ${wf("job","projectName","Project Name",1)}
+    ${wf("job","clientName","Client Name",1)}
+    <div class="row2"><div>${wf("job","clientContact","Client Contact")}</div><div>${wf("job","proposal","Proposal Reference")}</div></div>
+    <div class="row2"><div>${wf("job","pm","Project Manager")}</div><div>${wf("job","fieldEngineer","Field Engineer")}</div></div>
+    ${wf("job","loggedBy","Logged By")}
+    <div class="meta" style="margin-top:8px">Every field saves automatically on this device.</div></div>`+foot("Next: Site details →");
+  if (w.step===2) return hdr("Site details")+`<div class="card">
+    ${wf("site","address","Site Address")}
+    <div class="row3"><div>${wf("site","suburb","Suburb")}</div><div>${wf("site","state","State")}</div><div>${wf("site","postcode","Postcode")}</div></div>
+    <div class="row2"><div>${wf("site","locationNo","Location Number")}</div><div>${wf("site","lga","LGA")}</div></div>
+    <div class="row2"><div>${wf("site","coordSystem","Coordinate System")}</div><div>${wf("site","datum","Datum")}</div></div>
+    <button class="btn block" id="wizGps">📍 Use current location</button>
+    <div class="meta" id="wizGpsOut">${w.site.lat?`GPS: ${w.site.lat}, ${w.site.lng} (±${w.site.acc} m) at ${new Date(w.site.gpsTime).toLocaleTimeString()}`:"No GPS captured yet."}</div>
+    <div class="row2"><div>${wf("site","easting","Easting (manual)")}</div><div>${wf("site","northing","Northing (manual)")}</div></div>
+    <div class="meta">Coordinates are stored exactly as entered — no silent conversion.</div>
+    <label class="f">Site Notes</label><textarea class="f" data-w="site.notes">${esc(w.site.notes)}</textarea></div>`+foot("Next: Investigation →");
+  if (w.step===3) return hdr("Investigation setup")+`<div class="card">
+    <label class="f">What work is being completed?</label>
+    <div class="tgrid">${INV_TYPES.map(t=>`<button class="tcard ${w.invest.types.includes(t)?"on":""}" data-inv="${esc(t)}">${esc(t)}</button>`).join("")}</div>
+    <div class="row2"><div>${wf("invest","contractor","Drilling Contractor")}</div><div>${wf("invest","rig","Rig")}</div></div>
+    <div class="row2"><div>${wf("invest","method","Drilling Method")}</div><div>${wf("invest","diameter","Hole Diameter")}</div></div>
+    ${wf("invest","bit","Drill Bit")}
+    <div class="row2"><div>${wf("invest","start","Planned Start Date",0,"date")}</div><div>${wf("invest","end","Expected Completion",0,"date")}</div></div></div>`+foot("Next: Boreholes →");
+  if (w.step===4) return hdr("Boreholes")+`<div class="card">
+    ${w.bhs.map((b,i)=>`<div class="list-item"><div class="grow"><b>${esc(b.id)}</b></div>
+      <input class="f" style="width:110px;min-height:40px" type="number" step="0.5" data-bhd="${i}" value="${esc(b.planned)}" placeholder="m">
+      <button class="del" data-bhx="${i}">🗑</button></div>`).join("")||'<div class="meta">No boreholes yet.</div>'}
+    <button class="btn block" id="wizAddBh">＋ Add borehole</button>
+    <div class="sect" style="margin-top:14px">BATCH CREATE</div>
+    <div class="row2"><div><label class="f">Prefix</label><input class="f" id="bcPre" value="BH"></div>
+      <div><label class="f">Start</label><input class="f" id="bcStart" type="number" value="1"></div></div>
+    <div class="row2"><div><label class="f">Count</label><input class="f" id="bcCount" type="number" value="4"></div>
+      <div><label class="f">Planned depth (m)</label><input class="f" id="bcDepth" type="number" step="0.5" value="10"></div></div>
+    <button class="btn block" id="wizBatch">⧉ Batch create</button></div>`+foot("Next: Review →");
+  /* step 5 */
+  return hdr("Review & start")+`<div class="card">
+    <div class="sect">PROJECT</div><b>${esc(w.job.projectNumber||"—")}</b><div class="meta">${esc(w.job.projectName||"")}</div>
+    <div class="sect">CLIENT</div>${esc(w.job.clientName||"—")}
+    <div class="sect">SITE</div>${esc([w.site.address,w.site.suburb,w.site.state,w.site.postcode].filter(Boolean).join(", ")||"—")}
+    <div class="sect">INVESTIGATION</div>${w.bhs.length} borehole${w.bhs.length!==1?"s":""}${w.invest.types.length? " · "+w.invest.types.join(" · "):""}
+    <div class="sect">DRILLING</div><div class="meta">Contractor: ${esc(w.invest.contractor||"—")} · Rig: ${esc(w.invest.rig||"—")} · Method: ${esc(w.invest.method||"—")}</div>
+    ${!w.job.projectNumber||!w.job.clientName?'<div class="verr" style="margin-top:8px">✗ Project number and client are required to start.</div>':""}
+    <div class="row2" style="margin-top:14px">
+      <button class="btn" id="wizDraft">Save as draft</button>
+      <button class="btn primary" id="wizStart" ${!w.job.projectNumber||!w.job.clientName?"disabled style='opacity:.5'":""}>▶ Start field work</button></div>
+    <button class="btn block" id="wizBack">← Back</button></div>`;
+}
+function startFieldWork(w){
+  /* stash current slot, create the new project workspace */
+  localStorage.setItem("geoflow-slot-"+F.syncKey, JSON.stringify(F));
+  const key = "__project_fld" + w.id + "__";
+  const role=F.role;
+  F = { project:{
+      projectNumber:w.job.projectNumber, jobNumber:w.job.jobNumber, projectName:w.job.projectName,
+      clientName:w.job.clientName, clientContact:w.job.clientContact, po:w.job.po, proposal:w.job.proposal,
+      pm:w.job.pm, fieldEngineer:w.job.fieldEngineer, loggedBy:w.job.loggedBy,
+      siteAddress:[w.site.address,w.site.suburb,w.site.state,w.site.postcode].filter(Boolean).join(", "),
+      lga:w.site.lga, coordSystem:w.site.coordSystem, datum:w.site.datum, siteNotes:w.site.notes,
+      lat:w.site.lat, lng:w.site.lng, easting:w.site.easting, northing:w.site.northing,
+      investTypes:w.invest.types.join(", "), drillingContractor:w.invest.contractor, rig:w.invest.rig,
+      drillingMethod:w.invest.method, holeDiameter:w.invest.diameter, drillBit:w.invest.bit,
+      plannedStart:w.invest.start, expectedEnd:w.invest.end, status:"ACTIVE" },
+    boreholes: w.bhs.map(b=>({ id:b.id, planned:b.planned, termDepth:"", termReason:"", status:"NOT_STARTED", _field:true })),
+    logs:{}, activeBh:null, screen:"jobs", pending:1, lastSync:null, syncKey:key, role };
+  for (const b of F.boreholes){ F.logs[b.id]=blankLogs(); F.logs[b.id]._touched=true; }
+  PROJECTS_CACHE.push({ key, number:F.project.projectNumber, name:F.project.projectName, client:F.project.clientName, address:F.project.siteAddress });
+  localStorage.setItem("geoflow-remote-projects", JSON.stringify(PROJECTS_CACHE));
+  WIZ = WIZ.filter(x=>x.id!==w.id); saveWiz();
+  F.wizId=null; save(false); toast("Field work started");
+  go("jobs"); if (online()) doSync(false);
+}
+
+/* ---------- ACTIVE BOREHOLE ---------- */
+function scrBh(){
+  const b=bh()||{}; const l=L(); const dep=curDepth(F.activeBh); const plan=num(b.planned)||0;
+  const acts=[["log","◱","+ Soil interval"],["spt","▼","+ SPT"],["spt","◰","+ Sample"],["photos","📷","+ Photo"],["water","💧","+ Groundwater"],["prog","⏱","+ Progress"]];
+  const ev=[];
+  (l.soil||[]).forEach(r=>ev.push({d:num(r.from)??0, t:`${r.from}–${r.to} m · ${esc(r.material||"soil")}`, s:esc((r.desc||soilDesc(r)).slice(0,60))}));
+  (l.spt||[]).forEach(t=>ev.push({d:num(t.depth)??0, t:`${t.depth} m · SPT N=${t.refusal?"R":(t.n||"—")}`, s:""}));
+  (l.samples||[]).forEach(s=>ev.push({d:num(s.from)??0, t:`${s.from} m · Sample ${esc(s.sid)}`, s:""}));
+  if (l.gw && l.gw.state && l.gw.state!=="GWNE") ev.push({d:num(l.gw.depth)??0, t:`${l.gw.depth||"?"} m · ${esc(l.gw.state)}`, s:""});
+  ev.sort((a,b2)=>a.d-b2.d);
+  return `<h2 class="screen">${esc(F.activeBh)} <span class="tag">${esc(b.status||"IN PROGRESS")}</span></h2>
+  <div class="card">
+    <div class="row2" style="font-size:14px">
+      <div><div class="meta">Current depth</div><b style="font-size:22px">${dep.toFixed(2)} m</b></div>
+      <div><div class="meta">Planned</div><b style="font-size:22px">${plan?plan.toFixed(1)+" m":"—"}</b></div>
+    </div>
+    ${plan?`<div class="pbar"><i style="width:${Math.min(100,Math.round(dep/plan*100))}%"></i></div>`:""}
+  </div>
+  <div class="qgrid" style="margin-bottom:10px">${acts.map(a=>`<button class="qbtn" data-act="${a[0]}" data-icon="${a[2]}"><span>${a[1]}</span>${a[2].replace("+ ","")}</button>`).join("")}</div>
+  <div class="card"><h3>Depth timeline</h3>
+    <div class="tl">${ev.map(e=>`<div class="tli">${e.t}${e.s?`<small> — ${e.s}${e.s.length>=60?"…":""}</small>`:""}</div>`).join("")||'<div class="meta">Nothing logged yet.</div>'}
+    <div class="tli" style="font-weight:600">${dep.toFixed(2)} m · Current depth</div></div>
+  </div>
+  <div class="card"><div class="meta">${(l.photos||[]).length} photos · ${(l.samples||[]).length} samples · Groundwater: ${esc(l.gw?.state||"—")}</div>
+  <button class="btn primary block" id="goLog">Continue logging →</button>
+  <button class="btn block" id="goReview">✓ Review & validate</button></div>`;
+}
+
+/* ---------- SOIL LOG ---------- */
 function scrLog(){
   const l=L(); const last=l.soil.at(-1);
   const from = last? last.to : 0;
@@ -245,7 +509,8 @@ function scrLog(){
     <div class="chips">${GW_OPTS.map(v=>`<button class="chip ${l.gw.state===v?"on":""}" data-gw="${v}">${v}</button>`).join("")}</div>
     <div class="row2"><div><label class="f">Water depth (m)</label><input class="f" type="number" id="gwD" value="${esc(l.gw.depth)}"></div>
     <div><label class="f">Terminated at (m)</label><input class="f" type="number" id="termD" value="${esc(bh()?.termDepth??"")}"></div></div>
-  </div>`;
+  </div>
+  <button class="btn block" id="backBh">← ${esc(F.activeBh)} overview</button>`;
 }
 function scrSpt(){
   const l=L();
@@ -272,14 +537,20 @@ function scrSpt(){
     <label class="f">Tests required</label><div class="chips">${["Moisture content","Atterberg","PSD","CBR","Shrink-swell","UCS","Point load","ASS","Contamination"].map(v=>`<button class="chip" data-smtest="${v}">${v}</button>`).join("")}</div>
     <button class="btn primary block" id="smSave">Save sample ✓</button>
     ${l.samples.map((s,i)=>`<div class="list-item"><div class="grow"><b>${esc(s.sid)}</b><small>${s.from}–${s.to} m · ${esc((s.tests||[]).join(", ")||s.type||"")}</small></div><button class="del" data-smi="${i}">🗑</button></div>`).join("")}
-  </div>`;
+  </div>
+  <button class="btn block" id="backBh">← ${esc(F.activeBh)} overview</button>`;
 }
 function scrPhotos(){
   const l=L();
+  const d = F.phDraft || (F.phDraft = { type:"Borehole", sample:"" });
   return `<h2 class="screen">${esc(F.activeBh)} — Photos</h2>
   <div class="card">
     <label class="btn primary block" style="line-height:46px;text-align:center">📷 Take / add photo
       <input type="file" id="phFile" accept="image/*" capture="environment" style="display:none"></label>
+    <label class="f">Photo type</label>
+    <div class="chips">${PH_TYPES.map(t=>`<button class="chip ${d.type===t?"on":""}" data-pht="${esc(t)}">${esc(t)}</button>`).join("")}</div>
+    ${l.samples.length?`<label class="f">Link to sample (optional)</label>
+      <select class="f" id="phSample"><option value="">— none —</option>${l.samples.map(s=>`<option ${d.sample===s.sid?"selected":""}>${esc(s.sid)}</option>`).join("")}</select>`:""}
     <div class="row2" style="margin-top:8px">
       <div><label class="f">Depth (m)</label><input class="f" type="number" id="phD"></div>
       <div><label class="f">Caption</label><input class="f" id="phC" placeholder="e.g. corebox 1, SPT setup"></div>
@@ -287,7 +558,31 @@ function scrPhotos(){
     <div class="meta" id="phGps">GPS: acquiring…</div>
   </div>
   <div class="card"><h3>${l.photos.length} photos</h3>
-    <div class="photo-grid">${l.photos.map((p,i)=>`<div><img src="${p.img}"><small style="font-size:10px;color:var(--sec)">${p.depth?p.depth+" m · ":""}${esc(p.caption||"")}</small></div>`).join("")}</div>
+    <div class="photo-grid">${l.photos.map((p,i)=>`<div><img src="${p.img}"><small style="font-size:10px;color:var(--sec)">${p.type?esc(p.type)+" · ":""}${p.depth?p.depth+" m · ":""}${esc(p.caption||p.sample||"")}</small></div>`).join("")}</div>
+  </div>`;
+}
+/* ---------- SYNC QUEUE ---------- */
+function scrSync(){
+  const rows = F.boreholes.map(b=>{ const l=F.logs[b.id]||blankLogs();
+    const n=(l.soil||[]).length+(l.spt||[]).length+(l.samples||[]).length;
+    const ph=(l.photos||[]).length;
+    const kb=Math.round((l.photos||[]).reduce((a,p)=>a+(p.img?p.img.length*0.75:0),0)/1024);
+    return `<div class="qrow"><b>${esc(b.id)}</b> <span style="color:var(--sec)">${n} records · ${ph} photos${kb?` · ${kb>1024?(kb/1024).toFixed(1)+" MB":kb+" KB"}`:""}</span>
+      <span class="st">${F.pending? (l._touched?"queued":"✓") : "✓ synced"}</span></div>`; }).join("");
+  const wifi = localStorage.getItem("geoflow-wifi")==="1";
+  return `<h2 class="screen">Sync status</h2>
+  <div class="card">
+    <h3>${online()?"● Online":"○ Offline"}</h3>
+    <div class="meta">${F.pending? `${F.pending} change${F.pending>1?"s":""} waiting to sync` : "All field data synced"}<br>
+    Last sync: ${F.lastSync? new Date(F.lastSync).toLocaleString() : "never"}<br>
+    Project: ${esc(F.project.projectNumber||"—")}</div>
+    <button class="btn primary block" id="syncNow">⇅ Sync now</button>
+  </div>
+  <div class="card"><h3>Queue</h3>${rows||'<div class="meta">No boreholes.</div>'}</div>
+  <div class="card"><h3>Settings</h3>
+    <div class="qrow">Large photo upload <button class="chip ${wifi?"on":""}" id="wifiTgl" style="margin-left:auto">${wifi?"Wi-Fi only: ON":"Any network"}</button></div>
+    <div class="meta" style="margin:6px 0 10px">When ON, background sync pauses on mobile data (best effort — manual sync always works). Logging is never blocked by uploads.</div>
+    <button class="btn block" id="setKey">API key…</button>
   </div>`;
 }
 function scrReview(){
@@ -315,7 +610,57 @@ function scrReview(){
     Last sync: ${F.lastSync? new Date(F.lastSync).toLocaleString() : "never"} · Pending changes: ${F.pending||0}
   </div>
   <button class="btn primary block" id="syncNow" ${errs.length?'style="opacity:.55"':""}>${errs.length?"Sync draft (has errors)":"Submit & sync to GeoLogger ✓"}</button>
-  <button class="btn block" id="setKey">API key…</button></div>`;
+  <button class="btn block" id="markDone">Mark ${esc(F.activeBh)} complete</button>
+  <button class="btn block" id="backBh">← ${esc(F.activeBh)} overview</button></div>`;
+}
+
+/* ---- quick-action sheets ---- */
+function qaWater(){
+  const l=L();
+  sheet(`<h3>Groundwater — ${esc(F.activeBh)}</h3>
+    <div class="chips">${GW_OPTS.map(v=>`<button class="chip ${l.gw.state===v?"on":""}" data-qgw="${v}">${v}</button>`).join("")}</div>
+    <label class="f">Depth (m)</label><input class="f" type="number" id="qgwD" value="${esc(l.gw.depth)}">
+    <label class="f">Remarks</label><input class="f" id="qgwR" value="${esc(l.gw.remarks)}">
+    <button class="btn primary block" id="qgwSave">Save groundwater ✓</button>`,
+  (bg,close)=>{
+    let st=l.gw.state;
+    bg.querySelectorAll("[data-qgw]").forEach(c=>c.addEventListener("click",()=>{ st=c.dataset.qgw;
+      bg.querySelectorAll("[data-qgw]").forEach(x=>x.classList.toggle("on",x===c)); }));
+    bg.querySelector("#qgwSave").addEventListener("click",()=>{
+      l.gw.state=st; l.gw.depth=bg.querySelector("#qgwD").value; l.gw.remarks=bg.querySelector("#qgwR").value;
+      save(); close(); render(); });
+  });
+}
+function qaProgress(){
+  const b=bh(); if (!b) return;
+  sheet(`<h3>Drilling progress — ${esc(F.activeBh)}</h3>
+    <label class="f">Current depth (m)</label><input class="f" type="number" step="0.05" id="qpD" value="${esc(b.progressDepth||curDepth(F.activeBh)||"")}">
+    <label class="f">Status</label>
+    <div class="chips">${BH_STATUS.map(s=>`<button class="chip ${b.status===s?"on":""}" data-qst="${s}">${s.replace(/_/g," ")}</button>`).join("")}</div>
+    <button class="btn primary block" id="qpSave">Save progress ✓</button>`,
+  (bg,close)=>{
+    let st=b.status;
+    bg.querySelectorAll("[data-qst]").forEach(c=>c.addEventListener("click",()=>{ st=c.dataset.qst;
+      bg.querySelectorAll("[data-qst]").forEach(x=>x.classList.toggle("on",x===c)); }));
+    bg.querySelector("#qpSave").addEventListener("click",()=>{
+      b.progressDepth=bg.querySelector("#qpD").value; if (st) b.status=st;
+      save(); close(); render(); });
+  });
+}
+function quickAction(k){
+  if (!F.activeBh) { go("jobs"); toast("Pick a borehole first"); return; }
+  if (k==="soil") go("log");
+  else if (k==="spt"||k==="sample") go("spt");
+  else if (k==="photo") go("photos");
+  else if (k==="water") qaWater();
+  else if (k==="prog") qaProgress();
+}
+function batchCreate(pre,start,count,depth,target){
+  for (let i=0;i<count;i++){
+    const id=pre+String(start+i).padStart(2,"0");
+    if (target.some(b=>b.id===id)) continue;
+    target.push({ id, planned:depth, termDepth:"", termReason:"", status:"NOT_STARTED", _field:true });
+  }
 }
 
 /* ---- wiring ---- */
@@ -323,10 +668,83 @@ function wire(m, s){
   m.querySelectorAll("[data-p]").forEach(i=>i.addEventListener("input",()=>{ F.project[i.dataset.p]=i.value; save(); }));
   const pj=m.querySelector("#pjPick");
   if (pj) pj.addEventListener("change",()=>{ const meta=PROJECTS_CACHE.find(p=>p.key===pj.value); switchProject(pj.value, meta); });
-  m.querySelectorAll("[data-open]").forEach(c=>c.addEventListener("click",()=>{ F.activeBh=c.dataset.open; normLogs(F.activeBh); F.draft=null; go("log"); }));
+  m.querySelectorAll("[data-open]").forEach(c=>c.addEventListener("click",()=>{ F.activeBh=c.dataset.open; normLogs(F.activeBh); F.draft=null; go("bh"); }));
   const add=m.querySelector("#addBh");
   if (add) add.addEventListener("click",()=>{ const id=prompt("Borehole ID:","BH"+String(F.boreholes.length+1).padStart(2,"0"));
-    if(!id||F.logs[id])return; F.boreholes.push({id,termDepth:"",termReason:"",_field:true}); F.logs[id]=blankLogs(); F.logs[id]._touched=true; F.activeBh=id; F.draft=null; save(); go("log"); });
+    if(!id||F.logs[id])return; F.boreholes.push({id,termDepth:"",termReason:"",status:"NOT_STARTED",_field:true}); F.logs[id]=blankLogs(); F.logs[id]._touched=true; F.activeBh=id; F.draft=null; save(); go("bh"); });
+  const batch=m.querySelector("#batchBh");
+  if (batch) batch.addEventListener("click",()=>{
+    sheet(`<h3>Batch create boreholes</h3>
+      <div class="row2"><div><label class="f">Prefix</label><input class="f" id="qbPre" value="BH"></div>
+        <div><label class="f">Start</label><input class="f" id="qbStart" type="number" value="${F.boreholes.length+1}"></div></div>
+      <div class="row2"><div><label class="f">Count</label><input class="f" id="qbCount" type="number" value="4"></div>
+        <div><label class="f">Planned depth (m)</label><input class="f" id="qbDepth" type="number" step="0.5" value="10"></div></div>
+      <button class="btn primary block" id="qbGo">Create ✓</button>`,
+    (bg,close)=>bg.querySelector("#qbGo").addEventListener("click",()=>{
+      batchCreate(bg.querySelector("#qbPre").value||"BH", parseInt(bg.querySelector("#qbStart").value)||1,
+        parseInt(bg.querySelector("#qbCount").value)||0, bg.querySelector("#qbDepth").value, F.boreholes);
+      for (const b of F.boreholes) if (!F.logs[b.id]) { F.logs[b.id]=blankLogs(); F.logs[b.id]._touched=true; }
+      save(); close(); render(); }));
+  });
+  m.querySelectorAll("[data-qa]").forEach(b=>b.addEventListener("click",()=>quickAction(b.dataset.qa)));
+  m.querySelectorAll("[data-pj]").forEach(c=>c.addEventListener("click",()=>{ const meta=PROJECTS_CACHE.find(p=>p.key===c.dataset.pj); switchProject(c.dataset.pj, meta); }));
+
+  if (s==="home"){
+    m.querySelector("#newJob").addEventListener("click",()=>{ const w=newWizDraft(); WIZ.push(w); saveWiz(); F.wizId=w.id; go("wizard"); });
+    m.querySelectorAll("[data-wiz]").forEach(b=>b.addEventListener("click",()=>{ F.wizId=b.dataset.wiz; go("wizard"); }));
+    m.querySelectorAll("[data-wizdel]").forEach(b=>b.addEventListener("click",()=>{
+      if (!confirm("Delete this job draft?")) return; WIZ=WIZ.filter(w=>w.id!==b.dataset.wizdel); saveWiz(); render(); }));
+    const rs=m.querySelector("#resumeSess");
+    if (rs) rs.addEventListener("click",()=>{ F.activeBh=F.lastCtx.bh; normLogs(F.activeBh); go(F.lastCtx.screen||"bh"); });
+    const cb=m.querySelector("#contBh");
+    if (cb) cb.addEventListener("click",()=>{ F.activeBh=cb.dataset.bh; normLogs(F.activeBh);
+      go(F.lastCtx && F.lastCtx.bh===cb.dataset.bh ? (F.lastCtx.screen||"bh") : "bh"); });
+  }
+  if (s==="wizard"){
+    const w=curWiz(); if (!w) return;
+    const touch=()=>{ w.updated=now(); saveWiz(); toast(); };
+    m.querySelectorAll("[data-w]").forEach(i=>i.addEventListener("input",()=>{
+      const [o,k]=i.dataset.w.split("."); w[o][k]=i.value; touch(); }));
+    m.querySelectorAll("[data-inv]").forEach(c=>c.addEventListener("click",()=>{
+      const t=c.dataset.inv; const a=w.invest.types;
+      a.includes(t)? a.splice(a.indexOf(t),1) : a.push(t); c.classList.toggle("on"); touch(); }));
+    m.querySelectorAll("[data-bhd]").forEach(i=>i.addEventListener("input",()=>{ w.bhs[+i.dataset.bhd].planned=i.value; touch(); }));
+    m.querySelectorAll("[data-bhx]").forEach(b=>b.addEventListener("click",()=>{ w.bhs.splice(+b.dataset.bhx,1); touch(); render(); }));
+    const ab=m.querySelector("#wizAddBh");
+    if (ab) ab.addEventListener("click",()=>{ const id=prompt("Borehole ID:","BH"+String(w.bhs.length+1).padStart(2,"0"));
+      if (!id||w.bhs.some(b=>b.id===id)) return; w.bhs.push({id,planned:""}); touch(); render(); });
+    const bc=m.querySelector("#wizBatch");
+    if (bc) bc.addEventListener("click",()=>{
+      batchCreate(m.querySelector("#bcPre").value||"BH", parseInt(m.querySelector("#bcStart").value)||1,
+        parseInt(m.querySelector("#bcCount").value)||0, m.querySelector("#bcDepth").value, w.bhs);
+      touch(); render(); });
+    const gps=m.querySelector("#wizGps");
+    if (gps) gps.addEventListener("click",()=>{
+      const out=m.querySelector("#wizGpsOut"); out.textContent="Acquiring GPS…";
+      if (!navigator.geolocation) { out.textContent="GPS not available on this device."; return; }
+      navigator.geolocation.getCurrentPosition(p=>{
+        w.site.lat=p.coords.latitude.toFixed(6); w.site.lng=p.coords.longitude.toFixed(6);
+        w.site.acc=Math.round(p.coords.accuracy); w.site.gpsTime=now(); touch();
+        out.textContent=`GPS: ${w.site.lat}, ${w.site.lng} (±${w.site.acc} m)`; },
+      ()=>{ out.textContent="GPS unavailable — enter coordinates manually."; }, {timeout:10000, enableHighAccuracy:true}); });
+    const nx=m.querySelector("#wizNext");
+    if (nx) nx.addEventListener("click",()=>{
+      if (w.step===1 && (!w.job.projectNumber||!w.job.projectName||!w.job.clientName)) return alert("Project number, name and client are required.");
+      w.step=Math.min(5,w.step+1); touch(); render(); });
+    const bk=m.querySelector("#wizBack");
+    if (bk) bk.addEventListener("click",()=>{ w.step=Math.max(1,w.step-1); touch(); render(); });
+    const dr=m.querySelector("#wizDraft");
+    if (dr) dr.addEventListener("click",()=>{ touch(); toast("Draft saved — continue any time"); go("home"); });
+    const st=m.querySelector("#wizStart");
+    if (st) st.addEventListener("click",()=>{ if (!w.job.projectNumber||!w.job.clientName) return; startFieldWork(w); });
+  }
+  if (s==="bh"){
+    m.querySelectorAll("[data-act]").forEach(b=>b.addEventListener("click",()=>{
+      const a=b.dataset.act;
+      if (a==="water") qaWater(); else if (a==="prog") qaProgress(); else go(a); }));
+    m.querySelector("#goLog").addEventListener("click",()=>go("log"));
+    m.querySelector("#goReview").addEventListener("click",()=>go("review"));
+  }
   if (s==="log"){
     const d=F.draft;
     const upd=()=>{ document.getElementById("descPrev").textContent = soilDesc(d)||"—"; };
@@ -349,6 +767,7 @@ function wire(m, s){
       if (!d.material) return alert("Pick a material");
       d.desc=soilDesc(d);
       L().soil.push(JSON.parse(JSON.stringify(d)));
+      if (bh() && (bh().status==="NOT_STARTED"||!bh().status)) bh().status="SOIL_LOGGING";
       F.draft={ from:d.to, to:"", material:d.material, colour:d.colour, moisture:d.moisture, consistency:d.consistency, plasticity:d.plasticity, extras:[], fill:false, remarks:"" };
       save(); render(); });
     m.querySelectorAll("[data-di]").forEach(b=>b.addEventListener("click",e=>{ e.stopPropagation(); L().soil.splice(+b.dataset.di,1); save(); render(); }));
@@ -384,6 +803,10 @@ function wire(m, s){
   }
   if (s==="photos"){
     let gps=null;
+    const d=F.phDraft;
+    m.querySelectorAll("[data-pht]").forEach(c=>c.addEventListener("click",()=>{ d.type=c.dataset.pht;
+      m.querySelectorAll("[data-pht]").forEach(x=>x.classList.toggle("on",x.dataset.pht===d.type)); }));
+    const ps=m.querySelector("#phSample"); if (ps) ps.addEventListener("change",()=>{ d.sample=ps.value; });
     if (navigator.geolocation) navigator.geolocation.getCurrentPosition(
       p=>{ gps={lat:p.coords.latitude,lng:p.coords.longitude,acc:p.coords.accuracy};
         const el=document.getElementById("phGps"); if(el) el.textContent=`GPS: ${gps.lat.toFixed(6)}, ${gps.lng.toFixed(6)} (±${Math.round(gps.acc)} m)`; },
@@ -396,18 +819,30 @@ function wire(m, s){
         cv.width=img.width*sc; cv.height=img.height*sc;
         cv.getContext("2d").drawImage(img,0,0,cv.width,cv.height);
         L().photos.push({ id:uid(), img:cv.toDataURL("image/jpeg",0.62), depth:document.getElementById("phD").value,
-          caption:document.getElementById("phC").value, ts:now(), gps });
+          caption:document.getElementById("phC").value, type:d.type, sample:d.sample||"", ts:now(), by:F.project.loggedBy||"", gps, syncStatus:"LOCAL_ONLY" });
         save(); render(); };
         img.src=rd.result; };
       rd.readAsDataURL(f); });
   }
-  if (s==="review"){
+  if (s==="sync"){
     m.querySelector("#syncNow").addEventListener("click",()=>doSync(true));
+    m.querySelector("#wifiTgl").addEventListener("click",()=>{
+      const on=localStorage.getItem("geoflow-wifi")==="1";
+      localStorage.setItem("geoflow-wifi", on?"0":"1"); render(); });
     m.querySelector("#setKey").addEventListener("click",()=>{
       const k=prompt("AutoSoil API key (leave empty if none):", localStorage.getItem("geologger-api-key")||"");
       if (k===null) return; if (k) localStorage.setItem("geologger-api-key",k); else localStorage.removeItem("geologger-api-key"); });
   }
+  if (s==="review"){
+    m.querySelector("#syncNow").addEventListener("click",()=>doSync(true));
+    const md=m.querySelector("#markDone");
+    if (md) md.addEventListener("click",()=>{ if (bh()) { bh().status="COMPLETE"; save(); toast(F.activeBh+" marked complete"); render(); } });
+  }
+  m.querySelectorAll("#backBh").forEach(b=>b.addEventListener("click",()=>go("bh")));
 }
+/* boot: always land on Home so the field workspace answers "what am I doing today?" first */
+if (!SCREENS()[F.screen] || F.screen==="boreholes") F.screen="home";
+if (!["wizard"].includes(F.screen)) F.screen="home";
 render();
 if (online() && F.pending) doSync(false);
 </script>
