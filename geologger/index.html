@@ -3470,5 +3470,322 @@ function pjCtxBar(){
   showTab("projects");
 })();
 </script>
+<script id="v6-as1726-soillog">
+/*!
+ * STS GeoFlow — AS 1726:2017 Soil Log Engine  (framework-free, browser + Node)
+ * Structured soil interval model + deterministic description grammar engine,
+ * material-first field visibility, graphic-log symbols, depth intelligence,
+ * and engineering validation. No external dependencies.
+ */
+(function (root, factory) {
+  var api = factory();
+  if (typeof module !== "undefined" && module.exports) module.exports = api;
+  if (typeof window !== "undefined") window.STSSoilLog = api;
+})(this, function () {
+  "use strict";
+
+  /* ---------------- AS 1726 vocabularies ---------------- */
+  var PRIMARY_MATERIALS = ["FILL","TOPSOIL","CLAY","SILT","SAND","GRAVEL","COBBLES","BOULDERS","ORGANIC SOIL","PEAT","WEATHERED ROCK"];
+  var COHESIVE = { CLAY:1, SILT:1, "ORGANIC SOIL":1, PEAT:1 };
+  var GRANULAR = { SAND:1, GRAVEL:1, COBBLES:1, BOULDERS:1 };
+  var FILL_ORIGINS = ["soil fill","gravel fill","crushed sandstone","DGB","roadbase","demolition fill","concrete fragments","brick fragments","ash","slag","mixed fill","other"];
+  // canonical adjective order (finer -> coarser) so "silty"+"sandy" -> "silty sandy"
+  var ADJ_ORDER = ["clayey","silty","sandy","gravelly"];
+  var SECONDARY_ADJ = ["clayey","silty","sandy","gravelly"];
+  var PLASTICITY = ["non-plastic","low plasticity","low to medium plasticity","medium plasticity","medium to high plasticity","high plasticity","low liquid limit","high liquid limit"];
+  var GRAIN_SIZE = ["fine grained","fine to medium grained","medium grained","medium to coarse grained","coarse grained","fine to coarse grained"];
+  var PARTICLE_SHAPE = ["angular","subangular","subangular to angular","subrounded","subrounded to subangular","rounded","subrounded to rounded"];
+  var MOISTURE = ["dry","slightly moist","moist","very moist","moist to wet","wet"];
+  var CONSISTENCY = ["very soft","soft","firm","stiff","very stiff","hard","friable"];
+  var DENSITY = ["very loose","loose","medium dense","dense","very dense"];
+  var STRUCTURE = ["homogeneous","layered","laminated","fissured","blocky","nuggety","root affected","intact","cemented"];
+
+  /* material-first field visibility (which fields matter for each primary) */
+  var MATERIAL_FIELDS = {
+    FILL:      { origin:true, fillOrigin:true, secondary:true, plasticity:true, grainSize:true, colour:true, moisture:true, consistency:true, density:true, structure:true, components:true },
+    TOPSOIL:   { origin:true, secondary:true, plasticity:true, colour:true, moisture:true, structure:true, components:true },
+    CLAY:      { secondary:true, plasticity:true, colour:true, moisture:true, consistency:true, structure:true, origin:true, components:true },
+    SILT:      { secondary:true, plasticity:true, colour:true, moisture:true, consistency:true, structure:true, origin:true, components:true },
+    SAND:      { secondary:true, grainSize:true, grading:true, colour:true, moisture:true, density:true, structure:true, origin:true, components:true },
+    GRAVEL:    { secondary:true, grainSize:true, grading:true, particleShape:true, colour:true, moisture:true, density:true, origin:true, components:true },
+    COBBLES:   { secondary:true, particleShape:true, colour:true, moisture:true, density:true, origin:true, components:true },
+    BOULDERS:  { secondary:true, particleShape:true, colour:true, moisture:true, density:true, origin:true, components:true },
+    "ORGANIC SOIL": { secondary:true, colour:true, moisture:true, consistency:true, structure:true, components:true, origin:true },
+    PEAT:      { colour:true, moisture:true, structure:true, components:true, origin:true },
+    "WEATHERED ROCK": { colour:true, moisture:true, structure:true, weathering:true, strength:true, components:true },
+    _default:  { secondary:true, plasticity:true, colour:true, moisture:true, consistency:true, density:true, structure:true, origin:true, components:true }
+  };
+
+  /* graphic-log symbol keys (renderer maps these to hatch patterns) */
+  var GRAPHIC_SYMBOL = {
+    FILL:"fill", TOPSOIL:"topsoil", CLAY:"clay", SILT:"silt", SAND:"sand", GRAVEL:"gravel",
+    COBBLES:"cobbles", BOULDERS:"boulders", "ORGANIC SOIL":"organic", PEAT:"peat", "WEATHERED ROCK":"weathered_rock"
+  };
+  function isRockMaterial(m){ return /STONE|SHALE|BASALT|TUFF|LAMINITE|CONGLOMERATE|BRECCIA|BEDROCK|COAL|QUARTZITE|GRANITE|DOLERITE|WEATHERED ROCK|Formation|Group/i.test(m||""); }
+  function graphicSymbolFor(material){
+    var m = (material||"").trim();
+    if (!m) return "none";
+    var up = m.toUpperCase();
+    if (GRAPHIC_SYMBOL[up]) return GRAPHIC_SYMBOL[up];
+    if (isRockMaterial(m)) return "weathered_rock";
+    // fall back on principal fraction contained in a compound name
+    if (/CLAY/i.test(m)) return "clay";
+    if (/SILT/i.test(m)) return "silt";
+    if (/SAND/i.test(m)) return "sand";
+    if (/GRAVEL/i.test(m)) return "gravel";
+    if (/FILL/i.test(m)) return "fill";
+    return "soil";
+  }
+
+  function isCohesive(m){ return !!COHESIVE[(m||"").toUpperCase()]; }
+  function isGranular(m){ return !!GRANULAR[(m||"").toUpperCase()]; }
+
+  /* ---------------- structured interval model ---------------- */
+  function blankInterval(prev) {
+    return {
+      interval_id: uid(),
+      from_depth: prev && prev.to_depth != null && prev.to_depth !== "" ? prev.to_depth : (prev ? "" : 0),
+      to_depth: "",
+      origin: "",                 // FILL / TOPSOIL / alluvium / residual ...
+      fill_origin: "",            // soil fill / roadbase ... (when origin=FILL)
+      primary_material: "",
+      secondary_components: [],   // ["silty","sandy"]
+      plasticity: "",             // cohesive: "medium plasticity" | "low liquid limit"
+      grading: "",                // granular grading term
+      grain_size: "",             // "fine to medium grained"
+      particle_shape: "",         // "subangular to angular"
+      colour_primary: "",
+      colour_secondary: "",
+      moisture: "",
+      consistency: "",            // cohesive
+      density: "",                // granular
+      structure: "",
+      additional_components: [],  // major: ["fine grained sand","low liquid limit silt","rootlets"]
+      inclusions: [],             // minor/trace: ["trace fine gravel"]
+      weathering: "",
+      strength: "",
+      description_generated: "",
+      description_override: "",
+      graphic_symbol: "",
+      comments: "",
+      created_by: "",
+      reviewed_by: "",
+      status: "DRAFT",            // DRAFT | VALID | WARNING | SUBMITTED | APPROVED
+      created_at: nowISO(),
+      updated_at: nowISO()
+    };
+  }
+
+  /* ---------------- description grammar engine ---------------- */
+  // colour: combine primary + secondary colour (e.g. "grey" + "mottled orange-brown")
+  function colourPhrase(iv){
+    var c = clean(iv.colour_primary || iv.colour || "");
+    var c2 = clean(iv.colour_secondary || "");
+    if (c && c2) return c + " " + c2;
+    return c || c2;
+  }
+  // order secondary adjectives canonically and de-duplicate
+  function orderedSecondary(list){
+    var seen = {}, out = [];
+    (list||[]).forEach(function(x){ x = clean(x).toLowerCase(); if (x && !seen[x]) { seen[x]=1; out.push(x); } });
+    out.sort(function(a,b){
+      var ia = ADJ_ORDER.indexOf(a), ib = ADJ_ORDER.indexOf(b);
+      if (ia === -1) ia = 99; if (ib === -1) ib = 99;
+      return ia - ib;
+    });
+    return out;
+  }
+  function splitComponents(iv){
+    var majors = [], minors = [];
+    (iv.additional_components||[]).forEach(function(x){ x = clean(x); if (!x) return; (/^trace\b/i.test(x) ? minors : majors).push(x); });
+    (iv.inclusions||[]).forEach(function(x){ x = clean(x); if (!x) return; (/^trace\b/i.test(x) ? minors : majors).push(x); });
+    return { majors: dedupe(majors), minors: dedupe(minors) };
+  }
+
+  function generateSoilDescription(iv) {
+    var m = clean(iv.primary_material || "");
+    if (!m) return "";
+    var up = m.toUpperCase();
+
+    // origin prefix — only fill/topsoil style origins prefix the description
+    var head = "";
+    var org = clean(iv.origin || "").toUpperCase();
+    if ((org === "FILL" || org === "TOPSOIL") && org !== up) head = org + ": ";
+
+    // principal fraction, capitalised, preceded by lower-case secondary adjectives
+    var sec = orderedSecondary(iv.secondary_components);
+    var primaryPhrase = (sec.length ? sec.join(" ") + " " : "") + up;
+
+    // ordered middle descriptors
+    var mid = [];
+    push(mid, iv.plasticity);
+    push(mid, iv.grain_size);
+    push(mid, iv.grading);
+    push(mid, iv.particle_shape);
+    push(mid, colourPhrase(iv));
+    push(mid, iv.moisture);
+    push(mid, isGranular(up) ? (iv.density || iv.consistency) : (iv.consistency || iv.density));
+    push(mid, iv.structure);
+    mid = dedupe(mid);
+
+    var core = head + primaryPhrase + (mid.length ? ", " + mid.join(", ") : "");
+
+    // additional (major) + minor/trace components
+    var comp = splitComponents(iv);
+    if (comp.majors.length) {
+      var withClause = "with " + comp.majors.join(" and ");
+      if (comp.minors.length) {
+        var sep = comp.majors.length >= 2 ? ", " : " and ";
+        withClause += sep + comp.minors.join(", ");
+      }
+      core += ", " + withClause;
+    } else if (comp.minors.length) {
+      core += ", " + comp.minors.join(", ");
+    }
+    return core + ".";
+  }
+
+  // the effective description shown/exported: override wins but structured data is preserved
+  function effectiveDescription(iv){
+    var o = clean(iv.description_override || "");
+    return o || generateSoilDescription(iv);
+  }
+
+  /* ---------------- depth intelligence ---------------- */
+  function num(v){ if (v === "" || v == null) return null; var n = parseFloat(v); return isNaN(n) ? null : n; }
+  function computeNextFrom(prevTo){ return num(prevTo); }
+
+  // recompute continuity: each row.from follows previous row.to (non-destructive suggestions returned)
+  function validateIntervals(list) {
+    var issues = [];
+    for (var i = 0; i < list.length; i++) {
+      var r = list[i], f = num(r.from_depth), t = num(r.to_depth);
+      if (f != null && t != null) {
+        if (t < f) issues.push({ index:i, level:"error", code:"negative", msg:"Negative interval at row " + (i+1) + " (" + f + "–" + t + " m)." });
+        else if (t === f) issues.push({ index:i, level:"warning", code:"zero", msg:"Zero-thickness layer at " + f + " m (row " + (i+1) + ")." });
+      }
+      if (i > 0) {
+        var pt = num(list[i-1].to_depth);
+        if (pt != null && f != null) {
+          if (f < pt) issues.push({ index:i, level:"error", code:"overlap", msg:"Layer interval overlap at " + f + "–" + pt + " m." });
+          else if (f > pt) issues.push({ index:i, level:"warning", code:"gap", msg:"Depth gap between " + pt + " m and " + f + " m (row " + (i+1) + ")." });
+        }
+        if (num(list[i-1].from_depth) === f && pt === t && f != null) issues.push({ index:i, level:"warning", code:"duplicate", msg:"Duplicate interval " + f + "–" + t + " m." });
+      }
+    }
+    return issues;
+  }
+
+  /* row operations (return new array; pure) */
+  function addLayer(list){ var c = list.slice(); c.push(blankInterval(c[c.length-1])); return c; }
+  function insertBelow(list, i){ var c = list.slice(); c.splice(i+1, 0, blankInterval(list[i])); return relink(c); }
+  function insertAbove(list, i){ var c = list.slice(); c.splice(i, 0, blankInterval(i>0?list[i-1]:null)); return relink(c); }
+  function duplicateLayer(list, i){ var c = list.slice(); var d = JSON.parse(JSON.stringify(list[i])); d.interval_id = uid(); c.splice(i+1,0,d); return c; }
+  function deleteLayer(list, i){ var c = list.slice(); c.splice(i,1); return relink(c); }
+  function splitInterval(list, i){
+    var r = list[i], f = num(r.from_depth), t = num(r.to_depth);
+    if (f == null || t == null) return list.slice();
+    var mid = Math.round((f + t) / 2 * 100) / 100;
+    var c = list.slice(); var d = JSON.parse(JSON.stringify(r)); d.interval_id = uid();
+    d.from_depth = mid; c[i] = Object.assign({}, r, { to_depth: mid });
+    c.splice(i+1, 0, d); return c;
+  }
+  function mergeWithBelow(list, i){
+    if (i >= list.length - 1) return list.slice();
+    var c = list.slice(); c[i] = Object.assign({}, c[i], { to_depth: c[i+1].to_depth });
+    c.splice(i+1, 1); return c;
+  }
+  // re-chain from_depth to previous to_depth where blank/auto
+  function relink(list){
+    for (var i = 1; i < list.length; i++){
+      if (list[i].from_depth === "" || list[i].from_depth == null) list[i] = Object.assign({}, list[i], { from_depth: list[i-1].to_depth });
+    }
+    return list;
+  }
+
+  /* ---------------- engineering validation (per interval) ---------------- */
+  function validateInterval(iv) {
+    var w = [], up = (iv.primary_material||"").toUpperCase();
+    if (!up) return w;
+    if (isCohesive(up) && !clean(iv.consistency)) w.push({ level:"warning", code:"consistency", msg:"Soil description incomplete — consistency missing for cohesive soil." });
+    if (isGranular(up) && !clean(iv.density))     w.push({ level:"warning", code:"density", msg:"Density missing for granular soil." });
+    if (!clean(iv.colour_primary) && !clean(iv.colour)) w.push({ level:"warning", code:"colour", msg:"Colour not recorded." });
+    if (!clean(iv.moisture)) w.push({ level:"warning", code:"moisture", msg:"Moisture condition not recorded." });
+    if (isRockMaterial(up) || up === "WEATHERED ROCK") w.push({ level:"suggestion", code:"rock", msg:"Rock coring may commence below weathered rock transition." });
+    return w;
+  }
+  function detectRockTransition(iv){
+    var up = (iv.primary_material||"").toUpperCase();
+    return up === "WEATHERED ROCK" || isRockMaterial(up);
+  }
+
+  /* ---------------- utils ---------------- */
+  function clean(s){ return (s == null ? "" : String(s)).replace(/\s+/g, " ").trim(); }
+  function push(arr, v){ v = clean(v); if (v) arr.push(v); }
+  function dedupe(arr){ var seen = {}, out = []; arr.forEach(function(x){ var k = x.toLowerCase(); if (!seen[k]) { seen[k]=1; out.push(x); } }); return out; }
+  function uid(){ return "iv_" + Math.random().toString(36).slice(2,10); }
+  function nowISO(){ try { return new Date().toISOString(); } catch(e){ return ""; } }
+
+  return {
+    PRIMARY_MATERIALS: PRIMARY_MATERIALS, FILL_ORIGINS: FILL_ORIGINS, SECONDARY_ADJ: SECONDARY_ADJ,
+    PLASTICITY: PLASTICITY, GRAIN_SIZE: GRAIN_SIZE, PARTICLE_SHAPE: PARTICLE_SHAPE, MOISTURE: MOISTURE,
+    CONSISTENCY: CONSISTENCY, DENSITY: DENSITY, STRUCTURE: STRUCTURE, MATERIAL_FIELDS: MATERIAL_FIELDS,
+    isCohesive: isCohesive, isGranular: isGranular, isRockMaterial: isRockMaterial,
+    graphicSymbolFor: graphicSymbolFor, blankInterval: blankInterval,
+    generateSoilDescription: generateSoilDescription, effectiveDescription: effectiveDescription,
+    computeNextFrom: computeNextFrom, validateIntervals: validateIntervals, validateInterval: validateInterval,
+    detectRockTransition: detectRockTransition,
+    addLayer: addLayer, insertBelow: insertBelow, insertAbove: insertAbove, duplicateLayer: duplicateLayer,
+    deleteLayer: deleteLayer, splitInterval: splitInterval, mergeWithBelow: mergeWithBelow, relink: relink
+  };
+});
+/* v6: AS 1726 grammar upgrade — maps existing soil-row fields to the structured engine.
+   Non-breaking: keeps the current data model; only the auto-generated description improves. */
+(function () {
+  "use strict";
+  var E = (typeof window !== "undefined" && window.STSSoilLog) || (typeof require !== "undefined" && require("/tmp/work/sts_soillog_engine.js"));
+  if (!E) return;
+  var ADJ = /^(Clayey|Silty|Sandy|Gravelly)\s+/i;
+  function parseMaterial(m) {
+    m = (m || "").trim(); var adj = [], mm;
+    while ((mm = m.match(ADJ))) { adj.push(mm[1].toLowerCase()); m = m.slice(mm[0].length); }
+    return { primary: m, adj: adj };
+  }
+  var BARE_ADJ = { clayey:1, silty:1, sandy:1, gravelly:1 };
+  function classify(s, majors, minors) {
+    s = (s || "").trim(); if (!s) return;
+    if (BARE_ADJ[s.toLowerCase()]) return;                 // handled as secondary adjective
+    (/^trace\b/i.test(s) ? minors : majors).push(s.replace(/^with\s+/i, ""));
+  }
+  function rowToInterval(r) {
+    var pm = parseMaterial(r.material || "");
+    var up = (pm.primary || "").toUpperCase();
+    var sec = pm.adj.slice();
+    if (r.secondary && BARE_ADJ[(r.secondary || "").toLowerCase()]) sec.push(r.secondary.toLowerCase());
+    var majors = [], minors = [];
+    classify(r.secondary, majors, minors);
+    classify(r.inclusions, majors, minors);
+    var origin = "";
+    if (r.fillNatural === "FILL" || /^FILL/i.test(r.material || "") || (r.origin || "").toLowerCase() === "fill") origin = "FILL";
+    else if (up === "TOPSOIL" || (r.origin || "").toLowerCase() === "topsoil") origin = "TOPSOIL";
+    var granular = E.isGranular(up);
+    return {
+      origin: origin, primary_material: pm.primary, secondary_components: sec,
+      plasticity: r.plasticity || "", grain_size: "", grading: "", particle_shape: "",
+      colour_primary: r.colour || "", moisture: r.moisture || "",
+      consistency: granular ? "" : (r.consistency || ""), density: granular ? (r.consistency || "") : "",
+      structure: r.structure || "", additional_components: majors, inclusions: minors,
+      description_override: r.descTouched ? (r.description || "") : ""
+    };
+  }
+  // reassign the global used by the soil grid's onChange
+  if (typeof soilDescription !== "undefined") { /* keep reference */ }
+  var newGen = function (r) { return E.generateSoilDescription(rowToInterval(r)); };
+  if (typeof window !== "undefined") { window.soilDescription = newGen; window.rowToInterval = rowToInterval; window.graphicSymbolFor = E.graphicSymbolFor; }
+  try { soilDescription = newGen; } catch (e) {}   // reassign existing top-level binding
+  if (typeof module !== "undefined" && module.exports) module.exports = { rowToInterval: rowToInterval, newGen: newGen };
+})();
+
+</script>
 </body>
 </html>
