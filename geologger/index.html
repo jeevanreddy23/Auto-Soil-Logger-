@@ -3787,5 +3787,236 @@ function pjCtxBar(){
 })();
 
 </script>
+<script id="v7-corerun-engine">
+/*!
+ * STS GeoFlow — Core Run setup + per-run TCR/RQD engine (SUB-PROMPT 26). Framework-free.
+ * Runs are generated from coring start/end + default length (grid-aligned to whole metres),
+ * fully editable, and TCR/RQD are computed PER CONFIRMED RUN using the actual run length as the
+ * denominator — never a fixed 1000 mm. All maths done in millimetres (integers) to avoid float drift.
+ */
+(function (root, factory) {
+  var api = factory();
+  if (typeof module !== "undefined" && module.exports) module.exports = api;
+  if (typeof window !== "undefined") window.STSCoreRun = api;
+})(typeof self !== "undefined" ? self : this, function () {
+  "use strict";
+  var MM = function (m) { return Math.round(Number(m) * 1000); };
+  var M = function (mm) { return Math.round(mm) / 1000; };
+  var r1 = function (x) { return Math.round(x * 10) / 10; };
+  var r0 = function (x) { return Math.round(x); };
+  var QUALIFY_MM = 100; // RQD qualifying piece length (AS 1726 / ISRM)
+
+  function totalCoredMm(startM, endM) { return MM(endM) - MM(startM); }
+
+  /* generate proposed runs. align: "grid" (snap boundaries to multiples of default len — the STS
+     default that yields e.g. 2.10→3.00) or "fromStart" (start + k*len, e.g. 5.20→6.20). */
+  function generateRuns(startM, endM, defaultLenM, opts) {
+    opts = opts || {}; var align = opts.align || "grid";
+    var start = MM(startM), end = MM(endM), step = MM(defaultLenM);
+    if (!(end > start) || step <= 0) return [];
+    var runs = [], cur = start, boundary;
+    if (align === "fromStart") boundary = start + step;
+    else { boundary = Math.floor(start / step) * step; if (boundary <= start) boundary += step; }
+    var guard = 0;
+    while (cur < end && guard++ < 10000) {
+      var to = Math.min(boundary, end);
+      runs.push({ run_no: runs.length + 1, from: M(cur), to: M(to), length_mm: to - cur, length_m: M(to - cur), source: "proposed", confirmed: false });
+      cur = to; boundary += step;
+    }
+    return runs;
+  }
+
+  function renumber(runs) { runs.forEach(function (r, i) { r.run_no = i + 1; }); return runs; }
+  function lenMm(run) { return MM(run.to) - MM(run.from); }
+
+  /* ---- edit operations (pure; return new array) ---- */
+  function editRun(runs, i, fromM, toM) { var c = runs.slice(); c[i] = Object.assign({}, c[i], { from: fromM, to: toM, length_mm: MM(toM) - MM(fromM), length_m: M(MM(toM) - MM(fromM)), confirmed: true }); return c; }
+  function splitRun(runs, i, atM) {
+    var r = runs[i]; if (!(MM(atM) > MM(r.from) && MM(atM) < MM(r.to))) return runs.slice();
+    var c = runs.slice(); var a = Object.assign({}, r, { to: atM }), b = Object.assign({}, r, { from: atM });
+    a.length_mm = lenMm(a); a.length_m = M(a.length_mm); b.length_mm = lenMm(b); b.length_m = M(b.length_mm);
+    c.splice(i, 1, a, b); return renumber(c);
+  }
+  function mergeRuns(runs, i) { if (i >= runs.length - 1) return runs.slice(); var c = runs.slice(); var m = Object.assign({}, c[i], { to: c[i + 1].to }); m.length_mm = lenMm(m); m.length_m = M(m.length_mm); c.splice(i, 2, m); return renumber(c); }
+  function addRun(runs, fromM, toM) { var c = runs.slice(); c.push({ run_no: c.length + 1, from: fromM, to: toM, length_mm: MM(toM) - MM(fromM), length_m: M(MM(toM) - MM(fromM)), source: "manual", confirmed: true }); return renumber(c); }
+  function deleteRun(runs, i) { var c = runs.slice(); c.splice(i, 1); return renumber(c); }
+  function confirmAll(runs) { return runs.map(function (r) { return Object.assign({}, r, { confirmed: true }); }); }
+
+  /* overlap length (mm) between an interval and a run */
+  function overlapMm(fromM, toM, run) { return Math.max(0, Math.min(MM(toM), MM(run.to)) - Math.max(MM(fromM), MM(run.from))); }
+
+  /* assign each core-loss interval to the run(s) it falls in (split across boundaries) */
+  function assignCoreLoss(runs, losses) {
+    var map = runs.map(function () { return []; });
+    (losses || []).forEach(function (L) {
+      runs.forEach(function (run, i) { var ov = overlapMm(L.from, L.to, run); if (ov > 0) map[i].push({ from: Math.max(MM(L.from), MM(run.from)) / 1000, to: Math.min(MM(L.to), MM(run.to)) / 1000, length_mm: ov, source: L }); });
+    });
+    return map;
+  }
+
+  /* per-run TCR/RQD. run length denominator = actual confirmed run length.
+     losses: [{from,to}] (borehole coords) — overlap with the run is used.
+     pieces: array of piece lengths in mm OR objects {length_mm[, run_no]} qualifying for this run. */
+  function computeRun(run, opts) {
+    opts = opts || {};
+    var runLen = lenMm(run);
+    var lossMm = (opts.losses || []).reduce(function (s, L) { return s + overlapMm(L.from, L.to, run); }, 0);
+    var recovered = Math.max(0, runLen - lossMm);
+    var pieceLens = (opts.pieces || []).map(function (p) { return typeof p === "number" ? p : (p.length_mm || 0); });
+    var qual = pieceLens.filter(function (l) { return l >= QUALIFY_MM; });
+    var rqdMm = qual.reduce(function (s, l) { return s + l; }, 0);
+    var tcr = runLen ? recovered / runLen * 100 : 0;
+    var rqd = runLen ? rqdMm / runLen * 100 : 0;
+    return {
+      run_no: run.run_no, from: run.from, to: run.to,
+      run_length_mm: runLen, loss_mm: lossMm, recovered_mm: recovered,
+      tcr: r1(tcr), tcr_rounded: r0(tcr),
+      rqd_qualifying_mm: rqdMm, rqd: r1(rqd), rqd_rounded: r0(rqd),
+      pieces_ge100: qual.length, pieces_lt100: pieceLens.length - qual.length
+    };
+  }
+
+  function computeAll(runs, data) {
+    data = data || {};
+    var perRun = runs.map(function (run) {
+      return computeRun(run, { losses: data.losses, pieces: (data.piecesByRun && data.piecesByRun[run.run_no]) || [] });
+    });
+    var totLen = perRun.reduce(function (s, r) { return s + r.run_length_mm; }, 0);
+    var totRec = perRun.reduce(function (s, r) { return s + r.recovered_mm; }, 0);
+    var totQual = perRun.reduce(function (s, r) { return s + r.rqd_qualifying_mm; }, 0);
+    return {
+      runs: perRun,
+      borehole: { total_run_length_mm: totLen, recovered_mm: totRec, tcr: r1(totLen ? totRec / totLen * 100 : 0), rqd: r1(totLen ? totQual / totLen * 100 : 0) }
+    };
+  }
+
+  /* validation before TCR/RQD (SUB-PROMPT 26 §I) */
+  function validateRuns(runs, startM, endM) {
+    var issues = [], tol = 1; // 1 mm
+    if (!runs.length) return [{ level: "error", code: "empty", msg: "No runs defined." }];
+    if (Math.abs(MM(runs[0].from) - MM(startM)) > tol) issues.push({ level: "warning", code: "first", msg: "First run (" + runs[0].from + " m) does not begin at coring start " + startM + " m." });
+    if (Math.abs(MM(runs[runs.length - 1].to) - MM(endM)) > tol) issues.push({ level: "warning", code: "last", msg: "Final run (" + runs[runs.length - 1].to + " m) does not end at coring end " + endM + " m." });
+    for (var i = 1; i < runs.length; i++) {
+      var prevTo = MM(runs[i - 1].to), curFrom = MM(runs[i].from);
+      if (curFrom < prevTo - tol) issues.push({ level: "error", code: "overlap", msg: "Run overlap at " + runs[i].from + "–" + runs[i - 1].to + " m." });
+      else if (curFrom > prevTo + tol) issues.push({ level: "error", code: "gap", msg: "Unassigned interval " + M(prevTo) + "–" + M(curFrom) + " m." });
+    }
+    var sumLen = runs.reduce(function (s, r) { return s + lenMm(r); }, 0);
+    var cored = totalCoredMm(startM, endM);
+    if (Math.abs(sumLen - cored) > tol) issues.push({ level: "error", code: "reconcile", msg: "RUN DEPTH MISMATCH — total coring " + startM + "–" + endM + " m = " + M(cored) + " m; confirmed runs total " + M(sumLen) + " m (" + (sumLen > cored ? "over" : "short") + " " + M(Math.abs(sumLen - cored)) + " m)." });
+    return issues;
+  }
+
+  /* image-row mapping — a run visually split across trays becomes 4A/4B for DISPLAY only;
+     the engineering run (and its single TCR/RQD) is preserved. */
+  function mapRunsToRows(runs, detectedRows) {
+    return runs.map(function (run) {
+      var rows = (detectedRows || []).filter(function (row) { return overlapMm(row.from, row.to, run) > 0; });
+      var labels = rows.length > 1 ? rows.map(function (_, k) { return run.run_no + String.fromCharCode(65 + k); }) : [String(run.run_no)];
+      return { run_no: run.run_no, from: run.from, to: run.to, image_rows: rows.length, display_labels: labels };
+    });
+  }
+
+  return {
+    QUALIFY_MM: QUALIFY_MM, totalCoredMm: totalCoredMm, generateRuns: generateRuns,
+    editRun: editRun, splitRun: splitRun, mergeRuns: mergeRuns, addRun: addRun, deleteRun: deleteRun, confirmAll: confirmAll,
+    assignCoreLoss: assignCoreLoss, computeRun: computeRun, computeAll: computeAll,
+    validateRuns: validateRuns, mapRunsToRows: mapRunsToRows, _mm: MM, _m: M
+  };
+});
+
+</script>
+<script id="v7-corerun-glue">
+/* v7: per-run Core Run TCR/RQD panel — additive integration into the Corebox tab.
+   Reuses the app's calibrated scale (topD/botD) + cb().defects; syncs per-run to Rock Log.
+   Non-breaking: only ADDS a toolbar button + panel; existing corebox logic untouched. */
+(function () {
+  "use strict";
+  var R = window.STSCoreRun; if (!R) return;
+  function n(v) { var x = parseFloat(v); return isNaN(x) ? null : x; }
+  function cbc() { try { return (typeof cb === "function") ? cb() : null; } catch (e) { return null; } }
+  var ST = { runs: [], len: 1.0 };
+
+  function runMetrics(run) {
+    var c = cbc(); if (!c) return R.computeRun(run, {});
+    var defs = c.defects || [];
+    var breaks = defs.filter(function (d) { return d.type !== "Core loss" && d.type !== "Void"; })
+      .map(function (d) { return d.depth; }).filter(function (x) { return x > run.from && x < run.to; }).sort(function (a, b) { return a - b; });
+    var pts = [run.from].concat(breaks, [run.to]), pieces = [];
+    for (var i = 1; i < pts.length; i++) pieces.push(Math.round((pts[i] - pts[i - 1]) * 1000));
+    var losses = defs.filter(function (d) { return d.type === "Core loss"; })
+      .map(function (d) { return { from: d.depth, to: d.depth + (n(d.len) || 0) }; });
+    return R.computeRun(run, { losses: losses, pieces: pieces });
+  }
+
+  function ensureRuns() {
+    var c = cbc(); if (!c) return;
+    var s = n(c.topD), e = n(c.botD);
+    if (s == null || e == null || e <= s) { ST.runs = []; return; }
+    if (!ST.runs.length) ST.runs = R.generateRuns(s, e, ST.len);
+  }
+
+  function panelHTML() {
+    var c = cbc(); var s = n(c && c.topD), e = n(c && c.botD);
+    if (s == null || e == null || e <= s) return '<div class="hint" style="padding:8px">Calibrate the corebox top &amp; bottom depths first (set Top/Bottom depth above), then core runs generate automatically.</div>';
+    var head = '<div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin:6px 0">'
+      + '<b>Coring ' + s.toFixed(2) + '–' + e.toFixed(2) + ' m = ' + (R.totalCoredMm(s, e) / 1000).toFixed(2) + ' m</b>'
+      + '<label>Default run <input id="crLen" value="' + ST.len + '" style="width:56px"></label>'
+      + '<button class="btn" id="crGen">Regenerate</button>'
+      + '<button class="btn" id="crSync">Sync per-run TCR/RQD → Rock Log</button></div>';
+    var iss = R.validateRuns(ST.runs, s, e);
+    var warn = iss.length ? '<div style="background:#3a3320;border:1px solid #6b5a24;color:#f0d48a;border-radius:6px;padding:6px 9px;font-size:12px;margin-bottom:6px">' + iss.map(function (x) { return (x.level === "error" ? "⛔ " : "⚠ ") + x.msg; }).join("<br>") + '</div>' : '';
+    var rows = ST.runs.map(function (run, i) {
+      var m = runMetrics(run);
+      return '<tr><td>Run ' + run.run_no + '</td>'
+        + '<td><input data-i="' + i + '" data-e="from" value="' + run.from.toFixed(2) + '" style="width:60px"></td>'
+        + '<td><input data-i="' + i + '" data-e="to" value="' + run.to.toFixed(2) + '" style="width:60px"></td>'
+        + '<td>' + (m.run_length_mm) + ' mm</td>'
+        + '<td><b>' + m.tcr + '%</b></td><td><b>' + m.rqd + '%</b></td>'
+        + '<td><button class="btn" data-op="split" data-i="' + i + '">Split</button> '
+        + '<button class="btn" data-op="merge" data-i="' + i + '">Merge↓</button> '
+        + '<button class="btn" data-op="del" data-i="' + i + '">✕</button></td></tr>';
+    }).join("");
+    return head + warn + '<table style="width:100%;border-collapse:collapse;font-size:12px"><tr style="text-align:left;color:#dce9f5"><th>Run</th><th>From</th><th>To</th><th>Length</th><th>TCR</th><th>RQD</th><th></th></tr>' + rows + '</table>';
+  }
+
+  function renderPanel() {
+    ensureRuns();
+    var p = document.getElementById("cbRunPanel"); if (!p) return;
+    p.style.display = ""; p.innerHTML = panelHTML();
+    var s = n((cbc() || {}).topD), e = n((cbc() || {}).botD);
+    var gen = document.getElementById("crGen"); if (gen) gen.onclick = function () { var L = document.getElementById("crLen"); ST.len = n(L && L.value) || 1.0; ST.runs = R.generateRuns(s, e, ST.len); renderPanel(); };
+    var sync = document.getElementById("crSync"); if (sync) sync.onclick = syncToRock;
+    p.querySelectorAll("input[data-e]").forEach(function (inp) { inp.onchange = function () { var i = +inp.dataset.i, r = ST.runs[i]; ST.runs = R.editRun(ST.runs, i, inp.dataset.e === "from" ? n(inp.value) : r.from, inp.dataset.e === "to" ? n(inp.value) : r.to); renderPanel(); }; });
+    p.querySelectorAll("button[data-op]").forEach(function (b) { b.onclick = function () { var i = +b.dataset.i, op = b.dataset.op; if (op === "split") { var r = ST.runs[i]; ST.runs = R.splitRun(ST.runs, i, Math.round((r.from + r.to) / 2 * 100) / 100); } else if (op === "merge") ST.runs = R.mergeRuns(ST.runs, i); else ST.runs = R.deleteRun(ST.runs, i); renderPanel(); }; });
+  }
+
+  function syncToRock() {
+    try {
+      var L = logs(); ensureRuns();
+      ST.runs.forEach(function (run) {
+        var m = runMetrics(run);
+        var target = L.rock.find(function (r) { return num(r.from) === run.from && num(r.to) === run.to; });
+        if (!target) { target = blankRock(); target.from = run.from; target.to = run.to; target.remarks = "core run " + run.run_no; L.rock.push(target); }
+        target.tcr = m.tcr_rounded; target.scr = m.tcr_rounded; target.rqd = m.rqd_rounded;
+      });
+      save(); if (typeof renderRock === "function") { /* refresh if on rock tab */ }
+      if (typeof setStatus === "function") setStatus("Synced " + ST.runs.length + " runs' TCR/RQD to Rock Log ✓");
+    } catch (e) { if (typeof setStatus === "function") setStatus("Sync failed: " + e.message); }
+  }
+
+  function inject() {
+    var page = document.getElementById("page-corebox"); if (!page) return;
+    var tb = page.querySelector(".toolbar"); if (!tb || document.getElementById("cbCoreRuns")) return;
+    var b = document.createElement("button"); b.className = "btn"; b.id = "cbCoreRuns"; b.textContent = "⚙ Core runs";
+    b.onclick = function () { var p = document.getElementById("cbRunPanel"); if (p && p.style.display !== "none" && p.innerHTML) { p.style.display = "none"; } else renderPanel(); };
+    tb.appendChild(b);
+    if (!document.getElementById("cbRunPanel")) { var d = document.createElement("div"); d.id = "cbRunPanel"; d.style.cssText = "display:none;margin-top:10px;padding:0 4px"; page.querySelector(".panel").appendChild(d); }
+  }
+  if (typeof renderCorebox !== "undefined") { var _r = renderCorebox; renderCorebox = function () { _r.apply(this, arguments); ST.runs = []; inject(); }; }
+  document.addEventListener("DOMContentLoaded", inject); inject();
+})();
+
+</script>
 </body>
 </html>
