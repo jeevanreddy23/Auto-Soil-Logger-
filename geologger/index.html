@@ -4013,8 +4013,8 @@ function pjCtxBar(){
     tb.appendChild(b);
     if (!document.getElementById("cbRunPanel")) { var d = document.createElement("div"); d.id = "cbRunPanel"; d.style.cssText = "display:none;margin-top:10px;padding:0 4px"; page.querySelector(".panel").appendChild(d); }
   }
-  if (typeof renderCorebox !== "undefined") { var _r = renderCorebox; renderCorebox = function () { _r.apply(this, arguments); ST.runs = []; inject(); }; }
-  document.addEventListener("DOMContentLoaded", inject); inject();
+  if (typeof renderCorebox !== "undefined") { var _r = renderCorebox; renderCorebox = function () { _r.apply(this, arguments); ST.runs = []; try{inject();}catch(e){} }; }
+  document.addEventListener("DOMContentLoaded", function(){try{inject();}catch(e){}}); try{inject();}catch(e){}
 })();
 
 </script>
@@ -4473,8 +4473,8 @@ function pjCtxBar(){
     if (e.key === "m" || e.key === "M") { e.preventDefault(); toggle(); }
     else if (e.key === "Escape" && rangeStep) { rangeStep = 0; renderPanel(); }
   });
-  if (typeof renderCorebox !== "undefined") { var _r = renderCorebox; renderCorebox = function () { _r.apply(this, arguments); inject(); }; }
-  document.addEventListener("DOMContentLoaded", inject); inject();
+  if (typeof renderCorebox !== "undefined") { var _r = renderCorebox; renderCorebox = function () { _r.apply(this, arguments); try{inject();}catch(e){} }; }
+  document.addEventListener("DOMContentLoaded", function(){try{inject();}catch(e){}}); try{inject();}catch(e){}
 })();
 
 </script>
