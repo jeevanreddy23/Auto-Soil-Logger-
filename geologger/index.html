@@ -4535,5 +4535,172 @@ function pjCtxBar(){
 })();
 
 </script>
+<script id="v10-review-sheet">
+/* v10: Enhanced Defect Review sheet for the cb3 Corebox (SUB-PROMPT 18).
+   Additive overlay over the SAME cb().defects objects (no duplicates). Adds:
+   multi-select + bulk edit, + Add Defect (by depth), Draft->Reviewed->Approved->Synced states
+   (approve selected/all, return to draft, sync-approved-only), row-click locate on image.
+   Uses the app's own globals: CODE_INFO, CB_GROUPS, ORIENT2/SHAPE2/ROUGH2/APER_THK/INFILL2, cb(), save,
+   drawOverlays, logs, blankRock, num, esc. Non-breaking: only adds a button + overlay. */
+(function () {
+  "use strict";
+  function G(n) { try { return eval(n); } catch (e) { return undefined; } }
+  function cbo() { var f = G("cb"); return (typeof f === "function") ? f() : null; }
+  function has() { return G("CODE_INFO") && typeof G("cb") === "function"; }
+  var SEL = {};             // id -> true (multi-select)
+  var STATES = ["draft", "reviewed", "approved", "synced"];
+  var STATE_COLOR = { draft: "#8a968f", reviewed: "#2f6fed", approved: "#147447", synced: "#0D523E" };
+
+  function statusOf(d) { return d.review_status || (d.confirmed ? "reviewed" : "draft"); }
+  function short(v) { return String(v == null ? "" : v).split(" — ")[0]; }
+  function codeOptions(cur) {
+    var G0 = G("CB_GROUPS"); if (!G0) return "";
+    var out = "";
+    for (var g in G0) { out += '<optgroup label="' + G0[g].label + '">'; for (var c in G0[g].codes) out += '<option value="' + c + '"' + (c === cur ? " selected" : "") + '>' + c + ' — ' + G0[g].codes[c] + '</option>'; out += '</optgroup>'; }
+    return out;
+  }
+  function opts(list, cur) { return (list || [""]).map(function (o) { return '<option value="' + String(o).replace(/"/g, "&quot;") + '"' + (String(o) === String(cur) ? " selected" : "") + '>' + (short(o) || "—") + '</option>'; }).join(""); }
+
+  function overlay() {
+    var o = document.getElementById("v10ov");
+    if (o) return o;
+    o = document.createElement("div"); o.id = "v10ov";
+    o.style.cssText = "position:fixed;inset:0;background:rgba(10,15,13,.55);z-index:9999;display:flex;align-items:center;justify-content:center";
+    o.innerHTML = '<div id="v10box" style="background:#fff;color:#18201C;width:min(1000px,96vw);max-height:92vh;border-radius:12px;display:flex;flex-direction:column;overflow:hidden;box-shadow:0 20px 60px rgba(0,0,0,.4)"></div>';
+    o.addEventListener("click", function (e) { if (e.target === o) close(); });
+    document.body.appendChild(o); return o;
+  }
+  function close() { var o = document.getElementById("v10ov"); if (o) o.remove(); }
+
+  function render() {
+    var c = cbo(); if (!c) return;
+    var box = overlay().querySelector("#v10box");
+    var defs = (c.defects || []).slice().sort(function (a, b) { return (G("num")(a.from) || 0) - (G("num")(b.from) || 0); });
+    var selIds = Object.keys(SEL).filter(function (k) { return SEL[k]; });
+    var counts = { draft: 0, reviewed: 0, approved: 0, synced: 0 };
+    defs.forEach(function (d) { counts[statusOf(d)]++; });
+    var ORI = G("ORIENT2"), SH = G("SHAPE2"), RO = G("ROUGH2"), AP = G("APER_THK"), IN = G("INFILL2"), CI = G("CODE_INFO");
+
+    var head = '<div style="padding:12px 16px;border-bottom:1px solid #e2e8e3;display:flex;align-items:center;gap:10px">'
+      + '<b style="font-size:15px;color:#0D523E">Defect Review — ' + defs.length + ' defects</b>'
+      + '<span style="font-size:12px;color:#68716c">Draft ' + counts.draft + ' · Reviewed ' + counts.reviewed + ' · Approved ' + counts.approved + ' · Synced ' + counts.synced + '</span>'
+      + '<span style="flex:1"></span><button class="btn" id="v10add">+ Add defect</button><button class="btn" id="v10close">✕ Close</button></div>';
+
+    var bulk = '<div style="padding:8px 16px;background:#f5f7f5;border-bottom:1px solid #e2e8e3;display:flex;flex-wrap:wrap;gap:6px;align-items:center;font-size:12px">'
+      + '<b>' + selIds.length + ' selected</b> — bulk set:'
+      + ' <select id="bkcode"><option value="">Type…</option>' + codeOptions("") + '</select>'
+      + ' <select id="bkorientation"><option value="__">Orient…</option>' + opts(ORI, "__") + '</select>'
+      + ' <select id="bkshape"><option value="__">Shape…</option>' + opts(SH, "__") + '</select>'
+      + ' <select id="bkroughness"><option value="__">Rough…</option>' + opts(RO, "__") + '</select>'
+      + ' <select id="bkapertureThk"><option value="__">Aperture…</option>' + opts(AP, "__") + '</select>'
+      + ' <select id="bkinfill"><option value="__">Infill…</option>' + opts(IN, "__") + '</select>'
+      + ' <button class="btn primary" id="v10bulk"' + (selIds.length ? '' : ' disabled') + '>Apply to ' + selIds.length + '</button>'
+      + ' <span style="flex:1"></span>'
+      + ' <button class="btn" id="v10appSel"' + (selIds.length ? '' : ' disabled') + '>Approve selected</button>'
+      + ' <button class="btn" id="v10appAll">Approve all</button>'
+      + ' <button class="btn" id="v10draft"' + (selIds.length ? '' : ' disabled') + '>Return to draft</button>'
+      + ' <button class="btn primary" id="v10sync">Sync approved → Rock Log</button></div>';
+
+    var rows = defs.map(function (d) {
+      var info = CI[d.code] || {}; var st = statusOf(d); var isIv = G("num")(d.to) != null && G("num")(d.to) > G("num")(d.from) + 1e-9;
+      return '<tr data-id="' + d.id + '">'
+        + '<td><input type="checkbox" class="v10chk" data-id="' + d.id + '"' + (SEL[d.id] ? " checked" : "") + '></td>'
+        + '<td style="white-space:nowrap"><input class="v10f" data-id="' + d.id + '" data-k="from" value="' + (d.from != null ? d.from : "") + '" style="width:52px">' + (isIv ? '–<input class="v10f" data-id="' + d.id + '" data-k="to" value="' + d.to + '" style="width:52px">' : '') + ' m</td>'
+        + '<td><span class="legend-dot" style="background:' + (info.color || "#999") + '"></span><select class="v10f" data-id="' + d.id + '" data-k="code">' + codeOptions(d.code) + '</select></td>'
+        + '<td><select class="v10f" data-id="' + d.id + '" data-k="orientation">' + opts(ORI, d.orientation) + '</select></td>'
+        + '<td><select class="v10f" data-id="' + d.id + '" data-k="shape">' + opts(SH, d.shape) + '</select></td>'
+        + '<td><select class="v10f" data-id="' + d.id + '" data-k="roughness">' + opts(RO, d.roughness) + '</select></td>'
+        + '<td><select class="v10f" data-id="' + d.id + '" data-k="apertureThk">' + opts(AP, d.apertureThk) + '</select></td>'
+        + '<td><select class="v10f" data-id="' + d.id + '" data-k="infill">' + opts(IN, d.infill) + '</select></td>'
+        + '<td><select class="v10f" data-id="' + d.id + '" data-k="review_status" style="color:#fff;background:' + STATE_COLOR[st] + ';border:0;border-radius:10px;padding:2px 6px">' + STATES.map(function (s) { return '<option value="' + s + '"' + (s === st ? " selected" : "") + '>' + s + '</option>'; }).join("") + '</select></td>'
+        + '<td style="white-space:nowrap"><button class="btn" data-loc="' + d.id + '" title="Locate on image">◎</button> <button class="btn danger" data-del="' + d.id + '">🗑</button></td></tr>';
+    }).join("");
+
+    var table = '<div style="overflow:auto;flex:1"><table class="og" style="width:100%;font-size:12px"><thead><tr>'
+      + '<th style="width:26px"><input type="checkbox" id="v10all"></th><th>Depth</th><th>Type</th><th>Orient</th><th>Shape</th><th>Rough</th><th>Aperture</th><th>Infill</th><th>Status</th><th></th></tr></thead><tbody>'
+      + (rows || '<tr><td colspan="10" style="padding:16px;color:#8a968f">No defects yet — use “+ Add defect”, or mark defects on the core.</td></tr>') + '</tbody></table></div>';
+
+    box.innerHTML = head + bulk + table;
+
+    var q = function (s) { return box.querySelector(s); }, qa = function (s) { return box.querySelectorAll(s); };
+    q("#v10close").onclick = close;
+    q("#v10all").onclick = function (e) { defs.forEach(function (d) { SEL[d.id] = e.target.checked; }); render(); };
+    qa(".v10chk").forEach(function (ch) { ch.onclick = function () { SEL[ch.dataset.id] = ch.checked; render(); }; });
+    qa(".v10f").forEach(function (el) {
+      el.onchange = function () {
+        var d = (cbo().defects || []).find(function (x) { return x.id === el.dataset.id; }); if (!d) return;
+        var v = el.value, k = el.dataset.k;
+        if (v === "__") return;
+        if (k === "from" || k === "to") v = (v === "" ? "" : parseFloat(v));
+        d[k] = v; d.updated_at = new Date().toISOString();
+        if (k === "review_status") d.confirmed = (v === "approved" || v === "synced" || v === "reviewed");
+        G("save")(); var dr = G("drawOverlays"); if (typeof dr === "function") try { dr(); } catch (e) { }
+        if (k === "code" || k === "review_status" || k === "to") render();
+      };
+    });
+    qa("[data-loc]").forEach(function (b) { b.onclick = function () { try { window.cb2Sel = b.dataset.loc; } catch (e) { } try { eval("cb2Sel='" + b.dataset.loc + "'"); } catch (e) { } var dr = G("drawOverlays"); if (dr) try { dr(); } catch (e) { } b.textContent = "◉"; }; });
+    qa("[data-del]").forEach(function (b) { b.onclick = function () { if (!confirm("Delete this defect?")) return; var arr = cbo().defects; var i = arr.findIndex(function (x) { return x.id === b.dataset.del; }); if (i >= 0) arr.splice(i, 1); delete SEL[b.dataset.del]; G("save")(); var dr = G("drawOverlays"); if (dr) try { dr(); } catch (e) { } render(); }; });
+
+    q("#v10bulk").onclick = function () {
+      var arr = cbo().defects, ids = Object.keys(SEL).filter(function (k) { return SEL[k]; });
+      var fields = ["code", "orientation", "shape", "roughness", "apertureThk", "infill"];
+      ids.forEach(function (id) { var d = arr.find(function (x) { return x.id === id; }); if (!d) return; fields.forEach(function (f) { var el = q("#bk" + f); var v = el.value; if (v && v !== "__") { d[f] = v; } }); d.updated_at = new Date().toISOString(); });
+      G("save")(); var dr = G("drawOverlays"); if (dr) try { dr(); } catch (e) { } render();
+    };
+    q("#v10appSel").onclick = function () { setState(Object.keys(SEL).filter(function (k) { return SEL[k]; }), "approved"); };
+    q("#v10appAll").onclick = function () { setState(cbo().defects.map(function (d) { return d.id; }), "approved"); };
+    q("#v10draft").onclick = function () { setState(Object.keys(SEL).filter(function (k) { return SEL[k]; }), "draft"); };
+    q("#v10sync").onclick = syncApproved;
+    q("#v10add").onclick = addDefect;
+  }
+
+  function setState(ids, st) {
+    var arr = cbo().defects;
+    ids.forEach(function (id) { var d = arr.find(function (x) { return x.id === id; }); if (d) { d.review_status = st; d.confirmed = (st !== "draft"); d.updated_at = new Date().toISOString(); } });
+    G("save")(); render();
+  }
+  function addDefect() {
+    var depth = parseFloat(prompt("New defect — from depth (m):", "")); if (isNaN(depth)) return;
+    var code = (prompt("Type code (BP, JT, SZ, FZ, CZ, CS, MB, CL …):", "JT") || "JT").toUpperCase().trim();
+    if (!G("CODE_INFO")[code]) { alert("Unknown code: " + code); return; }
+    var d = { id: "cb_" + Date.now().toString(36) + Math.random().toString(36).slice(2, 6), code: code, from: depth, to: depth, orientation: "", persistence: "", aperture: "", apertureThk: "", roughness: "", shape: "", infill: "", infillHard: "", weatherZone: "", strengthZone: "", comments: "", countRqd: true, confirmed: false, review_status: "draft", source: "manual", created_at: new Date().toISOString(), updated_at: new Date().toISOString() };
+    cbo().defects.push(d); G("save")(); var dr = G("drawOverlays"); if (dr) try { dr(); } catch (e) { } SEL[d.id] = true; render();
+  }
+  // sync ONLY approved defects to the Rock Log (no drafts) — mirrors cb3's mapping
+  var TYPEMAP = { BP: "Bedding parting", PL: "Joint", CU: "Joint", IR: "Joint", JT: "Joint", CS: "Clay seam", QS: "Infilled seam", FS: "Infilled seam", IS: "Infilled seam", SZ: "Sheared seam", FZ: "Fracture zone", CZ: "Crushed seam", BZ: "Crushed seam", XWZ: "Fracture zone", HWZ: "Fracture zone", MWZ: "Fracture zone", NB: "Natural break", MB: "Mechanical break", DB: "Drilling break", CL: "Core loss", VD: "Void", V: "Void" };
+  function syncApproved() {
+    var c = cbo(); var L = G("logs")(); var blankRock = G("blankRock"); if (!L || typeof blankRock !== "function") { alert("Rock log unavailable"); return; }
+    var approved = c.defects.filter(function (d) { return statusOf(d) === "approved"; });
+    if (!approved.length) { alert("No approved defects to sync. Approve rows first (draft rows are not synced)."); return; }
+    var n = 0;
+    approved.forEach(function (d) {
+      if (L.rock.some(function (r) { return r._cbid === d.id; })) { d.review_status = "synced"; return; }
+      var info = G("CODE_INFO")[d.code] || {}; var isZone = info.group === "zone" || d.code === "CL" || d.code === "VD";
+      var row = blankRock(); row._cbid = d.id; row.from = d.from; row.to = isZone && G("num")(d.to) != null ? d.to : d.from;
+      row.defectType = TYPEMAP[d.code] || "Joint"; row.defectAngle = d.orientation || "";
+      row.defectRough = short(d.roughness).length === 2 ? short(d.roughness) : ((d.roughness || "").split(" — ")[1] || "");
+      row.defectInfill = d.infill && d.infill !== "None" ? String(d.infill).toLowerCase() : "";
+      row.defectAperture = (d.apertureThk || "").split(" — ")[1] || "";
+      row.remarks = d.code + (d.comments ? " — " + d.comments : "") + " (corebox review)";
+      L.rock.push(row); d.review_status = "synced"; n++;
+    });
+    L.rock.sort(function (a, b) { return (G("num")(a.from) == null ? 999 : G("num")(a.from)) - (G("num")(b.from) == null ? 999 : G("num")(b.from)); });
+    G("save")(); render();
+    var ss = G("setStatus"); if (typeof ss === "function") ss("Synced " + n + " approved defect(s) → Rock Log");
+    alert("Synced " + n + " approved defect(s) to the Rock Log. Drafts were left untouched.");
+  }
+
+  function inject() {
+    var bar = document.querySelector(".cb3-status"); if (!bar || document.getElementById("v10btn")) return;
+    var b = document.createElement("button"); b.className = "btn"; b.id = "v10btn"; b.textContent = "⊞ Review sheet";
+    b.onclick = function () { if (!has()) return; SEL = {}; overlay(); render(); };
+    var sync = bar.querySelector("#cbSync"); if (sync) bar.insertBefore(b, sync); else bar.appendChild(b);
+  }
+  if (typeof renderCorebox !== "undefined") { var _r = renderCorebox; renderCorebox = function () { _r.apply(this, arguments); try { inject(); } catch (e) { } }; }
+  document.addEventListener("DOMContentLoaded", function () { try { inject(); } catch (e) { } });
+  try { inject(); } catch (e) { }
+})();
+
+</script>
 </body>
 </html>
