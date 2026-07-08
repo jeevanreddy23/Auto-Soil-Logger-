@@ -4342,81 +4342,137 @@ function pjCtxBar(){
 
 </script>
 <script id="v8-defect-glue">
-/* v8: Rapid multiple-defect mode for the Corebox (SUB-PROMPT 14/15) — additive.
-   Enriches the existing click-to-mark with a full template (set once), computes spacing,
-   closely-spaced groups (never auto-FZ), <100mm pieces, per-run frequency, Mode A/B output.
-   Non-breaking: reuses the app's cb().defects + cbDepthAt; only ADDS a button + panel. */
+/* v8.1: Rapid multiple-defect + Defect Set RANGE logging for the Corebox (SUB-PROMPT 14/15/16).
+   Additive: reuses cb().defects + cbDepthAt/cbYAt. Adds a Multi mode, a 2-click RANGE selector that
+   creates a Defect Set (range + shared defaults), tags each placed defect with set_id (individual
+   depth records preserved — the set is only a grouping), a subtle interval band, grouped review with
+   per-defect override, spacing / closely-spaced groups / <100mm pieces, feeding the live TCR/RQD. */
 (function () {
   "use strict";
   var D = window.STSDefect, RP = window.STSRapidDefect; if (!D || !RP) return;
-  var TYPE2CODE = { "Joint": "J", "Bedding parting": "BP", "Sheared seam": "SM", "Clay seam": "CS", "Crushed seam": "CZ", "Fracture zone": "FZ", "Crushed zone": "CZ", "Infilled seam": "SM", "Drilling break": "MB", "Mechanical break": "MB", "Natural break": "NB", "Core loss": "CL", "Void": "CL" };
   var CODE2TYPE = { J: "Joint", BP: "Bedding parting", VN: "Bedding parting", SM: "Sheared seam", CS: "Clay seam", MB: "Mechanical break", NB: "Natural break", CL: "Core loss" };
-  var VOCAB = { code: ["J", "BP", "VN", "SM"], orientation: ["0°", "15°", "30°", "45°", "60°", "90°"], shape: ["PL", "CU", "UN", "ST", "IR"], roughness: ["VS", "SM", "SR", "RO", "VR"], aperture: ["Closed", "<0.1 mm", "0.1–1 mm", "1–5 mm", ">5 mm"], infill: ["Clean", "Clay", "CG", "Calcite", "Quartz", "Fe"] };
+  var TYPE2CODE = { "Joint": "J", "Bedding parting": "BP", "Sheared seam": "SM", "Clay seam": "CS", "Mechanical break": "MB", "Drilling break": "MB", "Natural break": "NB", "Core loss": "CL" };
+  var VOCAB = { code: ["BP", "J", "VN", "SM"], orientation: ["0°", "5°", "15°", "30°", "45°", "60°", "90°"], shape: ["PL", "CU", "UN", "ST", "IR"], roughness: ["VS", "SM", "SR", "RO", "VR"], aperture: ["Closed", "<0.1 mm", "0.1–1 mm", "1–5 mm", ">5 mm"], infill: ["Clean", "Clay", "CG", "Calcite", "Quartz", "Fe"] };
   var MULTI = { on: false, tpl: { code: "BP", orientation: "0°", shape: "PL", roughness: "RO", aperture: "Closed", infill: "Clean" }, lastCount: 0 };
+  var rangeStep = 0, rangeStart = null, activeSetId = null, expanded = {};
 
   function cbo() { try { return (typeof cb === "function") ? cb() : null; } catch (e) { return null; } }
+  function sets() { var c = cbo(); if (!c) return []; if (!c.defectSets) c.defectSets = []; return c.defectSets; }
   function codeOf(d) { return d.defect_code || TYPE2CODE[d.type] || "J"; }
-  function rapidView() { var c = cbo(); if (!c) return []; return c.defects.map(function (d, i) { return { defect_id: d.defect_id || (codeOf(d) + (i + 1)), defect_code: codeOf(d), depth_from: d.depth, depth: d.depth, orientation: d.orientation, shape: d.shape, roughness: d.roughness, aperture: d.aperture, infill: d.infill, break_class: (d.type === "Mechanical break" || d.type === "Drilling break") ? "mechanical" : undefined }; }); }
-
-  function chips(field) { return '<div style="display:flex;flex-wrap:wrap;gap:4px;margin:2px 0">' + VOCAB[field].map(function (o) { var on = MULTI.tpl[field] === o; return '<button class="btn' + (on ? " primary" : "") + '" data-mf="' + field + '" data-mv="' + o + '" style="height:24px;font-size:11px;padding:0 8px">' + o + '</button>'; }).join("") + '</div>'; }
-
-  function panelHTML() {
-    var v = rapidView(); var t = MULTI.tpl;
-    var run = coringRun();
-    var out = '<div style="background:#0D523E;color:#fff;border-radius:6px;padding:7px 10px;font-size:12.5px;margin:6px 0"><b>ACTIVE TEMPLATE:</b> ' + t.code + ' | ' + t.orientation + ' | ' + t.shape + ' | ' + t.roughness + ' | ' + t.aperture + ' | ' + t.infill + ' &nbsp; <span style="opacity:.8">click the core to drop each defect</span></div>';
-    out += '<div style="font-size:11px;color:#5b6b62;text-transform:uppercase;margin:6px 0 2px">Set template once</div>';
-    ["code", "orientation", "shape", "roughness", "aperture", "infill"].forEach(function (f) { out += chips(f); });
-    if (run) {
-      var groups = RP.detectCloselySpacedGroups(v);
-      var freq = RP.defectFrequency(v, run);
-      var pieces = RP.segmentPieces(v, run); var under = pieces.filter(function (p) { return p.length_mm < 100; });
-      out += '<div style="margin-top:8px;font-size:12.5px">Natural defects in run: <b>' + freq.natural_count + '</b>' + (freq.spacing_min != null ? ' · spacing ' + freq.spacing_min + '–' + freq.spacing_max + ' mm' : '') + '</div>';
-      if (groups.length) groups.forEach(function (g) { out += '<div style="background:#eef4f0;border:1px solid #cdd8d1;border-radius:6px;padding:6px 9px;margin:5px 0;font-size:12px"><b>' + g.group_type + ' SET</b> · ' + g.count + ' × ' + g.group_type + ' · ' + g.depth_from.toFixed(3) + '–' + g.depth_to.toFixed(3) + ' m · ' + g.spacing_min + '–' + g.spacing_max + ' mm</div>'; });
-      if (groups.length) out += '<div style="background:#fff7e6;border:1px solid #f0d48a;border-radius:6px;padding:6px 9px;font-size:12px;margin:4px 0">⚠ Closely-spaced group — kept as individual defects, NOT auto-classified as FZ (engineer decides).</div>';
-      if (under.length) out += '<div style="background:#fff7e6;border:1px solid #f0d48a;border-radius:6px;padding:6px 9px;font-size:12px;margin:4px 0">' + under.length + ' core piece(s) &lt;100 mm — excluded from RQD qualifying, retained in TCR.</div>';
-      if (groups.length) out += '<div style="font-size:11px;color:#5b6b62;margin-top:6px">ROCK LOG (Mode B):</div><div style="background:#f5f7f5;border:1px solid #e2e8e3;border-radius:6px;padding:7px 9px;font-size:12px">' + groups.map(function (g) { return RP.outputModeB(g); }).join("<br><br>") + '</div>';
-    } else out += '<div style="font-size:12px;color:#8a968f;margin-top:8px">Calibrate top/bottom depths to see spacing, groups and &lt;100 mm pieces.</div>';
-    return out;
+  function members(setId) { var c = cbo(); return c ? c.defects.filter(function (d) { return d.set_id === setId; }) : []; }
+  function activeSet() { return sets().filter(function (s) { return s.set_id === activeSetId; })[0] || null; }
+  function newSet(code, a, b) {
+    var same = sets().filter(function (s) { return s.set_type === code; }).length;
+    return { set_id: code + "-SET-" + String(same + 1).padStart(2, "0"), set_type: code, range_from: Math.min(a, b), range_to: Math.max(a, b), defaults: Object.assign({}, MULTI.tpl), created_at: new Date().toISOString() };
   }
+  function rapidView() { var c = cbo(); if (!c) return []; return c.defects.map(function (d, i) { return { defect_id: d.defect_id || (codeOf(d) + (i + 1)), defect_code: codeOf(d), depth_from: d.depth, depth: d.depth, break_class: (d.type === "Mechanical break" || d.type === "Drilling break") ? "mechanical" : undefined }; }); }
   function coringRun() { var c = cbo(); var t = c && parseFloat(c.topD), b = c && parseFloat(c.botD); if (isNaN(t) || isNaN(b) || b <= t) return null; return { run_id: "CB", from: t, to: b }; }
 
-  function renderPanel() { var p = document.getElementById("cbMultiPanel"); if (!p) return; p.style.display = MULTI.on ? "" : "none"; if (MULTI.on) { p.innerHTML = panelHTML(); wire(p); } }
-  function wire(p) {
-    p.querySelectorAll("[data-mf]").forEach(function (b) {
-      b.onclick = function () {
-        MULTI.tpl[b.dataset.mf] = b.dataset.mv;
-        if (b.dataset.mf === "code") { try { cbDefType = CODE2TYPE[MULTI.tpl.code] || "Bedding parting"; var sel = document.getElementById("cbDefType"); if (sel) sel.value = cbDefType; } catch (e) { } }
-        renderPanel();
-      };
+  /* ---- overlays: subtle interval bands (do not obscure the photo) ---- */
+  function drawBands() {
+    var inner = document.getElementById("cbInner"); if (!inner) return;
+    inner.querySelectorAll(".cb-setband").forEach(function (x) { x.remove(); });
+    if (typeof cbYAt !== "function") return;
+    sets().forEach(function (s) {
+      var y1 = cbYAt(s.range_from), y2 = cbYAt(s.range_to); if (y1 == null || y2 == null) return;
+      var d = document.createElement("div"); d.className = "cb-setband";
+      var active = s.set_id === activeSetId;
+      d.style.cssText = "position:absolute;left:0;right:0;top:" + Math.min(y1, y2) + "px;height:" + Math.abs(y2 - y1) + "px;background:" + (active ? "rgba(20,116,71,.18)" : "rgba(0,224,255,.08)") + ";border-top:1px solid " + (active ? "#147447" : "#00e0ff") + ";border-bottom:1px solid " + (active ? "#147447" : "#00e0ff") + ";pointer-events:none;z-index:1";
+      d.innerHTML = '<span style="position:absolute;left:4px;top:2px;font-size:' + (10) + 'px;color:' + (active ? "#0b3a28" : "#0b5") + ';background:rgba(255,255,255,.75);padding:0 4px;border-radius:3px">' + s.set_id + ' · ' + s.range_from.toFixed(2) + '–' + s.range_to.toFixed(2) + ' m</span>';
+      inner.appendChild(d);
     });
   }
 
+  /* ---- range pick (2 clicks) via capture listener so it doesn't add a defect ---- */
+  function onCapture(e) {
+    if (rangeStep === 0) return;
+    e.stopPropagation(); e.preventDefault();
+    var stage = document.getElementById("cbStage"); var rect = stage.getBoundingClientRect();
+    var y = (e.clientY - rect.top - (typeof cbPanY !== "undefined" ? cbPanY : 0)) / (typeof cbZoom !== "undefined" ? cbZoom : 1);
+    var depth = cbDepthAt(y);
+    if (depth == null) { if (typeof setStatus === "function") setStatus("Calibrate top/bottom depths first"); rangeStep = 0; renderPanel(); return; }
+    depth = Math.round(depth * 100) / 100;
+    if (rangeStep === 1) { rangeStart = depth; rangeStep = 2; renderPanel(); }
+    else { var s = newSet(MULTI.tpl.code, rangeStart, depth); sets().push(s); activeSetId = s.set_id; rangeStep = 0; if (typeof save === "function") save(); drawBands(); renderPanel(); }
+  }
+
+  /* ---- enrich each placed defect with the template + active set ---- */
   function onStageClick() {
-    if (!MULTI.on) return; var c = cbo(); if (!c) return;
+    if (!MULTI.on || rangeStep !== 0) return;
+    var c = cbo(); if (!c) return;
     if (c.defects.length > MULTI.lastCount) {
       var d = c.defects[c.defects.length - 1];
       d.orientation = MULTI.tpl.orientation; d.angle = parseFloat(MULTI.tpl.orientation) || 0;
       d.shape = MULTI.tpl.shape; d.roughness = MULTI.tpl.roughness; d.aperture = MULTI.tpl.aperture; d.infill = MULTI.tpl.infill; d.defect_code = MULTI.tpl.code;
+      var s = activeSet();
+      if (s && d.depth >= s.range_from - 1e-9 && d.depth <= s.range_to + 1e-9) d.set_id = s.set_id;
       if (typeof save === "function") save();
     }
-    MULTI.lastCount = c.defects.length; renderPanel();
+    MULTI.lastCount = c.defects.length; drawBands(); renderPanel();
+  }
+
+  function chips(field) { return '<div style="display:flex;flex-wrap:wrap;gap:4px;margin:2px 0">' + VOCAB[field].map(function (o) { var on = MULTI.tpl[field] === o; return '<button class="btn' + (on ? " primary" : "") + '" data-mf="' + field + '" data-mv="' + o + '" style="height:26px;min-width:40px;font-size:11px;padding:0 8px">' + o + '</button>'; }).join("") + '</div>'; }
+
+  function panelHTML() {
+    var t = MULTI.tpl, v = rapidView(), run = coringRun();
+    var out = '<div style="background:#0D523E;color:#fff;border-radius:6px;padding:7px 10px;font-size:12.5px;margin:6px 0"><b>DEFECT-SET DEFAULTS:</b> ' + t.code + ' | ' + t.orientation + ' | ' + t.shape + ' | ' + t.roughness + ' | ' + t.aperture + ' | ' + t.infill + '</div>';
+    out += '<div style="font-size:11px;color:#5b6b62;text-transform:uppercase;margin:6px 0 2px">Set defaults once</div>';
+    ["code", "orientation", "shape", "roughness", "aperture", "infill"].forEach(function (f) { out += chips(f); });
+    // range control
+    if (rangeStep === 1) out += '<div style="background:#fff7e6;border:1px solid #f0d48a;border-radius:6px;padding:7px 9px;font-size:12.5px;margin:8px 0">▸ Click the <b>START</b> depth of the ' + t.code + ' interval on the core…</div>';
+    else if (rangeStep === 2) out += '<div style="background:#fff7e6;border:1px solid #f0d48a;border-radius:6px;padding:7px 9px;font-size:12.5px;margin:8px 0">▸ Start = <b>' + rangeStart.toFixed(2) + ' m</b>. Now click the <b>END</b> depth…</div>';
+    else { var as = activeSet(); out += '<div style="margin:8px 0"><button class="btn primary" id="setRange">◧ New ' + t.code + ' set (click start + end)</button>' + (as ? ' <span style="font-size:12.5px;margin-left:6px">Active: <b>' + as.set_id + '</b> · ' + as.range_from.toFixed(2) + '–' + as.range_to.toFixed(2) + ' m — click defects inside</span>' : '') + '</div>'; }
+    // grouped review (SUB-PROMPT 16 §9)
+    if (sets().length) {
+      out += '<div style="font-size:11px;color:#5b6b62;text-transform:uppercase;margin:10px 0 4px">Defect sets (review)</div>';
+      sets().forEach(function (s) {
+        var mem = members(s.set_id).sort(function (a, b) { return a.depth - b.depth; });
+        var d = s.defaults;
+        out += '<div style="border:1px solid #cdd8d1;border-radius:6px;padding:7px 9px;margin:5px 0;font-size:12.5px">'
+          + '<div style="cursor:pointer" data-exp="' + s.set_id + '"><b>' + s.range_from.toFixed(2) + '–' + s.range_to.toFixed(2) + ' m</b> · ' + s.set_type + ' Set · ' + mem.length + ' defects &nbsp;<span style="color:#5b6b62">Default: ' + d.orientation + ' · ' + d.shape + ' · ' + d.roughness + ' · ' + d.aperture + ' · ' + d.infill + '</span> ' + (activeSetId === s.set_id ? '<span class="btn primary" style="height:18px;font-size:10px;padding:0 6px">active</span>' : '<button class="btn" data-act="' + s.set_id + '" style="height:20px;font-size:10px;padding:0 6px">make active</button>') + ' <span style="float:right">' + (expanded[s.set_id] ? "▾" : "▸") + '</span></div>';
+        if (expanded[s.set_id]) out += '<table style="width:100%;border-collapse:collapse;font-size:11.5px;margin-top:5px"><tr style="color:#5b6b62"><th style="text-align:left">Defect</th><th>Depth</th><th>Orient</th><th>Shape</th><th>Rough</th></tr>' + mem.map(function (m2, i) {
+          return '<tr><td>' + s.set_type + '-' + String(i + 1).padStart(2, "0") + '</td><td>' + m2.depth.toFixed(3) + ' m</td><td><input data-ov="' + s.set_id + '|' + i + '|orientation" value="' + (m2.orientation || "") + '" style="width:46px"></td><td><input data-ov="' + s.set_id + '|' + i + '|shape" value="' + (m2.shape || "") + '" style="width:40px"></td><td><input data-ov="' + s.set_id + '|' + i + '|roughness" value="' + (m2.roughness || "") + '" style="width:40px"></td></tr>';
+        }).join("") + '</table>';
+        out += '</div>';
+      });
+    }
+    if (run) {
+      var groups = RP.detectCloselySpacedGroups(v), freq = RP.defectFrequency(v, run);
+      var under = RP.segmentPieces(v, run).filter(function (p) { return p.length_mm < 100; });
+      out += '<div style="margin-top:8px;font-size:12.5px">Natural defects in run: <b>' + freq.natural_count + '</b>' + (freq.spacing_min != null ? ' · spacing ' + freq.spacing_min + '–' + freq.spacing_max + ' mm' : '') + '</div>';
+      if (groups.length) out += '<div style="background:#fff7e6;border:1px solid #f0d48a;border-radius:6px;padding:6px 9px;font-size:12px;margin:4px 0">⚠ Closely-spaced group(s) — kept individual, NOT auto-classified as FZ (engineer decides).</div>';
+      if (under.length) out += '<div style="background:#fff7e6;border:1px solid #f0d48a;border-radius:6px;padding:6px 9px;font-size:12px;margin:4px 0">' + under.length + ' core piece(s) &lt;100 mm — excluded from RQD qualifying, retained in TCR.</div>';
+    }
+    return out;
+  }
+
+  function renderPanel() { var p = document.getElementById("cbMultiPanel"); if (!p) return; p.style.display = MULTI.on ? "" : "none"; if (!MULTI.on) return; p.innerHTML = panelHTML(); wire(p); }
+  function wire(p) {
+    p.querySelectorAll("[data-mf]").forEach(function (b) { b.onclick = function () { MULTI.tpl[b.dataset.mf] = b.dataset.mv; if (b.dataset.mf === "code") { try { cbDefType = CODE2TYPE[MULTI.tpl.code] || "Bedding parting"; var sel = document.getElementById("cbDefType"); if (sel) sel.value = cbDefType; } catch (e) { } } renderPanel(); }; });
+    var sr = p.querySelector("#setRange"); if (sr) sr.onclick = function () { rangeStep = 1; renderPanel(); };
+    p.querySelectorAll("[data-exp]").forEach(function (el) { el.onclick = function (e) { if (e.target.dataset.act || e.target.dataset.ov) return; expanded[el.dataset.exp] = !expanded[el.dataset.exp]; renderPanel(); }; });
+    p.querySelectorAll("[data-act]").forEach(function (b) { b.onclick = function (e) { e.stopPropagation(); activeSetId = b.dataset.act; drawBands(); renderPanel(); }; });
+    p.querySelectorAll("[data-ov]").forEach(function (inp) { inp.onchange = function () { var parts = inp.dataset.ov.split("|"); var mem = members(parts[0]).sort(function (a, b) { return a.depth - b.depth; }); var d = mem[+parts[1]]; if (d) { d[parts[2]] = inp.value; if (parts[2] === "orientation") d.angle = parseFloat(inp.value) || 0; if (typeof save === "function") save(); } }; });
   }
 
   function inject() {
     var page = document.getElementById("page-corebox"); if (!page) return;
     var c = cbo(); MULTI.lastCount = c ? c.defects.length : 0;
     var tb = page.querySelector(".toolbar");
-    if (tb && !document.getElementById("cbMulti")) {
-      var b = document.createElement("button"); b.className = "btn"; b.id = "cbMulti"; b.textContent = "▦ Multi defect (M)";
-      b.onclick = toggle; tb.appendChild(b);
-    }
+    if (tb && !document.getElementById("cbMulti")) { var b = document.createElement("button"); b.className = "btn"; b.id = "cbMulti"; b.textContent = "▦ Multi / Set (M)"; b.onclick = toggle; tb.appendChild(b); }
     if (!document.getElementById("cbMultiPanel")) { var d = document.createElement("div"); d.id = "cbMultiPanel"; d.style.cssText = "display:none;padding:0 10px 10px"; var list = document.getElementById("cbDefList"); if (list && list.parentNode) list.parentNode.insertBefore(d, list); else page.querySelector(".panel").appendChild(d); }
-    var stage = document.getElementById("cbStage"); if (stage && !stage._v8) { stage._v8 = true; stage.addEventListener("click", onStageClick); }
-    renderPanel();
+    var stage = document.getElementById("cbStage");
+    if (stage && !stage._v8) { stage._v8 = true; stage.addEventListener("click", onStageClick); stage.addEventListener("click", onCapture, true); }
+    drawBands(); renderPanel();
   }
-  function toggle() { MULTI.on = !MULTI.on; var b = document.getElementById("cbMulti"); if (b) b.classList.toggle("primary", MULTI.on); if (MULTI.on) { try { cbMode = "defect"; cbDefType = CODE2TYPE[MULTI.tpl.code] || "Bedding parting"; } catch (e) { } } renderPanel(); }
+  function toggle() { MULTI.on = !MULTI.on; rangeStep = 0; var b = document.getElementById("cbMulti"); if (b) b.classList.toggle("primary", MULTI.on); if (MULTI.on) { try { cbMode = "defect"; cbDefType = CODE2TYPE[MULTI.tpl.code] || "Bedding parting"; } catch (e) { } } renderPanel(); }
 
-  document.addEventListener("keydown", function (e) { if ((e.key === "m" || e.key === "M") && e.target.tagName !== "INPUT" && e.target.tagName !== "SELECT" && e.target.tagName !== "TEXTAREA") { var p = document.getElementById("page-corebox"); if (p && p.classList.contains("show")) { e.preventDefault(); toggle(); } } });
+  document.addEventListener("keydown", function (e) {
+    if (e.target.tagName === "INPUT" || e.target.tagName === "SELECT" || e.target.tagName === "TEXTAREA") return;
+    var p = document.getElementById("page-corebox"); if (!p || !p.classList.contains("show")) return;
+    if (e.key === "m" || e.key === "M") { e.preventDefault(); toggle(); }
+    else if (e.key === "Escape" && rangeStep) { rangeStep = 0; renderPanel(); }
+  });
   if (typeof renderCorebox !== "undefined") { var _r = renderCorebox; renderCorebox = function () { _r.apply(this, arguments); inject(); }; }
   document.addEventListener("DOMContentLoaded", inject); inject();
 })();
