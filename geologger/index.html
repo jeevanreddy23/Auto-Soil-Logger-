@@ -4018,5 +4018,409 @@ function pjCtxBar(){
 })();
 
 </script>
+<script id="v8-defect-engine">
+/*!
+ * STS GeoFlow — Corebox rock-defect engine (SUB-PROMPT 14). Framework-free.
+ * Viewport transform with image-relative coordinate safety (pan/zoom never move defects),
+ * click-to-depth off calibrated runs, STS defect codes, attribute vocab, validation,
+ * repeat-previous / apply-to-similar / bulk edit, sync-to-Rock-Log mapping, edit history.
+ */
+(function (root, factory) {
+  var api = factory();
+  if (typeof module !== "undefined" && module.exports) module.exports = api;
+  if (typeof window !== "undefined") window.STSDefect = api;
+})(typeof self !== "undefined" ? self : this, function () {
+  "use strict";
+
+  /* ---- STS defect codes (§8) — CZ=Crushed, CLZ=Clay (never share a code) ---- */
+  var CODES = {
+    J: "Joint", BP: "Bedding Plane", VN: "Vein", SM: "Seam", FZ: "Fractured Zone",
+    SZ: "Sheared Zone", CZ: "Crushed Zone", CLZ: "Clay Zone", CS: "Clay Seam",
+    CG: "Clay Gouge", CL: "Core Loss", MB: "Mechanical Break", NB: "Natural Break"
+  };
+  var VOCAB = {
+    shape: ["PL", "CU", "UN", "ST", "IR"],
+    roughness: ["VS", "SM", "SR", "RO", "VR"],
+    aperture: ["Closed", "<0.1 mm", "0.1–1 mm", "1–5 mm", "5–20 mm", ">20 mm"],
+    infill: ["Clean", "Clay", "Clay gouge", "Silt", "Sand", "Calcite", "Quartz", "Iron oxide", "Carbonaceous", "Manganese", "Other"],
+    infill_thickness: ["0 mm", "<1 mm", "1–5 mm", "5–20 mm", "20–50 mm", ">50 mm"],
+    coating: ["None", "Iron stained", "Clay coating", "Calcite coating", "Manganese coating", "Carbonaceous coating"],
+    weathering: ["FR", "SW", "MW", "HW", "XW"],
+    persistence: ["Short", "Medium", "Long", "Through core diameter", "Unknown"],
+    water: ["Dry", "Damp", "Wet"]
+  };
+  var ZONE_TYPES = { FZ: 1, SZ: 1, CZ: 1, CLZ: 1, CL: 1 }; // have thickness / from-to
+
+  /* ---- viewport transform (§2, §17): screen = image*scale + pan ---- */
+  function makeViewport(o) { o = o || {}; return { scale: o.scale || 1, panX: o.panX || 0, panY: o.panY || 0 }; }
+  function imageToScreen(vp, ix, iy) { return { x: ix * vp.scale + vp.panX, y: iy * vp.scale + vp.panY }; }
+  function screenToImage(vp, sx, sy) { return { x: (sx - vp.panX) / vp.scale, y: (sy - vp.panY) / vp.scale }; }
+  function panBy(vp, dx, dy) { return { scale: vp.scale, panX: vp.panX + dx, panY: vp.panY + dy }; }
+  function zoomAt(vp, sx, sy, factor, min, max) {
+    var ns = Math.min(max || 40, Math.max(min || 0.05, vp.scale * factor));
+    var img = screenToImage(vp, sx, sy);            // keep the point under the cursor fixed
+    return { scale: ns, panX: sx - img.x * ns, panY: sy - img.y * ns };
+  }
+
+  /* ---- click-to-depth off a calibrated run (§6) ---- */
+  // run.image = { axis:"y"|"x", from_px, to_px } maps run.depth_from@from_px .. run.depth_to@to_px
+  function defectDepth(run, point) {
+    var im = run.image || { axis: "y", from_px: 0, to_px: 1 };
+    var p = im.axis === "x" ? point.x : point.y;
+    var t = (im.to_px === im.from_px) ? 0 : (p - im.from_px) / (im.to_px - im.from_px);
+    t = Math.min(1, Math.max(0, t));
+    return round3(run.depth_from + t * (run.depth_to - run.depth_from));
+  }
+  function zoneDepths(run, p1, p2) {
+    var d1 = defectDepth(run, p1), d2 = defectDepth(run, p2);
+    var from = Math.min(d1, d2), to = Math.max(d1, d2);
+    return { depth_from: from, depth_to: to, thickness_mm: Math.round((to - from) * 1000) };
+  }
+
+  /* ---- id allocation (§4) ---- */
+  function allocateId(code, defects) {
+    var n = 0; (defects || []).forEach(function (d) { if (d.defect_code === code) { var m = /(\d+)$/.exec(d.defect_id || ""); if (m) n = Math.max(n, +m[1]); } });
+    return code + (n + 1);
+  }
+
+  /* ---- defect model + edit history (§15, §17) ---- */
+  function makeDefect(o, defects) {
+    o = o || {};
+    var code = o.defect_code || "J";
+    return {
+      defect_id: o.defect_id || allocateId(code, defects || []),
+      defect_code: code, defect_type: o.defect_type || CODES[code] || "Joint",
+      corebox_id: o.corebox_id || "", image_id: o.image_id || "", run_id: o.run_id || "",
+      geometry_type: o.geometry_type || (ZONE_TYPES[code] ? "zone" : "point"),
+      image_x: o.image_x == null ? null : o.image_x, image_y: o.image_y == null ? null : o.image_y,
+      image_geometry: o.image_geometry || null,          // [{x,y}...] in image px
+      depth_from: o.depth_from == null ? null : o.depth_from,
+      depth_to: o.depth_to == null ? null : o.depth_to,
+      shape: o.shape || "", orientation: o.orientation || "", alpha: o.alpha == null ? null : o.alpha, beta: o.beta == null ? null : o.beta,
+      roughness: o.roughness || "", aperture: o.aperture || "", infill: o.infill || "",
+      infill_thickness: o.infill_thickness || "", coating: o.coating || "", weathering: o.weathering || "",
+      persistence: o.persistence || "", water: o.water || "", comments: o.comments || "",
+      confidence: o.confidence == null ? null : o.confidence,
+      review_status: o.review_status || "unreviewed",     // unreviewed|reviewed|approved
+      created_by: o.created_by || "", created_at: o.created_at || nowISO(),
+      updated_by: "", updated_at: "",
+      original_ai_suggestion: o.original_ai_suggestion || (o.confidence != null ? pickAttrs(o) : null),
+      engineer_override: null, override_reason: ""
+    };
+  }
+  var ATTR = ["defect_code", "defect_type", "shape", "orientation", "roughness", "aperture", "infill", "infill_thickness", "coating", "weathering", "persistence", "water"];
+  function pickAttrs(d) { var o = {}; ATTR.forEach(function (k) { o[k] = d[k]; }); return o; }
+
+  function applyEdit(defect, changes, by, reason) {
+    var before = pickAttrs(defect);
+    var d = Object.assign({}, defect, changes);
+    if (changes.defect_code && CODES[changes.defect_code]) d.defect_type = CODES[changes.defect_code];
+    d.updated_by = by || ""; d.updated_at = nowISO();
+    if (defect.original_ai_suggestion) { d.engineer_override = pickAttrs(d); if (reason) d.override_reason = reason; }
+    d._before = before;
+    return d;
+  }
+
+  /* repeat previous (§10) — copy attributes only, keep id/coords/depth */
+  function repeatAttributes(prev, target) {
+    var o = Object.assign({}, target); ATTR.forEach(function (k) { if (prev[k]) o[k] = prev[k]; });
+    if (prev.defect_code) o.defect_type = CODES[prev.defect_code] || o.defect_type;
+    return o;
+  }
+  function applyToSimilar(defects, changes, filterFn) {
+    return defects.map(function (d) { return filterFn(d) ? Object.assign({}, d, changes) : d; });
+  }
+
+  /* bulk edit (§11) */
+  function summarizeSelection(defects, ids) {
+    var sel = defects.filter(function (d) { return ids.indexOf(d.defect_id) >= 0; });
+    var out = {};
+    ATTR.forEach(function (k) { var vals = sel.map(function (d) { return d[k]; }); var uniq = vals.filter(function (v, i) { return v && vals.indexOf(v) === i; }); out[k] = uniq.length === 1 ? uniq[0] : (uniq.length ? "«mixed»" : ""); });
+    return out;
+  }
+  function bulkEdit(defects, ids, changes, by) {
+    return defects.map(function (d) { return ids.indexOf(d.defect_id) >= 0 ? applyEdit(d, changes, by) : d; });
+  }
+
+  /* validation (§13) — warnings, not blocks */
+  function validateDefect(d) {
+    var w = [], c = d.defect_code;
+    if (c === "VN" && (!d.infill || d.infill === "Clean")) w.push({ level: "warning", code: "vein_infill", msg: "Vein: specify infill / mineral type." });
+    if (c === "CLZ" && (d.depth_from == null || d.depth_to == null)) w.push({ level: "error", code: "zone_depth", msg: "Clay Zone requires From and To depth." });
+    if (c === "J") { if (!d.shape) w.push({ level: "warning", code: "j_shape", msg: "Joint: shape not recorded." }); if (!d.roughness) w.push({ level: "warning", code: "j_rough", msg: "Joint: roughness not recorded." }); if (!d.aperture) w.push({ level: "warning", code: "j_ap", msg: "Joint: aperture not recorded." }); }
+    if (d.infill === "Clay gouge") w.push({ level: "suggestion", code: "gouge", msg: "Clay gouge — possible sheared condition (not forced)." });
+    if (d.aperture === "Closed" && d.infill_thickness && d.infill_thickness !== "0 mm") w.push({ level: "warning", code: "closed_infill", msg: "Aperture Closed — infill thickness should normally be 0 (coating only)." });
+    // Core Loss does NOT require roughness/orientation — no warning raised for those
+    return w;
+  }
+
+  /* sync to Rock Log (§14) — only reviewed/approved; structured mapping, no re-typing */
+  function toRockLogDefect(d) {
+    return {
+      depth_from: d.depth_from, depth_to: d.depth_to, defect_type: d.defect_type, defect_code: d.defect_code,
+      shape: d.shape, orientation: d.orientation, alpha: d.alpha, beta: d.beta, roughness: d.roughness,
+      aperture: d.aperture, infill: d.infill, infill_thickness: d.infill_thickness, coating: d.coating,
+      weathering: d.weathering, persistence: d.persistence, water: d.water, comment: d.comments,
+      source: "corebox", source_defect_id: d.defect_id
+    };
+  }
+  function syncApproved(defects, opts) {
+    opts = opts || {}; var ids = opts.selectedIds;
+    return defects.filter(function (d) {
+      if (ids && ids.indexOf(d.defect_id) < 0) return false;
+      return d.review_status === "reviewed" || d.review_status === "approved"; // never sync unreviewed
+    }).map(toRockLogDefect);
+  }
+
+  function round3(x) { return Math.round(x * 1000) / 1000; }
+  function nowISO() { try { return new Date().toISOString(); } catch (e) { return ""; } }
+
+  return {
+    CODES: CODES, VOCAB: VOCAB, ZONE_TYPES: ZONE_TYPES, ATTR: ATTR,
+    makeViewport: makeViewport, imageToScreen: imageToScreen, screenToImage: screenToImage, panBy: panBy, zoomAt: zoomAt,
+    defectDepth: defectDepth, zoneDepths: zoneDepths, allocateId: allocateId, makeDefect: makeDefect,
+    applyEdit: applyEdit, repeatAttributes: repeatAttributes, applyToSimilar: applyToSimilar,
+    summarizeSelection: summarizeSelection, bulkEdit: bulkEdit, validateDefect: validateDefect,
+    toRockLogDefect: toRockLogDefect, syncApproved: syncApproved
+  };
+});
+
+/*!
+ * STS GeoFlow — rapid multiple-defect logging (SUB-PROMPT 15). Framework-free.
+ * Extends the defect engine: template-once + click-each rapid create (each defect kept
+ * individually), spacing computation, closely-spaced group detection (never auto-FZ),
+ * defect_group object, <100mm piece segmentation for RQD, natural-vs-mechanical rules,
+ * per-run frequency, copy-attributes, group MIXED summary, Rock Log output modes A/B.
+ */
+(function (root, factory) {
+  var api = factory(root && root.STSDefect);
+  if (typeof module !== "undefined" && module.exports) module.exports = api;
+  if (typeof window !== "undefined") window.STSRapidDefect = api;
+})(typeof self !== "undefined" ? self : this, function (D) {
+  "use strict";
+  D = D || (typeof require !== "undefined" && require("/sessions/brave-fervent-feynman/mnt/outputs/soillog-upgrade/sts_defect_engine.js"));
+  var QUALIFY_MM = 100;
+  var NATURAL = { J: 1, BP: 1, VN: 1, SM: 1, CS: 1, VN_BREAK: 1 };
+  var MECH = { MB: 1 };
+  var ATTR = ["defect_code", "orientation", "shape", "roughness", "aperture", "infill", "coating"];
+
+  function depthOf(d) { return d.depth_from != null ? d.depth_from : (d.depth != null ? d.depth : null); }
+  function sortByDepth(defs) { return defs.slice().sort(function (a, b) { return (depthOf(a) || 0) - (depthOf(b) || 0); }); }
+  function round(x, n) { var f = Math.pow(10, n || 0); return Math.round(x * f) / f; }
+  function isMechanical(d) { return !!MECH[d.defect_code] || d.break_class === "mechanical"; }
+  function isNatural(d) { return !isMechanical(d) && d.break_class !== "artificial"; }
+
+  /* §4 spacing between consecutive defects (mm) */
+  function computeSpacings(defs) {
+    var s = sortByDepth(defs), out = [];
+    for (var i = 1; i < s.length; i++) out.push({ from_id: s[i - 1].defect_id, to_id: s[i].defect_id, spacing_mm: Math.round((depthOf(s[i]) - depthOf(s[i - 1])) * 1000) });
+    return out;
+  }
+  function spacingStats(defs) {
+    var sp = computeSpacings(defs).map(function (x) { return x.spacing_mm; });
+    if (!sp.length) return { min: null, max: null, mean: null };
+    return { min: Math.min.apply(null, sp), max: Math.max.apply(null, sp), mean: Math.round(sp.reduce(function (a, b) { return a + b; }, 0) / sp.length) };
+  }
+
+  /* §5 group object — parent group, individual children preserved */
+  function commonAttributes(defs) {
+    var o = {}; ATTR.forEach(function (k) { var vals = defs.map(function (d) { return d[k]; }); var uniq = vals.filter(function (v, i) { return v != null && v !== "" && vals.indexOf(v) === i; }); o[k] = uniq.length === 1 ? uniq[0] : (uniq.length ? "MIXED" : ""); });
+    return o;
+  }
+  function makeGroup(defs, groupType) {
+    var s = sortByDepth(defs), st = spacingStats(s);
+    return {
+      group_id: "grp_" + Math.random().toString(36).slice(2, 9), group_type: groupType || s[0].defect_code,
+      depth_from: depthOf(s[0]), depth_to: depthOf(s[s.length - 1]), count: s.length,
+      member_defect_ids: s.map(function (d) { return d.defect_id; }),
+      spacing_min: st.min, spacing_max: st.max, spacing_mean: st.mean,
+      common_attributes: commonAttributes(s), reviewed: false
+    };
+  }
+  /* §4 detect closely spaced groups of same-type natural defects (< threshold). NEVER auto-FZ. */
+  function detectCloselySpacedGroups(defs, opts) {
+    opts = opts || {}; var thr = opts.threshold_mm || QUALIFY_MM;
+    var s = sortByDepth(defs.filter(isNatural)), groups = [], cur = [];
+    for (var i = 0; i < s.length; i++) {
+      if (!cur.length) { cur = [s[i]]; continue; }
+      var prev = cur[cur.length - 1];
+      var sameType = prev.defect_code === s[i].defect_code;
+      var spacing = Math.round((depthOf(s[i]) - depthOf(prev)) * 1000);
+      if (sameType && spacing < thr) cur.push(s[i]);
+      else { if (cur.length >= 2) groups.push(cur); cur = [s[i]]; }
+    }
+    if (cur.length >= 2) groups.push(cur);
+    return groups.map(function (g) { var grp = makeGroup(g); grp.suggestion = "closely_spaced"; grp.classification_locked = true; return grp; });
+  }
+
+  /* §1–3 rapid create: template applied to each click depth; each is a SEPARATE record */
+  function rapidCreate(template, clickDepths, ctx, existing) {
+    ctx = ctx || {}; var pool = (existing || []).slice(), out = [];
+    clickDepths.forEach(function (depth) {
+      var base = Object.assign({}, template, {
+        depth_from: depth, depth: depth, run_id: ctx.run_id || "", corebox_id: ctx.corebox_id || "",
+        image_id: ctx.image_id || "", batch_id: ctx.batch_id || "", created_by: ctx.created_by || "",
+        geometry_type: "point", review_status: "unreviewed"
+      });
+      var d = D.makeDefect(base, pool);
+      d.orientation = template.orientation != null ? template.orientation : d.orientation;
+      d.batch_id = ctx.batch_id || "";
+      pool.push(d); out.push(d);
+    });
+    return out;
+  }
+
+  /* §9 <100mm piece segmentation for RQD — individual defects preserved */
+  function segmentPieces(defs, run, opts) {
+    opts = opts || {}; var q = opts.qualify_mm || QUALIFY_MM;
+    // natural defects split pieces; confirmed mechanical breaks are reconstructed (do NOT split) unless opts.splitMechanical
+    var splitters = sortByDepth(defs.filter(function (d) {
+      var dd = depthOf(d); if (dd == null || dd <= run.from || dd >= run.to) return false;
+      if (isMechanical(d)) return !!opts.splitMechanical;   // §10: reconstruct mechanical unless asked
+      return isNatural(d);
+    }));
+    var pts = [run.from].concat(splitters.map(depthOf), [run.to]), pieces = [];
+    for (var i = 1; i < pts.length; i++) {
+      var len = Math.round((pts[i] - pts[i - 1]) * 1000);
+      pieces.push({ from: round(pts[i - 1], 3), to: round(pts[i], 3), length_mm: len, qualifies_rqd: len >= q, rqd_class: len >= q ? ">=100mm" : "<100mm" });
+    }
+    return pieces;
+  }
+  function rqdFromPieces(pieces, runLenMm) {
+    var qual = pieces.filter(function (p) { return p.qualifies_rqd; }).reduce(function (s, p) { return s + p.length_mm; }, 0);
+    return runLenMm ? round(qual / runLenMm * 100, 1) : 0;
+  }
+
+  /* §13 per-run natural-defect frequency (excludes mechanical/artificial breaks) */
+  function defectFrequency(defs, run) {
+    var nat = defs.filter(function (d) { var dd = depthOf(d); return isNatural(d) && dd >= run.from && dd <= run.to; });
+    var byType = {}; nat.forEach(function (d) { byType[d.defect_code] = (byType[d.defect_code] || 0) + 1; });
+    var st = spacingStats(nat);
+    return { run_id: run.run_id, from: run.from, to: run.to, natural_count: nat.length, by_type: byType, spacing_min: st.min, spacing_max: st.max, spacing_mean: st.mean };
+  }
+
+  /* §12 copy attributes (never depth/coords/id/run) */
+  function copyAttributes(source, targets) {
+    return targets.map(function (t) { var o = Object.assign({}, t); ATTR.forEach(function (k) { if (source[k] != null && source[k] !== "") o[k] = source[k]; }); if (source.defect_code && D.CODES[source.defect_code]) o.defect_type = D.CODES[source.defect_code]; return o; });
+  }
+
+  /* §16 Rock Log output modes */
+  function outputModeA(defs) {
+    return sortByDepth(defs).map(function (d) {
+      return [round(depthOf(d), 3).toFixed(3) + " m", d.defect_code, (d.orientation != null ? d.orientation : ""), d.shape, d.roughness, d.aperture, d.infill].filter(function (x) { return x !== "" && x != null; }).join("  ");
+    });
+  }
+  var SHAPE = { PL: "planar", CU: "curved", UN: "undulating", ST: "stepped", IR: "irregular" };
+  var ROUGH = { VS: "very smooth", SM: "smooth", SR: "slightly rough", RO: "rough", VR: "very rough" };
+  function outputModeB(group) {
+    var ca = group.common_attributes;
+    var parts = [D.CODES[group.group_type] + " defects", "closely spaced", "generally " + group.spacing_min + "–" + group.spacing_max + " mm apart"];
+    if (ca.orientation && ca.orientation !== "MIXED") parts.push("approximately " + ca.orientation + " to core axis");
+    if (ca.shape && ca.shape !== "MIXED") parts.push(SHAPE[ca.shape] || ca.shape);
+    if (ca.roughness && ca.roughness !== "MIXED") parts.push(ROUGH[ca.roughness] || ca.roughness);
+    var tail = "";
+    if (ca.aperture === "Closed" && ca.infill === "Clean") tail = "closed and clean";
+    else { var t = []; if (ca.aperture && ca.aperture !== "MIXED") t.push(ca.aperture === "Closed" ? "closed" : ca.aperture); if (ca.infill && ca.infill !== "MIXED") t.push(ca.infill.toLowerCase()); tail = t.join(", "); }
+    if (tail) parts.push(tail);
+    return group.depth_from.toFixed(3) + "–" + group.depth_to.toFixed(3) + " m: " + parts.join(", ") + ".";
+  }
+
+  /* §18 undo batch helpers */
+  function newBatch(template, ctx) { return { batch_id: "batch_" + Math.random().toString(36).slice(2, 9), template_id: (template && template.template_id) || "", run_id: (ctx && ctx.run_id) || "", created_by: (ctx && ctx.created_by) || "", created_at: new Date().toISOString() }; }
+  function undoLast(defs, batchId) { var s = defs.slice(); for (var i = s.length - 1; i >= 0; i--) { if (!batchId || s[i].batch_id === batchId) { s.splice(i, 1); break; } } return s; }
+  function undoBatch(defs, batchId) { return defs.filter(function (d) { return d.batch_id !== batchId; }); }
+
+  return {
+    QUALIFY_MM: QUALIFY_MM, ATTR: ATTR, isNatural: isNatural, isMechanical: isMechanical, depthOf: depthOf,
+    computeSpacings: computeSpacings, spacingStats: spacingStats, commonAttributes: commonAttributes,
+    makeGroup: makeGroup, detectCloselySpacedGroups: detectCloselySpacedGroups, rapidCreate: rapidCreate,
+    segmentPieces: segmentPieces, rqdFromPieces: rqdFromPieces, defectFrequency: defectFrequency,
+    copyAttributes: copyAttributes, outputModeA: outputModeA, outputModeB: outputModeB,
+    newBatch: newBatch, undoLast: undoLast, undoBatch: undoBatch
+  };
+});
+
+</script>
+<script id="v8-defect-glue">
+/* v8: Rapid multiple-defect mode for the Corebox (SUB-PROMPT 14/15) — additive.
+   Enriches the existing click-to-mark with a full template (set once), computes spacing,
+   closely-spaced groups (never auto-FZ), <100mm pieces, per-run frequency, Mode A/B output.
+   Non-breaking: reuses the app's cb().defects + cbDepthAt; only ADDS a button + panel. */
+(function () {
+  "use strict";
+  var D = window.STSDefect, RP = window.STSRapidDefect; if (!D || !RP) return;
+  var TYPE2CODE = { "Joint": "J", "Bedding parting": "BP", "Sheared seam": "SM", "Clay seam": "CS", "Crushed seam": "CZ", "Fracture zone": "FZ", "Crushed zone": "CZ", "Infilled seam": "SM", "Drilling break": "MB", "Mechanical break": "MB", "Natural break": "NB", "Core loss": "CL", "Void": "CL" };
+  var CODE2TYPE = { J: "Joint", BP: "Bedding parting", VN: "Bedding parting", SM: "Sheared seam", CS: "Clay seam", MB: "Mechanical break", NB: "Natural break", CL: "Core loss" };
+  var VOCAB = { code: ["J", "BP", "VN", "SM"], orientation: ["0°", "15°", "30°", "45°", "60°", "90°"], shape: ["PL", "CU", "UN", "ST", "IR"], roughness: ["VS", "SM", "SR", "RO", "VR"], aperture: ["Closed", "<0.1 mm", "0.1–1 mm", "1–5 mm", ">5 mm"], infill: ["Clean", "Clay", "CG", "Calcite", "Quartz", "Fe"] };
+  var MULTI = { on: false, tpl: { code: "BP", orientation: "0°", shape: "PL", roughness: "RO", aperture: "Closed", infill: "Clean" }, lastCount: 0 };
+
+  function cbo() { try { return (typeof cb === "function") ? cb() : null; } catch (e) { return null; } }
+  function codeOf(d) { return d.defect_code || TYPE2CODE[d.type] || "J"; }
+  function rapidView() { var c = cbo(); if (!c) return []; return c.defects.map(function (d, i) { return { defect_id: d.defect_id || (codeOf(d) + (i + 1)), defect_code: codeOf(d), depth_from: d.depth, depth: d.depth, orientation: d.orientation, shape: d.shape, roughness: d.roughness, aperture: d.aperture, infill: d.infill, break_class: (d.type === "Mechanical break" || d.type === "Drilling break") ? "mechanical" : undefined }; }); }
+
+  function chips(field) { return '<div style="display:flex;flex-wrap:wrap;gap:4px;margin:2px 0">' + VOCAB[field].map(function (o) { var on = MULTI.tpl[field] === o; return '<button class="btn' + (on ? " primary" : "") + '" data-mf="' + field + '" data-mv="' + o + '" style="height:24px;font-size:11px;padding:0 8px">' + o + '</button>'; }).join("") + '</div>'; }
+
+  function panelHTML() {
+    var v = rapidView(); var t = MULTI.tpl;
+    var run = coringRun();
+    var out = '<div style="background:#0D523E;color:#fff;border-radius:6px;padding:7px 10px;font-size:12.5px;margin:6px 0"><b>ACTIVE TEMPLATE:</b> ' + t.code + ' | ' + t.orientation + ' | ' + t.shape + ' | ' + t.roughness + ' | ' + t.aperture + ' | ' + t.infill + ' &nbsp; <span style="opacity:.8">click the core to drop each defect</span></div>';
+    out += '<div style="font-size:11px;color:#5b6b62;text-transform:uppercase;margin:6px 0 2px">Set template once</div>';
+    ["code", "orientation", "shape", "roughness", "aperture", "infill"].forEach(function (f) { out += chips(f); });
+    if (run) {
+      var groups = RP.detectCloselySpacedGroups(v);
+      var freq = RP.defectFrequency(v, run);
+      var pieces = RP.segmentPieces(v, run); var under = pieces.filter(function (p) { return p.length_mm < 100; });
+      out += '<div style="margin-top:8px;font-size:12.5px">Natural defects in run: <b>' + freq.natural_count + '</b>' + (freq.spacing_min != null ? ' · spacing ' + freq.spacing_min + '–' + freq.spacing_max + ' mm' : '') + '</div>';
+      if (groups.length) groups.forEach(function (g) { out += '<div style="background:#eef4f0;border:1px solid #cdd8d1;border-radius:6px;padding:6px 9px;margin:5px 0;font-size:12px"><b>' + g.group_type + ' SET</b> · ' + g.count + ' × ' + g.group_type + ' · ' + g.depth_from.toFixed(3) + '–' + g.depth_to.toFixed(3) + ' m · ' + g.spacing_min + '–' + g.spacing_max + ' mm</div>'; });
+      if (groups.length) out += '<div style="background:#fff7e6;border:1px solid #f0d48a;border-radius:6px;padding:6px 9px;font-size:12px;margin:4px 0">⚠ Closely-spaced group — kept as individual defects, NOT auto-classified as FZ (engineer decides).</div>';
+      if (under.length) out += '<div style="background:#fff7e6;border:1px solid #f0d48a;border-radius:6px;padding:6px 9px;font-size:12px;margin:4px 0">' + under.length + ' core piece(s) &lt;100 mm — excluded from RQD qualifying, retained in TCR.</div>';
+      if (groups.length) out += '<div style="font-size:11px;color:#5b6b62;margin-top:6px">ROCK LOG (Mode B):</div><div style="background:#f5f7f5;border:1px solid #e2e8e3;border-radius:6px;padding:7px 9px;font-size:12px">' + groups.map(function (g) { return RP.outputModeB(g); }).join("<br><br>") + '</div>';
+    } else out += '<div style="font-size:12px;color:#8a968f;margin-top:8px">Calibrate top/bottom depths to see spacing, groups and &lt;100 mm pieces.</div>';
+    return out;
+  }
+  function coringRun() { var c = cbo(); var t = c && parseFloat(c.topD), b = c && parseFloat(c.botD); if (isNaN(t) || isNaN(b) || b <= t) return null; return { run_id: "CB", from: t, to: b }; }
+
+  function renderPanel() { var p = document.getElementById("cbMultiPanel"); if (!p) return; p.style.display = MULTI.on ? "" : "none"; if (MULTI.on) { p.innerHTML = panelHTML(); wire(p); } }
+  function wire(p) {
+    p.querySelectorAll("[data-mf]").forEach(function (b) {
+      b.onclick = function () {
+        MULTI.tpl[b.dataset.mf] = b.dataset.mv;
+        if (b.dataset.mf === "code") { try { cbDefType = CODE2TYPE[MULTI.tpl.code] || "Bedding parting"; var sel = document.getElementById("cbDefType"); if (sel) sel.value = cbDefType; } catch (e) { } }
+        renderPanel();
+      };
+    });
+  }
+
+  function onStageClick() {
+    if (!MULTI.on) return; var c = cbo(); if (!c) return;
+    if (c.defects.length > MULTI.lastCount) {
+      var d = c.defects[c.defects.length - 1];
+      d.orientation = MULTI.tpl.orientation; d.angle = parseFloat(MULTI.tpl.orientation) || 0;
+      d.shape = MULTI.tpl.shape; d.roughness = MULTI.tpl.roughness; d.aperture = MULTI.tpl.aperture; d.infill = MULTI.tpl.infill; d.defect_code = MULTI.tpl.code;
+      if (typeof save === "function") save();
+    }
+    MULTI.lastCount = c.defects.length; renderPanel();
+  }
+
+  function inject() {
+    var page = document.getElementById("page-corebox"); if (!page) return;
+    var c = cbo(); MULTI.lastCount = c ? c.defects.length : 0;
+    var tb = page.querySelector(".toolbar");
+    if (tb && !document.getElementById("cbMulti")) {
+      var b = document.createElement("button"); b.className = "btn"; b.id = "cbMulti"; b.textContent = "▦ Multi defect (M)";
+      b.onclick = toggle; tb.appendChild(b);
+    }
+    if (!document.getElementById("cbMultiPanel")) { var d = document.createElement("div"); d.id = "cbMultiPanel"; d.style.cssText = "display:none;padding:0 10px 10px"; var list = document.getElementById("cbDefList"); if (list && list.parentNode) list.parentNode.insertBefore(d, list); else page.querySelector(".panel").appendChild(d); }
+    var stage = document.getElementById("cbStage"); if (stage && !stage._v8) { stage._v8 = true; stage.addEventListener("click", onStageClick); }
+    renderPanel();
+  }
+  function toggle() { MULTI.on = !MULTI.on; var b = document.getElementById("cbMulti"); if (b) b.classList.toggle("primary", MULTI.on); if (MULTI.on) { try { cbMode = "defect"; cbDefType = CODE2TYPE[MULTI.tpl.code] || "Bedding parting"; } catch (e) { } } renderPanel(); }
+
+  document.addEventListener("keydown", function (e) { if ((e.key === "m" || e.key === "M") && e.target.tagName !== "INPUT" && e.target.tagName !== "SELECT" && e.target.tagName !== "TEXTAREA") { var p = document.getElementById("page-corebox"); if (p && p.classList.contains("show")) { e.preventDefault(); toggle(); } } });
+  if (typeof renderCorebox !== "undefined") { var _r = renderCorebox; renderCorebox = function () { _r.apply(this, arguments); inject(); }; }
+  document.addEventListener("DOMContentLoaded", inject); inject();
+})();
+
+</script>
 </body>
 </html>
