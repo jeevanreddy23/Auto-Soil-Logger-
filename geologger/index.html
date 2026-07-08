@@ -323,6 +323,63 @@ function wireGrid(id, rowsRef, handlers) {
   });
 }
 </script>
+<script id="v9-storage-offload">
+/* v9: localStorage image offload -> IndexedDB (fixes quota from base64 corebox photos).
+   Transparent: patches Storage setItem/getItem for the app's keys only. Big data-URL images are
+   moved to IndexedDB and replaced in localStorage with a lightweight token; reads re-inflate from an
+   in-memory cache hydrated at startup. Full image quality preserved. Safe: images are cached in memory
+   before the token is written, and only app keys are touched. */
+(function () {
+  "use strict";
+  if (!window.indexedDB || !window.Storage) return;
+  var APP_KEYS = /^(autosoil-logger$|autosoil-prj-|geoflow$)/;
+  var TOK = "idbimg:";
+  var MIN = 200000;                     // only offload data-URLs larger than ~200 KB
+  var CACHE = {};                        // token -> dataURL (sync access after hydrate)
+  var origSet = Storage.prototype.setItem, origGet = Storage.prototype.getItem;
+
+  function openDB() { return new Promise(function (res, rej) { var r = indexedDB.open("geoflow-img", 1); r.onupgradeneeded = function () { r.result.createObjectStore("img"); }; r.onsuccess = function () { res(r.result); }; r.onerror = function () { rej(r.error); }; }); }
+  function idbPut(k, v) { return openDB().then(function (d) { return new Promise(function (res, rej) { var t = d.transaction("img", "readwrite"); t.objectStore("img").put(v, k); t.oncomplete = res; t.onerror = function () { rej(t.error); }; }); }); }
+  function idbAll() { return openDB().then(function (d) { return new Promise(function (res, rej) { var t = d.transaction("img", "readonly"), s = t.objectStore("img"), o = {}, c = s.openCursor(); c.onsuccess = function (e) { var cur = e.target.result; if (cur) { o[cur.key] = cur.value; cur.continue(); } else res(o); }; c.onerror = function () { rej(c.error); }; }); }); }
+  function hashOf(s) { var h = 5381, i = s.length; while (i) h = (h * 33) ^ s.charCodeAt(--i); return (h >>> 0).toString(36) + "-" + s.length; }
+
+  function deflate(o) { var changed = false; (function walk(x) { if (!x || typeof x !== "object") return; for (var k in x) { var v = x[k]; if (typeof v === "string" && v.length > MIN && v.indexOf("data:image/") === 0) { var tok = TOK + hashOf(v); CACHE[tok] = v; idbPut(tok, v).catch(function () { }); x[k] = tok; changed = true; } else if (v && typeof v === "object") walk(v); } })(o); return changed; }
+  function inflate(o) { (function walk(x) { if (!x || typeof x !== "object") return; for (var k in x) { var v = x[k]; if (typeof v === "string" && v.indexOf(TOK) === 0) { if (CACHE[v]) x[k] = CACHE[v]; } else if (v && typeof v === "object") walk(v); } })(o); return o; }
+
+  Storage.prototype.setItem = function (key, value) {
+    try { if (typeof key === "string" && APP_KEYS.test(key) && typeof value === "string" && value.length > MIN && value.indexOf("data:image/") >= 0) { var o = JSON.parse(value); if (deflate(o)) value = JSON.stringify(o); } } catch (e) { }
+    return origSet.call(this, key, value);
+  };
+  Storage.prototype.getItem = function (key) {
+    var value = origGet.call(this, key);
+    try { if (typeof key === "string" && APP_KEYS.test(key) && typeof value === "string" && value.indexOf(TOK) >= 0) { var o = JSON.parse(value); inflate(o); value = JSON.stringify(o); } } catch (e) { }
+    return value;
+  };
+
+  // hydrate cache, then re-attach images into the live in-memory state + re-render
+  idbAll().then(function (all) {
+    Object.assign(CACHE, all);
+    try {
+      if (typeof S !== "undefined" && typeof logs === "function") {
+        var reattach = function (raw) {
+          if (!raw || raw.indexOf(TOK) < 0) return;
+          var full = inflate(JSON.parse(raw));
+          if (full && full.logs) for (var bh in full.logs) {
+            if (S.logs && S.logs[bh] && S.logs[bh].corebox && full.logs[bh].corebox && typeof full.logs[bh].corebox.img === "string")
+              S.logs[bh].corebox.img = full.logs[bh].corebox.img;
+          }
+        };
+        reattach(origGet.call(localStorage, "autosoil-logger"));
+        if (typeof PJ !== "undefined" && PJ.activePid) reattach(origGet.call(localStorage, "autosoil-prj-" + PJ.activePid));
+        if (typeof renderCorebox === "function" && S.activeTab === "corebox") renderCorebox();
+      }
+    } catch (e) { }
+  }).catch(function () { });
+
+  window.__v9offload = { CACHE: CACHE, TOK: TOK, deflate: deflate, inflate: inflate, idbAll: idbAll, origGet: function(k){ return origGet.call(localStorage,k); }, restore: function () { Storage.prototype.setItem = origSet; Storage.prototype.getItem = origGet; } };
+})();
+
+</script>
 <script id="modules-script">
 /* ============ tabs & left panel ============ */
 const TABS = ["project","boreholes","soil","rock","corebox","spt","samples","preview","export"];
