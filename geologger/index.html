@@ -3625,10 +3625,10 @@ function extractMetaFromDocs(){
   sug.proposalDate = pick(/dated?[:\s]+(\d{1,2}[\s\/\-][A-Za-z0-9]+[\s\/\-]\d{2,4})/i);
   sug.client = pick(/(?:prepared\s+for|client)[:\s]+([A-Z][\w\s&\.\(\)]{3,60}?(?:Pty\s*Ltd|Ltd|Limited|Council|Group|Trust|Corporation))/i)
             || pick(/(?:prepared\s+for|client)[:\s]+([A-Z][^\n,;]{3,50})/i);
-  sug.clientContact = pick(/(?:attention|attn\.?)[:\s]+([A-Z][\w\s\.\-']{2,40})/i);
+  sug.clientContact = pick(/(?:attention|attn\.?)[: \t]+([A-Z][A-Za-z\.\-' ]{2,40})/i);
   sug.clientEmail = pick(/([\w.\-+]+@[\w\-]+\.[\w.\-]+)/);
   sug.site = pick(/(?:site|property|located\s+at|address)[:\s]+(.{6,80}?(?:NSW|VIC|QLD|ACT|SA|WA|NT|TAS)[\s,]*\d{0,4})/i);
-  sug.pm = pick(/project\s+manager[:\s]+([A-Z][\w\s\.\-']{2,40})/i);
+  sug.pm = pick(/project\s+manager[: \t]+([A-Z][A-Za-z\.\-' ]{2,40})/i);
   sug.projectName = pick(/(?:re|project)[:\s]+([A-Z][^\n]{8,70}?(?:investigation|assessment|development|works|report))/i);
   let n=0;
   for (const k in sug) if (sug[k] && !meta[k]) { meta[k]=sug[k]; n++; }
