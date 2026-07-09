@@ -3489,6 +3489,9 @@ function pjCtxBar(){
 .sc-btn.ghost { border:none; background:none; color:#1d4ed8; }
 .sc-btn:disabled { opacity:.5; cursor:default; }
 .sc-split { display:grid; grid-template-columns:minmax(0,46%) minmax(0,54%); gap:12px; align-items:start; }
+.sc-split.three { grid-template-columns:minmax(0,34%) minmax(0,44%) minmax(0,22%); }
+@media (max-width:1280px){ .sc-split.three { grid-template-columns:minmax(0,46%) minmax(0,54%); }
+  .sc-split.three .sc-pane.side { grid-column:1/-1; } }
 .sc-pane-tabs { display:none; gap:6px; margin-bottom:10px; }
 .sc-pane-tabs button { flex:1; padding:9px; border-radius:8px; border:1px solid #ccd5e3; background:#fff; font-weight:600; font-size:12.5px; cursor:pointer; }
 .sc-pane-tabs button.on { background:#1d4ed8; color:#fff; border-color:#1d4ed8; }
@@ -3678,7 +3681,7 @@ async function handleScopeFiles(files){
 function renderScope(){
   const host=$id("page-scope"); if (!host) return;
   const sc=SC();
-  const steps=["Upload Proposal","Extract Scope","Review & Confirm","Field Plan"];
+  const steps=["Upload Proposal","Extract Scope","Review & Confirm","Generate Field Plan","Send to Control Tower"];
   host.innerHTML = `<h2 style="font-size:19px;margin:2px 0 10px">Proposal → Scope of Works</h2>
     <div class="sc-step">${steps.map((s,i)=>`<div class="st ${sc.step===i+1?"on":(sc.step>i+1?"done":"")}" data-scstep="${i+1}">${i+1}. ${s}</div>`).join("")}</div>
     <div id="scBody"></div>`;
@@ -3687,7 +3690,8 @@ function renderScope(){
   if (sc.step===1) renderScUpload(body);
   else if (sc.step===2) renderScExtract(body);
   else if (sc.step===3) renderScReview(body);
-  else renderScPlan(body);
+  else if (sc.step===4) renderScPlan(body);
+  else renderScTower(body);
 }
 function renderScUpload(el){
   const sc=SC(); const p=S.project||{};
@@ -3758,7 +3762,7 @@ function renderScReview(el){
     <button class="${scMobPane==="items"?"on":""}" data-mp="items">Extracted items</button>
     <button class="${scMobPane==="sum"?"on":""}" data-mp="sum">Summary</button>
   </div>
-  <div class="sc-split">
+  <div class="sc-split three">
     <div class="sc-pane ${scMobPane==="doc"?"mob-on":""}">
       <div class="sc-prev">
         <div class="bar">
@@ -3774,8 +3778,7 @@ function renderScReview(el){
         <div class="sc-legend">${Object.values(CATS).map(c=>`<span><i style="background:${c.col}"></i>${c.label}</span>`).join("")}</div>
       </div>
     </div>
-    <div class="sc-pane ${scMobPane!=="doc"?"mob-on":""}">
-      ${scMobPane==="sum"? scSummaryCard() : `
+    <div class="sc-pane ${scMobPane==="items"?"mob-on":""}">
       <div class="sc-card" style="padding:12px">
         <div class="sc-filters">
           <button class="fc ${scFilter==="all"?"on":""}" data-fc="all">All (${sc.items.length})</button>
@@ -3803,11 +3806,13 @@ function renderScReview(el){
         </tr>`).join("")||`<tr><td colspan="9" style="color:#5a6675;padding:16px">No items — extract on step 2 or add manually.</td></tr>`}
         </tbody></table></div>
       </div>
-      ${scQaCard()}
+    </div>
+    <div class="sc-pane side ${scMobPane==="sum"?"mob-on":""}">
+      ${scSummaryCard()}
       <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:4px">
-        <button class="sc-btn pri" id="scApprove">Approve Scope → Generate Field Plan</button>
-        <button class="sc-btn" id="scExport">Export Scope Summary</button>
-      </div>`}
+        <button class="sc-btn pri" id="scApprove" style="width:100%">Approve Scope → Field Plan</button>
+        <button class="sc-btn" id="scExport" style="width:100%">Export Scope Summary</button>
+      </div>
     </div>
   </div>`;
   wireScReview(el);
@@ -4012,9 +4017,26 @@ function renderScPlan(el){
     scSave(); alert(added+" borehole(s) created from scope. Open the Boreholes tab to see them.");
   });
   $id("scTower").addEventListener("click",()=>{
-    sc.sentToTower=new Date().toISOString(); scSave();
-    alert("Scope plan published to Project Control Tower.\nOpen the Dashboard tab — planned vs completed tracking is now live.");
+    sc.sentToTower=new Date().toISOString(); sc.step=5; scSave(); renderScope();
   });
+}
+function renderScTower(el){
+  const sc=SC(); if (!sc.plan) genPlan();
+  if (!sc.sentToTower){ sc.sentToTower=new Date().toISOString(); scSave(); }
+  el.innerHTML=`<div class="sc-card"><h3>Project Control Tower</h3>
+    <div class="sc-ok">✓ Scope published to Control Tower — ${new Date(sc.sentToTower).toLocaleString()}</div>
+    ${towerStrip()||""}
+    <div style="font-size:12.5px;color:#5a6675;margin-top:8px">Planned-vs-completed tracking now updates live from the soil/rock logs, SPT, samples and laboratory register. The same strip appears at the top of the project Dashboard.</div>
+    <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:12px">
+      <button class="sc-btn pri" id="scGoDash">Open Dashboard →</button>
+      <button class="sc-btn" id="scGoLab">Laboratory register →</button>
+      <button class="sc-btn" id="scBackPlan">← Field plan</button>
+      <button class="sc-btn" id="scExport3">Export Scope Summary</button>
+    </div></div>`;
+  $id("scGoDash").addEventListener("click",()=>showTab("dashboard"));
+  $id("scGoLab").addEventListener("click",()=>{ try{ showTab("laboratory"); }catch(e){ showTab("dashboard"); } });
+  $id("scBackPlan").addEventListener("click",()=>{ sc.step=4; scSave(); renderScope(); });
+  $id("scExport3").addEventListener("click",exportScopeSummary);
 }
 function exportScopeSummary(){
   const sc=SC(); const acc=sc.items.filter(i=>i.status!=="rej");
@@ -4033,15 +4055,21 @@ function towerStrip(){
   const doneBh = S.boreholes.filter(b=>{ const l=(S.logs||{})[b.id]; return b.termDepth || (l&&((l.soil||[]).length||(l.rock||[]).length)); }).length;
   const doneSpt = Object.values(S.logs||{}).reduce((a,l)=>a+((l&&l.spt)||[]).length,0);
   const doneSm = Object.values(S.logs||{}).reduce((a,l)=>a+((l&&l.samples)||[]).length,0);
+  const drilled = S.boreholes.reduce((a,b)=>{ const l=(S.logs||{})[b.id]||{};
+    return a+Math.max(...((l.soil||[]).map(r=>parseFloat(r.to)||0)), ...((l.rock||[]).map(r=>parseFloat(r.to)||0)), parseFloat(b.termDepth)||0, 0); },0);
+  const ls=S.labStatus||{}; const labSub=Object.values(ls).filter(x=>x==="Submitted").length, labRet=Object.values(ls).filter(x=>x==="Returned").length;
   const pct = x=>x[1]? Math.min(100,Math.round(100*x[0]/x[1])) : 0;
   const readiness = Math.round((pct([doneBh,p.totals.bh])+pct([doneSpt,p.totals.spt||1])+pct([doneSm,p.totals.samples||p.totals.bh||1]))/3);
   const due = sc.meta.dueDate? Math.ceil((new Date(sc.meta.dueDate)-Date.now())/864e5) : null;
   return `<div class="tower-strip">
     <div style="font-size:11px;letter-spacing:1.4px;color:#8fa3c0;font-weight:700">PROJECT CONTROL TOWER · ${scEsc(sc.status)}</div>
     <span class="tk"><b>${doneBh}/${p.totals.bh}</b>Boreholes</span>
+    <span class="tk"><b>${drilled.toFixed(1)}/${p.totals.metres??"—"}</b>Metres</span>
     <span class="tk"><b>${doneSpt}/${p.totals.spt||"—"}</b>SPT</span>
     <span class="tk"><b>${doneSm}/${p.totals.samples||"—"}</b>Samples</span>
-    <span class="tk"><b>${p.totals.labs}</b>Lab tests pending</span>
+    <span class="tk"><b>${Math.max(0,p.totals.labs-labSub-labRet)}</b>Lab pending</span>
+    <span class="tk"><b>${labSub}</b>Lab submitted</span>
+    <span class="tk"><b>${labRet}</b>Lab returned</span>
     <span class="tk"><b>${p.gw.length? p.gw.length-Math.min(doneBh,p.gw.length):0}</b>GW readings pending</span>
     <span class="tk"><b>${Math.max(0,doneBh- S.boreholes.filter(b=>b.checked).length)}</b>Logs pending review</span>
     <span class="tk"><b>${readiness}%</b>Report readiness</span>
@@ -4069,6 +4097,208 @@ showTab = function(tab){
       const s2=towerStrip(); if (s2) pg.insertAdjacentHTML("afterbegin", s2); }, 60);
   }
 };
+window.renderScope = renderScope;   /* let the sidebar/swipe layer re-render scope */
+})();
+</script>
+<style id="v14-sidebar-css">
+/* ---------- SUB-PROMPT 12: fixed workflow sidebar ---------- */
+#sideNav { position:fixed; left:0; top:0; bottom:0; width:208px; background:#152238; z-index:80;
+  display:flex; flex-direction:column; overflow-y:auto; font-size:13px; }
+#sideNav .brand { padding:14px 16px 10px; color:#fff; font-weight:700; font-size:15px; letter-spacing:.3px; }
+#sideNav .brand small { display:block; color:#8fa3c0; font-weight:500; font-size:10px; letter-spacing:1.4px; margin-top:2px; }
+#sideNav .sn { display:flex; align-items:center; gap:10px; padding:9px 16px; color:#c3cfdf; cursor:pointer; border-left:3px solid transparent; }
+#sideNav .sn:hover { background:#1c2e4a; color:#fff; }
+#sideNav .sn.on { background:#1d4ed8; color:#fff; border-left-color:#8ab4ff; font-weight:600; }
+#sideNav .sn .ic { width:18px; text-align:center; font-size:14px; opacity:.9; }
+#sideNav .sn .st-chip { margin-left:auto; font-size:9px; font-weight:700; background:#0f9b8e; color:#fff; border-radius:8px; padding:2px 6px; white-space:nowrap; max-width:76px; overflow:hidden; text-overflow:ellipsis; }
+#sideNav .sn.cur { flex-wrap:wrap; }
+#sideNav .sn.cur .pj-num { font-size:11px; color:#8fa3c0; width:100%; padding-left:28px; margin-top:-4px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+#sideNav .sep { border-top:1px solid #22354f; margin:6px 12px; }
+#snBackdrop { display:none; }
+body.sb-on { padding-left:208px; }
+body.sb-on .topbar .navtab { display:none !important; }
+#sbBurger { display:none; }
+body.scmax .leftpanel, body.scmax .rightpanel { display:none !important; }
+body.scmax .content { max-width:none; }
+@media (max-width:900px){
+  body.sb-on { padding-left:0; }
+  #sideNav { transform:translateX(-100%); transition:transform .22s; width:238px; }
+  #sideNav.open { transform:none; box-shadow:0 0 40px rgba(0,0,0,.4); }
+  #snBackdrop.show { display:block; position:fixed; inset:0; background:rgba(10,16,26,.45); z-index:79; }
+  #sbBurger { display:inline-flex; align-items:center; justify-content:center; width:38px; height:34px;
+    border:1px solid #ccd5e3; border-radius:8px; background:#fff; font-size:17px; cursor:pointer; margin-right:8px; }
+  #sideNav .sn { padding:13px 18px; font-size:14.5px; }
+}
+</style>
+<script id="v14-sidebar">
+"use strict";
+(function(){
+/* ---------- new light pages: fieldwork, laboratory, settings ---------- */
+const host=document.querySelector(".content");
+for (const id of ["fieldwork","laboratory","settings"]){
+  if (!document.getElementById("page-"+id)){ const dv=document.createElement("div"); dv.className="tabpage"; dv.id="page-"+id; host.appendChild(dv); }
+  if (!TABS.includes(id)) TABS.push(id);
+}
+const e14=s=>String(s??"").replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/"/g,"&quot;");
+function s14(){ try{ save(); }catch(e){ localStorage.setItem("autosoil-logger", JSON.stringify(S)); } }
+function bhDepth14(id){ const l=(S.logs||{})[id]||{}; const b=S.boreholes.find(x=>x.id===id)||{};
+  return Math.max(...((l.soil||[]).map(r=>parseFloat(r.to)||0)), ...((l.rock||[]).map(r=>parseFloat(r.to)||0)), parseFloat(b.termDepth)||0, 0); }
+
+function renderFieldwork(){
+  const el=document.getElementById("page-fieldwork");
+  const plan=S.scope?.plan;
+  el.innerHTML=`<h2 style="font-size:19px;margin:6px 0 12px">Fieldwork progress</h2>
+  <div class="sc-card"><div style="font-size:12.5px;color:#5a6675">Live drilling progress against the approved scope. Field crews log on the phone app — data lands here automatically.
+    <a href="field.html" target="_blank" style="color:#1d4ed8;font-weight:600">Open STS GeoFlow field app →</a></div></div>
+  <div class="sc-kpi" style="margin-bottom:12px">
+    <div class="k"><b>${S.boreholes.filter(b=>bhDepth14(b.id)>0).length}/${S.boreholes.length}</b><span>Boreholes started</span></div>
+    <div class="k"><b>${S.boreholes.reduce((a,b)=>a+bhDepth14(b.id),0).toFixed(1)}${plan?.totals?.metres?" / "+plan.totals.metres:""}</b><span>Metres drilled</span></div>
+    <div class="k"><b>${Object.values(S.logs||{}).reduce((a,l)=>a+((l&&l.spt)||[]).length,0)}${plan?.totals?.spt?" / "+plan.totals.spt:""}</b><span>SPT done</span></div>
+    <div class="k"><b>${Object.values(S.logs||{}).reduce((a,l)=>a+((l&&l.samples)||[]).length,0)}</b><span>Samples collected</span></div>
+  </div>
+  ${S.boreholes.map(b=>{ const d=bhDepth14(b.id); const plc=parseFloat(b.planned)||0;
+    const pct=plc?Math.min(100,Math.round(d/plc*100)):0;
+    return `<div class="sc-card" style="padding:12px">
+      <b>${e14(b.id)}</b> <span style="font-size:12px;color:#5a6675">${d.toFixed(2)} m${plc?` of ${plc.toFixed(1)} m planned`:""} ${b.termDepth?`· terminated ${b.termDepth} m`:""}</span>
+      ${plc?`<div class="sc-ready" style="margin:6px 0 0"><i style="width:${pct}%"></i></div>`:""}</div>`; }).join("")||'<div class="sc-card">No boreholes yet — approve a scope or add them on the Boreholes page.</div>'}
+  ${plan?.gw?.length?`<div class="sc-card"><h3>Groundwater checklist</h3>${plan.gw.map(g=>`<div style="font-size:12.5px;padding:3px 0">☐ ${e14(g.bh)}: ${e14(g.task)}</div>`).join("")}</div>`:""}`;
+}
+function renderLaboratory(){
+  const el=document.getElementById("page-laboratory");
+  if (!S.labStatus) S.labStatus={};
+  const plan=S.scope?.plan; const labs=plan?.labs||[];
+  /* rows: one per planned lab test type, plus sample-linked tests from logs */
+  const sampleTests=[];
+  for (const b of S.boreholes){ const l=(S.logs||{})[b.id]||{};
+    for (const s of (l.samples||[])) if (s.tests || s.mc||s.att||s.psd||s.cbr)
+      sampleTests.push({ bh:b.id, sid:s.sid||`${b.id}_${s.from}`, tests: typeof s.tests==="string"? s.tests : (s.tests||[]).join(", ") }); }
+  const st=k=>S.labStatus[k]||"Pending";
+  const sel=k=>`<select data-lab="${e14(k)}" style="border:1px solid #ccd5e3;border-radius:6px;padding:4px 6px;font-size:12px">
+    ${["Pending","Submitted","Returned"].map(o=>`<option ${st(k)===o?"selected":""}>${o}</option>`).join("")}</select>`;
+  const counts={Pending:0,Submitted:0,Returned:0}; labs.forEach((l,i)=>counts[st("plan-"+i)]++);
+  el.innerHTML=`<h2 style="font-size:19px;margin:6px 0 12px">Laboratory register</h2>
+  <div class="sc-kpi" style="margin-bottom:12px">
+    <div class="k"><b>${labs.reduce((a,l)=>a+(l.qty||0),0)||labs.length}</b><span>Tests planned</span></div>
+    <div class="k"><b>${counts.Submitted}</b><span>Submitted</span></div>
+    <div class="k"><b>${counts.Returned}</b><span>Returned</span></div>
+    <div class="k"><b>${sampleTests.length}</b><span>Samples with tests</span></div>
+  </div>
+  <div class="sc-card"><h3>Planned lab tests (from scope)</h3>
+    <table class="sc-tbl"><thead><tr><th>Test</th><th>Qty</th><th>Note</th><th>Status</th></tr></thead><tbody>
+    ${labs.map((l,i)=>`<tr><td><b>${e14(l.test)}</b></td><td>${l.qty}</td><td>${e14(l.note||"")}</td><td>${sel("plan-"+i)}</td></tr>`).join("")||'<tr><td colspan="4" style="color:#5a6675">No lab scope yet — approve a scope with laboratory items.</td></tr>'}
+    </tbody></table></div>
+  <div class="sc-card"><h3>Sample test assignments (from field logs)</h3>
+    <table class="sc-tbl"><thead><tr><th>Sample</th><th>BH</th><th>Tests</th><th>Status</th></tr></thead><tbody>
+    ${sampleTests.map(s=>`<tr><td><b>${e14(s.sid)}</b></td><td>${e14(s.bh)}</td><td>${e14(s.tests)}</td><td>${sel("smp-"+s.sid)}</td></tr>`).join("")||'<tr><td colspan="4" style="color:#5a6675">No samples with test requests logged yet.</td></tr>'}
+    </tbody></table></div>`;
+  el.querySelectorAll("[data-lab]").forEach(s2=>s2.addEventListener("change",()=>{ S.labStatus[s2.dataset.lab]=s2.value; s14(); renderLaboratory(); }));
+}
+function renderSettings(){
+  const el=document.getElementById("page-settings");
+  const key=localStorage.getItem("geologger-api-key")||"";
+  el.innerHTML=`<h2 style="font-size:19px;margin:6px 0 12px">Settings</h2>
+  <div class="sc-card"><h3>Sync</h3>
+    <label style="font-size:12px;color:#5a6675;display:block;margin-bottom:3px">AutoSoil API key (optional)</label>
+    <input id="setKey14" type="password" value="${e14(key)}" style="width:min(320px,100%);border:1px solid #ccd5e3;border-radius:8px;padding:8px 10px" placeholder="leave empty if none">
+    <div style="margin-top:8px;display:flex;gap:8px;flex-wrap:wrap">
+      <button class="sc-btn" id="saveKey14">Save key</button>
+      <button class="sc-btn pri" id="syncNow14">Sync now</button></div></div>
+  <div class="sc-card"><h3>Project status</h3>
+    <select id="pjStat14" style="border:1px solid #ccd5e3;border-radius:8px;padding:8px;width:min(320px,100%)">
+      ${["Not Started","Fieldwork","Lab","Engineering Review","Report Ready","Issued"].map(o=>`<option ${(S.scope?.status||"Not Started")===o?"selected":""}>${o}</option>`).join("")}</select></div>
+  <div class="sc-card"><h3>Field app</h3>
+    <div style="font-size:12.5px;color:#5a6675">Install on phones/tablets: open <b>${location.origin}/field.html</b> in Chrome → menu → Add to Home screen. Field data syncs into this project automatically.</div></div>
+  <div class="sc-card"><h3>Storage</h3>
+    <div style="font-size:12.5px;color:#5a6675">This project: ${(JSON.stringify(S).length/1024).toFixed(0)} KB on this device · Last opened project data syncs to the server on every change.</div></div>`;
+  el.querySelector("#saveKey14").addEventListener("click",()=>{ const v=el.querySelector("#setKey14").value.trim();
+    if (v) localStorage.setItem("geologger-api-key",v); else localStorage.removeItem("geologger-api-key"); alert("Saved."); });
+  el.querySelector("#syncNow14").addEventListener("click",()=>{ try{ pushSync(); alert("Sync triggered."); }catch(e){ alert("Sync error: "+e.message); } });
+  el.querySelector("#pjStat14").addEventListener("change",e=>{ if (!S.scope) S.scope={step:1,meta:{},docs:[],items:[],plan:null,status:"Not Started",sptRule:"1.5"};
+    S.scope.status=e.target.value; s14(); buildSide(); });
+}
+
+/* ---------- sidebar ---------- */
+const ITEMS=[
+  ["home","⌂","Home","dashboard"],
+  ["projects","▦","Projects","projects"],
+  ["current","📁","Current Project","project"],
+  ["sep1","","",""],
+  ["scope","⛭","Scope","scope"],
+  ["boreholes","◨","Boreholes","boreholes"],
+  ["fieldwork","⛏","Fieldwork","fieldwork"],
+  ["soil","◱","Soil Log","soil"],
+  ["rock","▤","Rock Log","rock"],
+  ["corebox","▣","Corebox","corebox"],
+  ["spt","▼","SPT","spt"],
+  ["samples","◰","Samples","samples"],
+  ["laboratory","⚗","Laboratory","laboratory"],
+  ["sep2","","",""],
+  ["reports","▤","Reports","preview"],
+  ["export","⇩","Export","export"],
+  ["settings","⚙","Settings","settings"]
+];
+let side=null, backdrop=null;
+function buildSide(){
+  if (!side){ side=document.createElement("nav"); side.id="sideNav"; document.body.appendChild(side);
+    backdrop=document.createElement("div"); backdrop.id="snBackdrop"; document.body.appendChild(backdrop);
+    backdrop.addEventListener("click",()=>{ side.classList.remove("open"); backdrop.classList.remove("show"); }); }
+  const active=S.activeTab;
+  const pj=(typeof pjActive==="function" && pjActive())||null;
+  side.innerHTML=`<div class="brand">STS GeoFlow<small>GEOTECHNICAL WORKFLOW · AS 1726</small></div>`+
+    ITEMS.map(([k,ic,label,tab])=>{
+      if (k.startsWith("sep")) return '<div class="sep"></div>';
+      if (k==="current"){
+        const num=pj?.number||S.project?.projectNumber||"—";
+        const stt=S.scope?.status||pj?.status||"";
+        return `<div class="sn cur ${active===tab?"on":""}" data-sntab="${tab}"><span class="ic">${ic}</span>${label}
+          ${stt?`<span class="st-chip">${e14(stt)}</span>`:""}<span class="pj-num">${e14(num)}</span></div>`;
+      }
+      return `<div class="sn ${active===tab?"on":""}" data-sntab="${tab}"><span class="ic">${ic}</span>${label}</div>`;
+    }).join("");
+  side.querySelectorAll("[data-sntab]").forEach(n=>n.addEventListener("click",()=>{
+    side.classList.remove("open"); backdrop.classList.remove("show");
+    showTab(n.dataset.sntab); }));
+}
+document.body.classList.add("sb-on");
+buildSide();
+/* hamburger for mobile */
+const burger=document.createElement("button"); burger.id="sbBurger"; burger.textContent="☰";
+document.querySelector(".topbar").prepend(burger);
+burger.addEventListener("click",()=>{ side.classList.add("open"); backdrop.classList.add("show"); });
+
+/* ---------- showTab wrapper: render new pages + sidebar state + clean layouts ---------- */
+const SCMAX=["scope","fieldwork","laboratory","settings"];
+const _showTab14=showTab;
+showTab=function(tab){
+  _showTab14(tab);
+  document.body.classList.toggle("scmax", SCMAX.includes(tab));
+  if (tab==="fieldwork") renderFieldwork();
+  if (tab==="laboratory") renderLaboratory();
+  if (tab==="settings") renderSettings();
+  buildSide();
+};
+/* ---------- new job → Scope first ---------- */
+if (typeof pjOpen==="function"){
+  const _pjOpen14=pjOpen;
+  pjOpen=function(pid){
+    _pjOpen14(pid);
+    const fresh = (!S.boreholes || S.boreholes.length===0) && !(S.scope && (S.scope.items.length || S.scope.docs.length));
+    if (fresh) showTab("scope");   /* first operational step after creating a job */
+  };
+}
+/* ---------- swipeable scope steps on touch devices ---------- */
+let tx0=null,ty0=null;
+document.addEventListener("touchstart",e=>{ if (!document.getElementById("page-scope")?.classList.contains("show")) return;
+  tx0=e.touches[0].clientX; ty0=e.touches[0].clientY; },{passive:true});
+document.addEventListener("touchend",e=>{ if (tx0===null) return;
+  const dx=e.changedTouches[0].clientX-tx0, dy=e.changedTouches[0].clientY-ty0; tx0=null;
+  if (Math.abs(dx)<70 || Math.abs(dy)>60) return;
+  const sc=S.scope; if (!sc) return;
+  const next=Math.max(1,Math.min(5, sc.step + (dx<0?1:-1)));
+  if (next!==sc.step){ const chip=document.querySelector(`[data-scstep="${next}"]`); if (chip) chip.click(); }
+},{passive:true});
+/* re-sync sidebar highlight with whatever tab loaded first */
+buildSide();
 })();
 </script>
 </body>
