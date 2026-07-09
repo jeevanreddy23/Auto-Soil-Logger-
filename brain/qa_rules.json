@@ -1,0 +1,500 @@
+{
+  "schema_version": "1.0.0",
+  "system": "GeoFlow QA Logic Engine",
+  "standard_reference": {
+    "primary": "AS 1726:2017 Geotechnical site investigations",
+    "note": "Rules enforce structured QA checks. They do not replace engineer review or licensed professional judgement."
+  },
+  "report_ready_policy": {
+    "status_values": ["pass", "fail", "warning", "not_applicable", "requires_engineer_review"],
+    "project_can_be_report_ready_only_if": [
+      "all_required_project_metadata_present",
+      "scope_extraction_complete",
+      "field_logs_complete",
+      "sample_register_complete",
+      "lab_schedule_reconciled",
+      "depth_intervals_valid",
+      "material_descriptions_structured",
+      "groundwater_recorded_or_marked_absent",
+      "photos_linked_where_required",
+      "qa_critical_rules_pass",
+      "engineer_review_completed"
+    ],
+    "critical_failure_blocks_report_ready": true
+  },
+  "required_project_metadata": {
+    "required_fields": [
+      "project_number",
+      "client_name",
+      "site_address",
+      "job_name",
+      "fieldwork_date",
+      "logged_by",
+      "checked_by",
+      "report_author",
+      "coordinate_datum",
+      "level_datum",
+      "referenced_documents"
+    ],
+    "logic": [
+      {
+        "id": "META_001",
+        "description": "Project number must be present.",
+        "field": "project_number",
+        "operator": "not_empty",
+        "severity": "critical"
+      },
+      {
+        "id": "META_002",
+        "description": "Site address must be present.",
+        "field": "site_address",
+        "operator": "not_empty",
+        "severity": "critical"
+      },
+      {
+        "id": "META_003",
+        "description": "Referenced documents must include title, author, date, revision, and drawing/report number where available.",
+        "field": "referenced_documents",
+        "operator": "all_items_have_keys",
+        "required_keys": ["title", "author", "date", "revision", "reference_number"],
+        "severity": "major"
+      }
+    ]
+  },
+  "scope_extraction": {
+    "required_scope_categories": [
+      "boreholes",
+      "test_pits",
+      "dcp_tests",
+      "spt_tests",
+      "rock_coring",
+      "sampling",
+      "laboratory_testing",
+      "groundwater_monitoring",
+      "reporting_deliverables",
+      "standards_and_specifications"
+    ],
+    "logic": [
+      {
+        "id": "SCOPE_001",
+        "description": "Proposal or agreed scope must be uploaded and parsed before field-data QA.",
+        "field": "scope.source_document_id",
+        "operator": "not_empty",
+        "severity": "critical"
+      },
+      {
+        "id": "SCOPE_002",
+        "description": "Every scoped borehole must have target depth or termination criterion.",
+        "field": "scope.boreholes",
+        "operator": "all_items_have_at_least_one_key",
+        "required_any_keys": ["target_depth_m", "termination_criterion"],
+        "severity": "critical"
+      },
+      {
+        "id": "SCOPE_003",
+        "description": "Every scoped lab test must have test type, sample requirement, and quantity.",
+        "field": "scope.laboratory_testing",
+        "operator": "all_items_have_keys",
+        "required_keys": ["test_type", "sample_type", "quantity"],
+        "severity": "critical"
+      }
+    ]
+  },
+  "field_logs": {
+    "required_fields_per_borehole": [
+      "borehole_id",
+      "start_depth_m",
+      "end_depth_m",
+      "surface_rl_m",
+      "eastings",
+      "northings",
+      "drilling_method",
+      "logged_by",
+      "date_logged",
+      "material_intervals",
+      "groundwater_observations",
+      "samples",
+      "in_situ_tests"
+    ],
+    "logic": [
+      {
+        "id": "BH_001",
+        "description": "Borehole ID must be unique.",
+        "field": "boreholes.borehole_id",
+        "operator": "unique",
+        "severity": "critical"
+      },
+      {
+        "id": "BH_002",
+        "description": "Borehole end depth must be greater than start depth.",
+        "field": "boreholes",
+        "operator": "compare",
+        "left": "end_depth_m",
+        "comparison": ">",
+        "right": "start_depth_m",
+        "severity": "critical"
+      },
+      {
+        "id": "BH_003",
+        "description": "Material intervals must be continuous and non-overlapping.",
+        "field": "boreholes.material_intervals",
+        "operator": "continuous_non_overlapping_depths",
+        "severity": "critical"
+      },
+      {
+        "id": "BH_004",
+        "description": "Final material interval must terminate at borehole end depth.",
+        "field": "boreholes",
+        "operator": "last_interval_end_equals_end_depth",
+        "severity": "critical"
+      }
+    ]
+  },
+  "as1726_material_description": {
+    "soil_required_descriptors": [
+      "primary_soil_type",
+      "secondary_constituents",
+      "colour",
+      "moisture_condition",
+      "consistency_or_density",
+      "plasticity_if_cohesive",
+      "structure",
+      "depth_from_m",
+      "depth_to_m"
+    ],
+    "rock_required_descriptors": [
+      "rock_type",
+      "colour",
+      "weathering",
+      "strength",
+      "defect_spacing",
+      "defect_condition",
+      "bedding_or_fabric",
+      "depth_from_m",
+      "depth_to_m"
+    ],
+    "logic": [
+      {
+        "id": "MAT_001",
+        "description": "Soil intervals must contain AS 1726-style descriptors.",
+        "field": "material_intervals",
+        "condition": "material_group == soil",
+        "operator": "all_items_have_keys",
+        "required_keys": [
+          "primary_soil_type",
+          "colour",
+          "moisture_condition",
+          "consistency_or_density",
+          "depth_from_m",
+          "depth_to_m"
+        ],
+        "severity": "major"
+      },
+      {
+        "id": "MAT_002",
+        "description": "Rock intervals must contain AS 1726-style descriptors.",
+        "field": "material_intervals",
+        "condition": "material_group == rock",
+        "operator": "all_items_have_keys",
+        "required_keys": [
+          "rock_type",
+          "colour",
+          "weathering",
+          "strength",
+          "defect_spacing",
+          "depth_from_m",
+          "depth_to_m"
+        ],
+        "severity": "major"
+      },
+      {
+        "id": "MAT_003",
+        "description": "Material interval depth_from_m must be less than depth_to_m.",
+        "field": "material_intervals",
+        "operator": "compare",
+        "left": "depth_from_m",
+        "comparison": "<",
+        "right": "depth_to_m",
+        "severity": "critical"
+      }
+    ]
+  },
+  "sampling_and_lab_testing": {
+    "sample_required_fields": [
+      "sample_id",
+      "borehole_id",
+      "sample_type",
+      "depth_from_m",
+      "depth_to_m",
+      "recovery_condition",
+      "intended_tests"
+    ],
+    "lab_required_fields": [
+      "lab_test_id",
+      "test_type",
+      "sample_id",
+      "scheduled",
+      "submitted",
+      "result_received",
+      "result_file_id"
+    ],
+    "logic": [
+      {
+        "id": "LAB_001",
+        "description": "Every lab test in the proposal must map to at least one field sample unless marked as cancelled with reason.",
+        "field": "scope.laboratory_testing",
+        "operator": "scope_tests_have_matching_samples",
+        "severity": "critical"
+      },
+      {
+        "id": "LAB_002",
+        "description": "Every submitted lab test must reference a valid sample ID.",
+        "field": "lab_tests.sample_id",
+        "operator": "exists_in",
+        "reference_field": "samples.sample_id",
+        "severity": "critical"
+      },
+      {
+        "id": "LAB_003",
+        "description": "Sample depth must fall within the parent borehole depth range.",
+        "field": "samples",
+        "operator": "depth_within_parent_borehole",
+        "severity": "critical"
+      },
+      {
+        "id": "LAB_004",
+        "description": "Required lab results must be received before final report issue unless explicitly excluded.",
+        "field": "lab_tests",
+        "operator": "all_required_results_received_or_excluded",
+        "severity": "critical"
+      }
+    ]
+  },
+  "groundwater": {
+    "required_fields": [
+      "borehole_id",
+      "groundwater_status",
+      "depth_m",
+      "time_after_drilling",
+      "date_time_observed",
+      "remarks"
+    ],
+    "allowed_status_values": ["encountered", "not_encountered", "not_measured", "standpipe_installed"],
+    "logic": [
+      {
+        "id": "GW_001",
+        "description": "Each borehole must record groundwater status.",
+        "field": "boreholes.groundwater_observations.groundwater_status",
+        "operator": "not_empty",
+        "severity": "major"
+      },
+      {
+        "id": "GW_002",
+        "description": "If groundwater is encountered, depth and time after drilling must be recorded.",
+        "field": "groundwater_observations",
+        "condition": "groundwater_status == encountered",
+        "operator": "all_items_have_keys",
+        "required_keys": ["depth_m", "time_after_drilling", "date_time_observed"],
+        "severity": "major"
+      }
+    ]
+  },
+  "rock_core_logging": {
+    "required_fields_per_run": [
+      "borehole_id",
+      "run_id",
+      "depth_from_m",
+      "depth_to_m",
+      "core_recovered_m",
+      "solid_core_pieces_over_100mm_m",
+      "tcr_percent",
+      "rqd_percent",
+      "defects"
+    ],
+    "logic": [
+      {
+        "id": "CORE_001",
+        "description": "Core runs must be continuous and non-overlapping.",
+        "field": "core_runs",
+        "operator": "continuous_non_overlapping_depths",
+        "severity": "critical"
+      },
+      {
+        "id": "CORE_002",
+        "description": "Core recovered length must not exceed run length.",
+        "field": "core_runs",
+        "operator": "calculated_compare",
+        "left": "core_recovered_m",
+        "comparison": "<=",
+        "right_formula": "depth_to_m - depth_from_m",
+        "severity": "critical"
+      },
+      {
+        "id": "CORE_003",
+        "description": "RQD length must not exceed recovered core length.",
+        "field": "core_runs",
+        "operator": "compare",
+        "left": "solid_core_pieces_over_100mm_m",
+        "comparison": "<=",
+        "right": "core_recovered_m",
+        "severity": "critical"
+      },
+      {
+        "id": "CORE_004",
+        "description": "TCR and RQD must be calculated by deterministic calculator, not LLM.",
+        "field": "core_runs",
+        "operator": "requires_calculation_source",
+        "required_source": "deterministic_calculator",
+        "severity": "critical"
+      }
+    ]
+  },
+  "pile_inspection": {
+    "required_fields": [
+      "pile_id",
+      "inspection_date",
+      "excavation_level_rl_m",
+      "toe_rl_m",
+      "pile_depth_m",
+      "socket_depth_m",
+      "founding_material",
+      "bedrock_class",
+      "base_clean",
+      "loose_material_removed",
+      "inspected_by"
+    ],
+    "logic": [
+      {
+        "id": "PILE_001",
+        "description": "Pile ID must match structural drawing pile schedule.",
+        "field": "piles.pile_id",
+        "operator": "exists_in",
+        "reference_field": "structural_pile_schedule.pile_id",
+        "severity": "critical"
+      },
+      {
+        "id": "PILE_002",
+        "description": "Toe RL must match design schedule or be flagged as variance.",
+        "field": "piles",
+        "operator": "matches_reference_or_variance",
+        "left": "toe_rl_m",
+        "reference_field": "structural_pile_schedule.toe_rl_m",
+        "tolerance": 0.05,
+        "severity": "critical"
+      },
+      {
+        "id": "PILE_003",
+        "description": "Socket depth must meet or exceed design socket depth.",
+        "field": "piles",
+        "operator": "compare_to_reference",
+        "left": "socket_depth_m",
+        "comparison": ">=",
+        "reference_field": "structural_pile_schedule.required_socket_depth_m",
+        "severity": "critical"
+      },
+      {
+        "id": "PILE_004",
+        "description": "Pile base must be clean before concrete placement.",
+        "field": "piles.base_clean",
+        "operator": "equals",
+        "value": true,
+        "severity": "critical"
+      },
+      {
+        "id": "PILE_005",
+        "description": "Founding material must be recorded for every inspected pile.",
+        "field": "piles.founding_material",
+        "operator": "not_empty",
+        "severity": "critical"
+      }
+    ]
+  },
+  "dcp_and_platform_testing": {
+    "required_fields": [
+      "test_id",
+      "location_id",
+      "test_date",
+      "depth_intervals",
+      "blows_per_increment",
+      "target_bearing_pressure_kpa",
+      "acceptance_basis",
+      "result_status"
+    ],
+    "logic": [
+      {
+        "id": "DCP_001",
+        "description": "DCP must include blows per increment and increment depth.",
+        "field": "dcp_tests",
+        "operator": "all_items_have_keys",
+        "required_keys": ["blows_per_increment", "increment_depth_mm"],
+        "severity": "critical"
+      },
+      {
+        "id": "DCP_002",
+        "description": "Bearing pressure interpretation must come from deterministic calculator or approved correlation reference.",
+        "field": "dcp_tests",
+        "operator": "requires_calculation_source",
+        "required_source": "approved_correlation_or_deterministic_calculator",
+        "severity": "critical"
+      },
+      {
+        "id": "DCP_003",
+        "description": "Target bearing pressure must be stated for working platform assessments.",
+        "field": "dcp_tests.target_bearing_pressure_kpa",
+        "operator": "not_empty",
+        "severity": "critical"
+      }
+    ]
+  },
+  "photos_and_attachments": {
+    "logic": [
+      {
+        "id": "PHOTO_001",
+        "description": "Each borehole, pile, test pit, or DCP location should have linked field photo where required by project scope.",
+        "field": "field_locations",
+        "operator": "photos_present_when_required",
+        "severity": "major"
+      },
+      {
+        "id": "PHOTO_002",
+        "description": "Photo metadata should include date, time, location reference, and description.",
+        "field": "photos",
+        "operator": "all_items_have_keys",
+        "required_keys": ["photo_id", "date_time", "location_id", "description"],
+        "severity": "minor"
+      }
+    ]
+  },
+  "report_issue_controls": {
+    "logic": [
+      {
+        "id": "RPT_001",
+        "description": "All critical QA rules must pass before report ready status.",
+        "operator": "all_critical_rules_pass",
+        "severity": "critical"
+      },
+      {
+        "id": "RPT_002",
+        "description": "All unresolved variances must be accepted by responsible engineer.",
+        "field": "variances",
+        "operator": "all_items_have_keys_when_open",
+        "required_keys": ["variance_id", "description", "engineer_acceptance", "acceptance_date"],
+        "severity": "critical"
+      },
+      {
+        "id": "RPT_003",
+        "description": "Report must include limitation statement.",
+        "field": "report.limitation_statement",
+        "operator": "not_empty",
+        "severity": "major"
+      },
+      {
+        "id": "RPT_004",
+        "description": "Checked-by field must be completed before issue.",
+        "field": "report.checked_by",
+        "operator": "not_empty",
+        "severity": "critical"
+      }
+    ]
+  }
+}
