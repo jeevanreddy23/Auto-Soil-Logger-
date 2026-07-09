@@ -3611,8 +3611,11 @@ const RULES = [
     make:m=>({ name:"Unclear locations", details:`Proposal says "${m[0]}" — quantity/positions unclear`, qty:null, unit:"", conf:0.35 }) }
 ];
 function sentenceAround(text, idx){
-  const s=Math.max(0, text.lastIndexOf(".", idx)+1), e=text.indexOf(".", idx);
-  return text.slice(s, e<0? Math.min(text.length, idx+180) : Math.min(e+1, s+320)).trim();
+  /* sentence boundaries: a "." that is NOT between two digits (so 8.0 m doesn't split the sentence) */
+  const isEnd = i => text[i]==="." && !(/\d/.test(text[i-1]||"") && /\d/.test(text[i+1]||""));
+  let s=idx; while (s>0 && !isEnd(s-1) && idx-s<400) s--;
+  let e=idx; while (e<text.length && !isEnd(e) && e-idx<400) e++;
+  return text.slice(s, Math.min(e+1, s+420)).trim();
 }
 function extractScope(){
   const sc=SC(); const items=[]; const seen=new Set();
