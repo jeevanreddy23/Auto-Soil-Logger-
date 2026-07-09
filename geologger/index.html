@@ -3264,9 +3264,25 @@ pushSync = async function(){
   const key = pjSyncKey();
   try {
     const h = syncHeaders();
+    if (key === "__autosoil_project__") return _push12(); // default project keeps field-app merge path
+    /* pull-merge field-app changes before pushing so web saves never clobber phone data */
+    try {
+      const res = await fetch(SYNC_URL, { headers: h });
+      if (res.ok) { const data = await res.json(); const srv = data.boreholes?.[key]?.rows?.[0];
+        if (srv) {
+          for (const b of (srv.boreholes||[])) if (!S.boreholes.some(x=>x.id===b.id)) { S.boreholes.push(b); S.logs[b.id]=srv.logs?.[b.id]||blankLogs(); }
+          for (const b of S.boreholes) { const sl = srv.logs?.[b.id]; if (!sl) continue;
+            const ll = S.logs[b.id] || (S.logs[b.id]=blankLogs());
+            for (const mk of ["soil","rock","spt","samples","photos"]) {
+              const fieldFlagged = (sl[mk]||[]).some(r=>r && (r._field || String(r.remarks||"").includes("(field)")));
+              if (fieldFlagged && (sl[mk]||[]).length > (ll[mk]||[]).length) ll[mk]=sl[mk];
+            }
+          }
+          if (srv.dailyNotes && srv.dailyNotes.date===new Date().toISOString().slice(0,10)) S.dailyNotes = Object.assign({}, S.dailyNotes, srv.dailyNotes);
+        } }
+    } catch(e){}
     const lean = JSON.parse(JSON.stringify(S));
     for (const k in lean.logs) if (lean.logs[k].corebox) lean.logs[k].corebox.img = null;
-    if (key === "__autosoil_project__") return _push12(); // default project keeps field-app merge path
     const res = await fetch(SYNC_URL, { method:"POST", headers:h, body: JSON.stringify({ location:key, rows:[lean] }) });
     if (res.status===401) { setSync("err","sync off — click to set key"); return; }
     if (!res.ok) throw 0;

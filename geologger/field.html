@@ -78,8 +78,10 @@
   .sheet h3 { margin-bottom:6px; }
   .qrow { display:flex; align-items:center; gap:10px; padding:9px 2px; border-bottom:1px solid #ECEFEC; font-size:13.5px; }
   .qrow .st { margin-left:auto; font-size:12px; color:var(--sec); white-space:nowrap; }
+  .tsplit { display:grid; grid-template-columns:240px 1fr; gap:14px; align-items:start; }
   @media (min-width:768px){
     body { padding-bottom:0; padding-left:100px; }
+    main { max-width:1020px; }
     nav.bottom { left:0; top:0; bottom:0; right:auto; width:100px; flex-direction:column; justify-content:flex-start; border-top:none; border-right:1px solid var(--bd); padding-top:64px; }
     nav.bottom button { flex:0 0 66px; }
     main { max-width:900px; }
@@ -118,6 +120,17 @@ const PLAST = ["non-plastic","low plasticity","low to medium plasticity","medium
 const EXTRAS = ["trace fine grained sand","with fine to medium grained sand","trace fine sub-angular gravel","with fine to medium sub-angular gravel","with low plasticity silt","rootlets","ironstone gravels","brick fragments"];
 const GW_OPTS = ["GWNE","Water struck","Seepage","Standing water","Dry"];
 const PH_TYPES = ["Site","Borehole","Soil Sample","SPT","DCP","Corebox","Groundwater","Termination"];
+const ROCKS_F = ["SANDSTONE","SHALE","SILTSTONE","LAMINITE","IRONSTONE","CLAYSTONE","GRANITE","BASALT"];
+const WEATH_F = [["XW","extremely weathered"],["HW","highly weathered"],["MW","moderately weathered"],["SW","slightly weathered"],["FR","fresh"]];
+const STR_F = [["VL","very low"],["L","low"],["M","medium"],["H","high"],["VH","very high"]];
+const SMP_CODE = { D:"D", U:"U50", U50:"U50", S:"SPT", B:"BULK", Jar:"JAR", Tube:"U50", Bag:"BULK" };
+function autoSid(type){ const code=SMP_CODE[type]||String(type||"S").toUpperCase().slice(0,4);
+  const n=(L().samples||[]).filter(s=>(s.sid||"").indexOf(`-${code}-`)>=0).length+1;
+  return `${F.activeBh}-${code}-${String(n).padStart(2,"0")}`; }
+function sampleHasTest(re){ for (const id in (F.logs||{})) for (const s of (F.logs[id].samples||[]))
+  { const t=Array.isArray(s.tests)? s.tests.join(" ") : String(s.tests||""); if (re.test(t+" "+(s.type||""))) return true; } return false; }
+function recentFirst(base, used){ const freq={}; used.forEach(v=>{ if(v) freq[v]=(freq[v]||0)+1; });
+  return [...base].sort((a,b)=>(freq[b]||0)-(freq[a]||0)); }
 const INV_TYPES = ["Boreholes","SPT","DCP","Rock Coring","Test Pits","Hand Augers","Groundwater Monitoring","Sampling","Corebox Photography","Laboratory Testing"];
 const BH_STATUS = ["NOT_STARTED","DRILLING","SOIL_LOGGING","ROCK_CORING","WAITING_REVIEW","COMPLETE"];
 const ROLES = ["Technician","Driller","Engineer"];
@@ -208,12 +221,26 @@ async function doSync(manual){
     if (server) {
       for (const b of (server.boreholes||[])) if (!F.boreholes.some(x=>x.id===b.id)) { F.boreholes.push(b); F.logs[b.id]=server.logs?.[b.id]||blankLogs(); }
       if (!F.project.projectNumber && server.project) F.project=Object.assign({},F.project,{projectNumber:server.project.projectNumber,clientName:server.project.clientName,siteAddress:server.project.siteAddress,loggedBy:server.project.loggedBy});
+      /* scope requirements from the approved web scope — drives field prompts, no re-typing */
+      if (server.scope){ const acc=(server.scope.items||[]).filter(i=>i.status!=="rej");
+        F.scopeReq = { cbr: acc.some(i=>i.name==="CBR"), ss: acc.some(i=>/shrink/i.test(i.name)),
+          sptIv: server.scope.plan?.spt?.[0]?.interval||null, labs: server.scope.plan?.totals?.labs||0 };
+        /* planned depths from scope baseline */
+        for (const pb of (server.scope.plan?.bhs||[])){ const b=F.boreholes.find(x=>x.id===pb.id); if (b && !b.planned && pb.depth) b.planned=pb.depth; }
+      }
     }
     /* push merged: field data wins for field-entered boreholes */
     const merged = server || { project:{}, boreholes:[], logs:{}, activeBh:null, activeTab:"dashboard" };
     merged.project = Object.assign({}, merged.project, Object.fromEntries(Object.entries(F.project).filter(([k,v])=>v)));
+    if (F.dailyNotes && F.dailyNotes.date===new Date().toISOString().slice(0,10)) merged.dailyNotes=F.dailyNotes;
     for (const b of F.boreholes) {
       const i = merged.boreholes.findIndex(x=>x.id===b.id);
+      /* conflict guard: never silently disagree on final depth */
+      if (i>=0){ const sv=merged.boreholes[i];
+        if (sv.termDepth && b.termDepth && String(sv.termDepth)!==String(b.termDepth)){
+          (F.conflicts=F.conflicts||[]).unshift({bh:b.id, field:"final depth", server:sv.termDepth, local:b.termDepth, ts:now()});
+          if (F.conflicts.length>20) F.conflicts.length=20;
+        } }
       if (i>=0) merged.boreholes[i] = Object.assign({}, merged.boreholes[i], b); else merged.boreholes.push(b);
       const ml = merged.logs[b.id] || (merged.logs[b.id] = { soil:[],rock:[],spt:[],samples:[],corebox:{img:null,natW:0,natH:0,rows:[],defects:[],snap:0.01,layers:{scale:true,grid:true,defects:true,zones:true,labels:true,rows:true},includeMB:false} });
       const fl = F.logs[b.id]||blankLogs();
@@ -228,6 +255,10 @@ async function doSync(manual){
         return { sid:s.sid, from:s.from, to:s.to, stype:s.type||"", container:s.container||"", tests:s.tests.join(", "),
         mc:s.tests.includes("Moisture content"), att:s.tests.includes("Atterberg"), psd:s.tests.includes("PSD"), cbr:s.tests.includes("CBR"),
         agg:false, ass:s.tests.includes("ASS"), contam:s.tests.includes("Contamination"), remarks:(s.remarks||"")+" (field)" }; });
+      if ((fl.rock||[]).length) ml.rock = fl.rock.map(r=> ("defectType" in r)? r : ({ from:r.from, to:r.to, rockType:r.rockType,
+        colour:r.colour, weathering:r.weathering, strength:r.strength, defectType:"", defectAngle:"", defectSpacing:r.defSpacing||"",
+        defectRough:"", defectInfill:"", defectAperture:"", defectPersist:"", bedding:"", tcr:r.tcr||"", scr:"", rqd:r.rqd||"",
+        is50:"", rockClass:"", description:r.desc||"", descTouched:!!r.desc, remarks:(r.remarks||"")+" (field)" }));
       if (fl.gw && fl.gw.state) merged.project.groundwater = fl.gw.state + (fl.gw.depth? ` at ${fl.gw.depth} m`:"") + (fl.gw.remarks? " — "+fl.gw.remarks : "");
     }
     const push = await fetch(SYNC_URL, { method:"POST", headers:h, body: JSON.stringify({ location:F.syncKey, rows:[merged] }) });
@@ -262,15 +293,58 @@ function sheet(html, wireFn){
 }
 
 /* ---- screens ---- */
-const SCREENS = ()=>({ home:scrHome, jobs:scrJobs, wizard:scrWizard, bh:scrBh, log:scrLog, spt:scrSpt, photos:scrPhotos, sync:scrSync, review:scrReview });
+const SCREENS = ()=>({ home:scrHome, jobs:scrJobs, wizard:scrWizard, bh:scrBh, log:scrLog, spt:scrSpt, photos:scrPhotos, sync:scrSync, review:scrReview, update:scrUpdate });
+/* ---------- project update (2-minute end-of-day review) ---------- */
+function snapF(){ const s={bh:{},smp:0,spt:0};
+  for (const b of F.boreholes){ const l=F.logs[b.id]||{};
+    s.bh[b.id]=Math.max(...((l.soil||[]).map(r=>num(r.to)||0)), ...((l.rock||[]).map(r=>num(r.to)||0)), num(b.termDepth)||0, 0);
+    s.smp+=((l.samples)||[]).length; s.spt+=((l.spt)||[]).length; }
+  return s; }
+function scrUpdate(){
+  const td=new Date().toISOString().slice(0,10);
+  if (!F.dailyNotes || F.dailyNotes.date!==td) F.dailyNotes={ date:td, issues:"", tomorrow:"", weather:"" };
+  const base=F.dayBase && F.dayBase.date===td? F.dayBase.snap : {bh:{},smp:0,spt:0};
+  const cur=snapF();
+  const mToday=F.boreholes.reduce((a,b)=>a+Math.max(0,(cur.bh[b.id]||0)-(base.bh[b.id]||0)),0);
+  const comp=F.boreholes.filter(b=>b.termDepth||b.status==="COMPLETE").length;
+  const missCbr=F.scopeReq?.cbr && !sampleHasTest(/CBR|BULK/i);
+  const missSS=F.scopeReq?.ss && !sampleHasTest(/shrink/i);
+  const gw=F.boreholes.map(b=>{ const g=F.logs[b.id]?.gw; return g&&g.state? `${b.id}: ${g.state}${g.depth?` at ${g.depth} m`:""}`:null; }).filter(Boolean);
+  const n=F.dailyNotes;
+  return `<h2 class="screen">Project update <span class="tag">${td}</span></h2>
+  <div class="card"><div class="row2" style="text-align:center">
+    <div><b style="font-size:20px">${comp}/${F.boreholes.length}</b><div class="meta">BH complete</div></div>
+    <div><b style="font-size:20px">${mToday.toFixed(1)} m</b><div class="meta">drilled today</div></div>
+    <div><b style="font-size:20px">${cur.smp-(base.smp||0)}</b><div class="meta">samples today</div></div>
+    <div><b style="font-size:20px">${cur.spt-(base.spt||0)}</b><div class="meta">SPT today</div></div>
+  </div></div>
+  ${missCbr||missSS?`<div class="card" style="border-color:#e0c26a">
+    ${missCbr?'<div class="vwarn">⚠ CBR sample still missing (scope requirement)</div>':""}
+    ${missSS?'<div class="vwarn">⚠ Shrink-swell sample still missing (scope requirement)</div>':""}</div>`:""}
+  <div class="card"><h3>Groundwater</h3><div class="meta">${gw.join("<br>")||"Not recorded / GWNE"}</div>
+    ${F.scopeReq?.labs?`<div class="meta" style="margin-top:6px">Lab tests in scope: ${F.scopeReq.labs} — submit samples with the lab schedule.</div>`:""}</div>
+  <div class="card"><h3>Notes for today's report</h3>
+    <label class="f">Issues / delays</label><input class="f" id="upIss" value="${esc(n.issues)}" placeholder="e.g. access delay BH3">
+    <label class="f">Tomorrow's plan</label><input class="f" id="upTom" value="${esc(n.tomorrow)}" placeholder="e.g. continue BH2, start BH3">
+    <button class="btn primary block" id="upSave">Save update & sync ✓</button>
+    <div class="meta" style="margin-top:6px">These notes feed straight into the Daily Progress email on the website — the PM sees them in the 4:30 pm draft.</div></div>`;
+}
 function render(){
   let s=F.screen; const map=SCREENS();
   if (!map[s]) s="home";
   if (["bh","log","spt","photos","review"].includes(s) && !F.activeBh) s="jobs";
-  const navS = ({home:"home",jobs:"jobs",wizard:"jobs",bh:"bh",log:"bh",spt:"bh",review:"bh",photos:"photos",sync:"sync"})[s];
+  const navS = ({home:"home",jobs:"jobs",wizard:"jobs",bh:"bh",log:"bh",spt:"bh",review:"bh",photos:"photos",sync:"sync",update:"home"})[s];
   document.querySelectorAll("#nav button").forEach(b=>b.classList.toggle("on", b.dataset.s===navS));
   const m=document.getElementById("main");
-  m.innerHTML = map[s]();
+  const html=map[s]();
+  /* tablet split view: borehole rail beside the working screen */
+  if (window.innerWidth>=900 && ["bh","log","spt","photos","update"].includes(s) && F.boreholes.length){
+    m.innerHTML = `<div class="tsplit"><aside>${F.boreholes.map(b=>{ const l=F.logs[b.id]||{}; const dep=curDepth(b.id);
+      const miss=(!l.gw||!l.gw.state)?" · GW?":"";
+      return `<div class="list-item" data-open="${esc(b.id)}" style="cursor:pointer;background:${b.id===F.activeBh?"#EAF3ED":"#fff"};border:1px solid var(--bd);border-radius:10px;margin-bottom:6px;padding:9px 10px">
+        <div class="grow"><b>${esc(b.id)}</b><small>${dep.toFixed(1)} m${b.planned?" / "+(+b.planned).toFixed(1)+" m":""} · ${esc(b.status||"—")}${miss}</small></div></div>`; }).join("")}
+      </aside><section>${html}</section></div>`;
+  } else m.innerHTML = html;
   wire(m, s);
   pill();
 }
@@ -322,7 +396,12 @@ function scrHome(){
     <h2 class="screen" style="margin:2px 0 0">${greeting()}${F.project.loggedBy?", "+esc(F.project.loggedBy.split(/[\/,]/)[0]):""}</h2>
     <div class="meta">Ready for field logging? · Role: <b>${esc(F.role)}</b> <span style="font-size:11px">(tap avatar to change)</span></div></div>
   ${rec}
+  ${(F.scopeReq?.cbr && !sampleHasTest(/CBR|BULK/i))||(F.scopeReq?.ss && !sampleHasTest(/shrink/i))?
+    `<div class="card" style="border-color:#e0c26a;padding:10px 14px">
+      ${F.scopeReq?.cbr && !sampleHasTest(/CBR|BULK/i)?'<div class="vwarn">⚠ CBR sample missing (scope)</div>':""}
+      ${F.scopeReq?.ss && !sampleHasTest(/shrink/i)?'<div class="vwarn">⚠ Shrink-swell sample missing (scope)</div>':""}</div>`:""}
   <button class="btn primary big block" id="newJob">＋ START NEW JOB<small>Create project &amp; boreholes</small></button>
+  <button class="btn block" id="goUpdate">📋 Project update — end-of-day review</button>
   ${drafts}
   ${cont}
   <div class="sect">QUICK ACTIONS</div>
@@ -477,31 +556,65 @@ function scrBh(){
 }
 
 /* ---------- SOIL LOG ---------- */
+function rockDesc(d){
+  if (!d.rockType) return "";
+  const w=(WEATH_F.find(x=>x[0]===d.weathering)||[])[1]||"";
+  const s=(STR_F.find(x=>x[0]===d.strength)||[])[1]||"";
+  return d.rockType+": "+[s&&s+" strength", w, d.colour].filter(Boolean).join(", ");
+}
 function scrLog(){
-  const l=L(); const last=l.soil.at(-1);
-  const from = last? last.to : 0;
-  const d = F.draft || (F.draft = { from, to:"", material:"", colour:"", moisture:"", consistency:"", plasticity:"", extras:[], fill:false, remarks:"" });
+  const l=L(); const lastS=l.soil.at(-1), lastR=(l.rock||[]).at(-1);
+  const from = Math.max(lastS?num(lastS.to)||0:0, lastR?num(lastR.to)||0:0);
+  const d = F.draft || (F.draft = { kind:"soil", from, to:"", material:"", colour:"", moisture:"", consistency:"", plasticity:"", extras:[], fill:false, remarks:"",
+    rockType:"", weathering:"", strength:"", defSpacing:"", tcr:"", rqd:"" });
+  if (!d.kind) d.kind="soil";
   const chip=(k,v,label)=>`<button class="chip ${d[k]===v?"on":""}" data-ck="${k}" data-cv="${esc(v)}">${esc(label||v)}</button>`;
   const isGran = GRAN(d.material);
-  return `<h2 class="screen">${esc(F.activeBh)} — Soil interval</h2>
-  <div class="card">
-    <div class="row2">
+  const isRock = d.kind==="rock";
+  const mats = recentFirst(MATERIALS, l.soil.map(r=>r.material));
+  const rocks = recentFirst(ROCKS_F, (l.rock||[]).map(r=>r.rockType));
+  const kindRow = `<label class="f">Material type</label><div class="chips">${
+    [["soil","Soil"],["rock","Rock"],["fill","Fill"],["other","Other"]].map(([v,lb])=>`<button class="chip ${d.kind===v?"on":""}" data-kind="${v}">${lb}</button>`).join("")}</div>`;
+  const depths = `<div class="row2">
       <div><label class="f">From (m)</label><input class="f" type="number" step="0.01" id="dFrom" value="${d.from}"></div>
       <div><label class="f">To (m)</label><input class="f" type="number" step="0.01" id="dTo" value="${esc(d.to)}"></div>
     </div>
-    <div class="depthbtns">${[0.1,0.2,0.5,1.0].map(v=>`<button class="chip" data-plus="${v}">+${v}</button>`).join("")}</div>
-    <label class="f">Material</label><div class="chips">${MATERIALS.slice(0,12).map(v=>chip("material",v)).join("")}
-      <select class="f" id="dMatSel" style="min-height:40px;width:auto"><option value="">more…</option>${MATERIALS.slice(12).map(v=>`<option>${v}</option>`).join("")}</select></div>
-    <button class="chip ${d.fill?"on":""}" data-ck="fill" data-cv="1">FILL</button>
+    <div class="depthbtns">${[0.1,0.2,0.5,1.0].map(v=>`<button class="chip" data-plus="${v}">+${v}</button>`).join("")}</div>`;
+  const soilForm = `
+    <label class="f">Material</label><div class="chips">${mats.slice(0,12).map(v=>chip("material",v)).join("")}
+      <select class="f" id="dMatSel" style="min-height:40px;width:auto"><option value="">more…</option>${mats.slice(12).map(v=>`<option>${v}</option>`).join("")}</select></div>
+    ${d.kind==="other"?`<input class="f" id="dMatFree" placeholder="Type material name…" value="${esc(d.material)}" style="margin:4px 0">`:""}
     <label class="f">Colour</label><div class="chips">${COLOURS.slice(0,7).map(v=>chip("colour",v)).join("")}</div>
     <label class="f">Moisture</label><div class="chips">${MOIST.map(v=>chip("moisture",v)).join("")}</div>
     <label class="f">${isGran?"Density":"Consistency"}</label><div class="chips">${(isGran?DENS:CONS).map(v=>chip("consistency",v)).join("")}</div>
     ${isGran?"":`<label class="f">Plasticity</label><div class="chips">${PLAST.map(v=>chip("plasticity",v)).join("")}</div>`}
     <label class="f">Constituents</label><div class="chips">${EXTRAS.map(v=>`<button class="chip ${(d.extras||[]).includes(v)?"on":""}" data-ex="${esc(v)}">${esc(v)}</button>`).join("")}</div>
-    <div class="prev" id="descPrev">${esc(soilDesc(d)||"— build the description with the chips above —")}</div>
+    <div class="prev" id="descPrev">${esc(soilDesc(d)||"— build the description with the chips above —")}</div>`;
+  const rockForm = `
+    <label class="f">Rock type</label><div class="chips">${rocks.map(v=>chip("rockType",v)).join("")}</div>
+    <label class="f">Colour</label><div class="chips">${COLOURS.slice(0,7).map(v=>chip("colour",v)).join("")}</div>
+    <label class="f">Weathering</label><div class="chips">${WEATH_F.map(([c,w])=>chip("weathering",c,c+" "+w)).join("")}</div>
+    <label class="f">Strength</label><div class="chips">${STR_F.map(([c,w])=>chip("strength",c,c+" "+w)).join("")}</div>
+    <div class="row2"><div><label class="f">Defect spacing</label><input class="f" id="dDefSp" value="${esc(d.defSpacing)}" placeholder="e.g. 60–200 mm"></div>
+      <div><label class="f">TCR % / RQD %</label><div class="row2">
+        <input class="f" type="number" id="dTcr" value="${esc(d.tcr)}" placeholder="TCR"><input class="f" type="number" id="dRqd" value="${esc(d.rqd)}" placeholder="RQD"></div></div></div>
+    <div class="prev" id="descPrev">${esc(rockDesc(d)||"— pick rock type, weathering, strength —")}</div>
+    <div class="meta">Detailed defect marking (BP/JT/seams/zones) is done in the web Corebox Viewer — this log auto-syncs to the Rock Log.</div>`;
+  return `<h2 class="screen">${esc(F.activeBh)} — Log interval</h2>
+  <div class="card">
+    ${kindRow}
+    ${depths}
+    ${isRock? rockForm : soilForm}
     <label class="f">Remarks</label><input class="f" id="dRem" value="${esc(d.remarks)}">
+    <div class="row2">
+      <button class="btn" id="dupLayer">⧉ Duplicate last</button>
+      <button class="btn" id="smpFromIv">＋ Sample here</button>
+    </div>
     <button class="btn primary block" id="saveIv">Save interval ✓</button>
   </div>
+  ${(l.rock||[]).length?`<div class="card"><h3>Rock intervals</h3>
+    ${l.rock.map((r,i)=>`<div class="list-item"><div class="grow"><b>${r.from}–${r.to} m</b><small>${esc(r.desc||rockDesc(r)||r.rockType)}</small></div><button class="del" data-dri="${i}">🗑</button></div>`).join("")}
+  </div>`:""}
   <div class="card"><h3>Logged intervals</h3>
     ${l.soil.map((r,i)=>`<div class="list-item"><div class="grow"><b>${r.from}–${r.to} m</b><small>${esc(r.desc||soilDesc(r))}</small></div><button class="del" data-di="${i}">🗑</button></div>`).join("")||'<div class="meta">None yet.</div>'}
   </div>
@@ -579,6 +692,10 @@ function scrSync(){
     <button class="btn primary block" id="syncNow">⇅ Sync now</button>
   </div>
   <div class="card"><h3>Queue</h3>${rows||'<div class="meta">No boreholes.</div>'}</div>
+  ${(F.conflicts||[]).length?`<div class="card" style="border-color:#d7a04a"><h3>⚠ Sync conflicts — review required</h3>
+    ${F.conflicts.map((c,i)=>`<div class="qrow"><b>${esc(c.bh)}</b> ${esc(c.field)}: device says <b>${esc(c.local)}</b>, website says <b>${esc(c.server)}</b>
+      <button class="chip" data-cfx="${i}" style="margin-left:auto">Resolved</button></div>`).join("")}
+    <div class="meta" style="margin-top:6px">Your device value was kept. Confirm the correct value with the office, fix it on either side, then mark resolved.</div></div>`:""}
   <div class="card"><h3>Settings</h3>
     <div class="qrow">Large photo upload <button class="chip ${wifi?"on":""}" id="wifiTgl" style="margin-left:auto">${wifi?"Wi-Fi only: ON":"Any network"}</button></div>
     <div class="meta" style="margin:6px 0 10px">When ON, background sync pauses on mobile data (best effort — manual sync always works). Logging is never blocked by uploads.</div>
@@ -690,6 +807,7 @@ function wire(m, s){
   m.querySelectorAll("[data-pj]").forEach(c=>c.addEventListener("click",()=>{ const meta=PROJECTS_CACHE.find(p=>p.key===c.dataset.pj); switchProject(c.dataset.pj, meta); }));
 
   if (s==="home"){
+    const gu=m.querySelector("#goUpdate"); if (gu) gu.addEventListener("click",()=>go("update"));
     m.querySelector("#newJob").addEventListener("click",()=>{ const w=newWizDraft(); WIZ.push(w); saveWiz(); F.wizId=w.id; go("wizard"); });
     m.querySelectorAll("[data-wiz]").forEach(b=>b.addEventListener("click",()=>{ F.wizId=b.dataset.wiz; go("wizard"); }));
     m.querySelectorAll("[data-wizdel]").forEach(b=>b.addEventListener("click",()=>{
@@ -747,11 +865,37 @@ function wire(m, s){
   }
   if (s==="log"){
     const d=F.draft;
-    const upd=()=>{ document.getElementById("descPrev").textContent = soilDesc(d)||"—"; };
+    const upd=()=>{ const el=document.getElementById("descPrev"); if (el) el.textContent = (d.kind==="rock"? rockDesc(d):soilDesc(d))||"—"; };
+    m.querySelectorAll("[data-kind]").forEach(c=>c.addEventListener("click",()=>{
+      d.kind=c.dataset.kind; d.fill = d.kind==="fill"; render(); }));
     m.querySelectorAll("[data-ck]").forEach(c=>c.addEventListener("click",()=>{
       const k=c.dataset.ck;
       if (k==="fill") d.fill=!d.fill; else d[k] = d[k]===c.dataset.cv? "" : c.dataset.cv;
       render(); }));
+    const dup=m.querySelector("#dupLayer");
+    if (dup) dup.addEventListener("click",()=>{
+      const l2=L(); const last = d.kind==="rock"? (l2.rock||[]).at(-1) : l2.soil.at(-1);
+      if (!last) return alert("Nothing to duplicate yet.");
+      const keep={from:num(last.to)??d.from, to:""};
+      F.draft=Object.assign({}, last, keep, {kind:d.kind, extras:(last.extras||[]).slice(), remarks:""});
+      render(); });
+    const sfi=m.querySelector("#smpFromIv");
+    if (sfi) sfi.addEventListener("click",()=>{
+      const f=num(document.getElementById("dFrom").value), t=num(document.getElementById("dTo").value);
+      sheet(`<h3>Sample at ${f??"?"}–${t??"?"} m</h3>
+        <label class="f">Type</label><div class="chips">${["D","U50","B","Jar","Bag"].map(v=>`<button class="chip" data-qst="${v}">${v}</button>`).join("")}</div>
+        <label class="f">Tests</label><div class="chips">${["Moisture content","Atterberg","PSD","CBR","Shrink-swell"].map(v=>`<button class="chip" data-qtt="${v}">${v}</button>`).join("")}</div>
+        <button class="btn primary block" id="qsSave">Save sample ✓</button>`,
+      (bg,close)=>{ let ty="D", ts=[];
+        bg.querySelectorAll("[data-qst]").forEach(c=>c.addEventListener("click",()=>{ ty=c.dataset.qst; bg.querySelectorAll("[data-qst]").forEach(x=>x.classList.toggle("on",x===c)); }));
+        bg.querySelectorAll("[data-qtt]").forEach(c=>c.addEventListener("click",()=>{ const v=c.dataset.qtt; ts.includes(v)?ts.splice(ts.indexOf(v),1):ts.push(v); c.classList.toggle("on"); }));
+        bg.querySelector("#qsSave").addEventListener("click",()=>{
+          L().samples.push({ sid:autoSid(ty), from:f??0, to:t??f??0, type:ty, container:"", tests:ts.slice(), remarks:"" });
+          save(); close(); toast("Sample "+autoSid(ty).replace(/\d+$/,x=>String(+x-1).padStart(2,"0"))+" saved"); render(); }); }); });
+    m.querySelectorAll("[data-dri]").forEach(b=>b.addEventListener("click",()=>{ (L().rock||[]).splice(+b.dataset.dri,1); save(); render(); }));
+    const mf=m.querySelector("#dMatFree"); if (mf) mf.addEventListener("input",()=>{ d.material=mf.value; upd(); });
+    ["dDefSp","dTcr","dRqd"].forEach(id=>{ const el=m.querySelector("#"+id); if (el) el.addEventListener("input",()=>{
+      d.defSpacing=m.querySelector("#dDefSp")?.value||d.defSpacing; d.tcr=m.querySelector("#dTcr")?.value||d.tcr; d.rqd=m.querySelector("#dRqd")?.value||d.rqd; }); });
     m.querySelectorAll("[data-ex]").forEach(c=>c.addEventListener("click",()=>{
       const v=c.dataset.ex; d.extras=d.extras||[];
       d.extras.includes(v)? d.extras.splice(d.extras.indexOf(v),1) : d.extras.push(v);
@@ -764,11 +908,29 @@ function wire(m, s){
     m.querySelector("#saveIv").addEventListener("click",()=>{
       d.from=num(document.getElementById("dFrom").value); d.to=num(document.getElementById("dTo").value);
       if (d.from==null||d.to==null||d.to<=d.from) return alert("Check From/To depths");
+      if (d.kind==="rock"){
+        if (!d.rockType) return alert("Pick a rock type");
+        d.desc=rockDesc(d);
+        (L().rock=L().rock||[]).push({ from:d.from, to:d.to, rockType:d.rockType, colour:d.colour, weathering:d.weathering,
+          strength:d.strength, defSpacing:d.defSpacing, tcr:d.tcr, rqd:d.rqd, desc:d.desc, remarks:d.remarks, _field:1 });
+        if (bh()) bh().status="ROCK_CORING";
+        F.draft=Object.assign({},d,{ from:d.to, to:"", remarks:"" });
+        save(); render(); return;
+      }
       if (!d.material) return alert("Pick a material");
       d.desc=soilDesc(d);
       L().soil.push(JSON.parse(JSON.stringify(d)));
       if (bh() && (bh().status==="NOT_STARTED"||!bh().status)) bh().status="SOIL_LOGGING";
-      F.draft={ from:d.to, to:"", material:d.material, colour:d.colour, moisture:d.moisture, consistency:d.consistency, plasticity:d.plasticity, extras:[], fill:false, remarks:"" };
+      /* scope-aware prompts: only when the approved scope requires it and it's still missing */
+      if (F.scopeReq?.ss && /CLAY/i.test(d.material) && !sampleHasTest(/shrink/i)){
+        if (confirm("Scope requires a SHRINK-SWELL sample and none is collected yet.\nAdd a U50 sample at "+d.from+"–"+d.to+" m?"))
+          L().samples.push({ sid:autoSid("U50"), from:d.from, to:d.to, type:"U50", container:"", tests:["Shrink-swell"], remarks:"scope requirement" });
+      } else if (F.scopeReq?.cbr && GRAN(d.material) && !sampleHasTest(/CBR|BULK/i)){
+        if (confirm("Scope requires a CBR (bulk) sample and none is collected yet.\nAdd a bulk sample at "+d.from+"–"+d.to+" m?"))
+          L().samples.push({ sid:autoSid("B"), from:d.from, to:d.to, type:"B", container:"", tests:["CBR"], remarks:"scope requirement" });
+      }
+      F.draft={ kind:"soil", from:d.to, to:"", material:d.material, colour:d.colour, moisture:d.moisture, consistency:d.consistency, plasticity:d.plasticity, extras:[], fill:false, remarks:"",
+        rockType:"", weathering:"", strength:"", defSpacing:"", tcr:"", rqd:"" };
       save(); render(); });
     m.querySelectorAll("[data-di]").forEach(b=>b.addEventListener("click",e=>{ e.stopPropagation(); L().soil.splice(+b.dataset.di,1); save(); render(); }));
     m.querySelectorAll("[data-gw]").forEach(c=>c.addEventListener("click",()=>{ L().gw.state=c.dataset.gw; save(); render(); }));
@@ -796,7 +958,7 @@ function wire(m, s){
       const v=c.dataset.smtest; smTests.includes(v)? smTests.splice(smTests.indexOf(v),1):smTests.push(v); c.classList.toggle("on"); }));
     m.querySelector("#smSave").addEventListener("click",()=>{
       const f=num(document.getElementById("smF").value); if (f==null) return alert("Enter sample depth");
-      L().samples.push({ sid:`${F.activeBh}_${f.toFixed(2)}${document.getElementById("smT").value?"-"+num(document.getElementById("smT").value).toFixed(2):""}`,
+      L().samples.push({ sid:autoSid(smType||"D"),
         from:f, to:num(document.getElementById("smT").value)??f, type:smType, container:"", tests:smTests.slice(), remarks:"" });
       save(); render(); });
     m.querySelectorAll("[data-smi]").forEach(b=>b.addEventListener("click",()=>{ L().samples.splice(+b.dataset.smi,1); save(); render(); }));
@@ -824,8 +986,16 @@ function wire(m, s){
         img.src=rd.result; };
       rd.readAsDataURL(f); });
   }
+  if (s==="update"){
+    const n=F.dailyNotes;
+    m.querySelector("#upIss").addEventListener("input",e=>{ n.issues=e.target.value; });
+    m.querySelector("#upTom").addEventListener("input",e=>{ n.tomorrow=e.target.value; });
+    m.querySelector("#upSave").addEventListener("click",()=>{ save(); toast("Update saved"); doSync(false); go("home"); });
+  }
   if (s==="sync"){
     m.querySelector("#syncNow").addEventListener("click",()=>doSync(true));
+    m.querySelectorAll("[data-cfx]").forEach(b=>b.addEventListener("click",()=>{
+      F.conflicts.splice(+b.dataset.cfx,1); save(false); render(); }));
     m.querySelector("#wifiTgl").addEventListener("click",()=>{
       const on=localStorage.getItem("geoflow-wifi")==="1";
       localStorage.setItem("geoflow-wifi", on?"0":"1"); render(); });
@@ -840,6 +1010,9 @@ function wire(m, s){
   }
   m.querySelectorAll("#backBh").forEach(b=>b.addEventListener("click",()=>go("bh")));
 }
+/* start-of-day baseline for "today's" metres/samples/SPT */
+(function(){ const td=new Date().toISOString().slice(0,10);
+  if (!F.dayBase || F.dayBase.date!==td) { F.dayBase={ date:td, snap:snapF() }; save(false); } })();
 /* boot: always land on Home so the field workspace answers "what am I doing today?" first */
 if (!SCREENS()[F.screen] || F.screen==="boreholes") F.screen="home";
 if (!["wizard"].includes(F.screen)) F.screen="home";

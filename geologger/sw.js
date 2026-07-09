@@ -1,5 +1,5 @@
 /* STS GeoFlow service worker — offline-first app shell */
-const CACHE = "geoflow-v3";
+const CACHE = "geoflow-v4";
 const SHELL = ["./field.html", "./manifest.webmanifest"];
 self.addEventListener("install", e => {
   e.waitUntil(caches.open(CACHE).then(c => c.addAll(SHELL)).then(() => self.skipWaiting()));
