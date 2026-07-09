@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>AutoSoil Logger — AS 1726 Borehole Logging</title>
+<title>STS GeoFlow — Geotechnical Project Delivery</title>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf-autotable/3.8.2/jspdf.plugin.autotable.min.js"></script>
@@ -98,7 +98,7 @@
 </head>
 <body>
   <div class="topbar">
-    <h1>AutoSoil Logger <small>AS 1726:2017 · NSW</small></h1>
+    <h1>STS GeoFlow <small>AS 1726:2017 · NSW</small></h1>
     <div class="navtab" data-tab="project">Project Setup</div>
     <div class="navtab" data-tab="boreholes">Boreholes</div>
     <div class="navtab" data-tab="soil">Soil Log</div>
@@ -4135,7 +4135,7 @@ body.scmax .content { max-width:none; }
 (function(){
 /* ---------- new light pages: fieldwork, laboratory, settings ---------- */
 const host=document.querySelector(".content");
-for (const id of ["fieldwork","laboratory","settings","daily"]){
+for (const id of ["fieldwork","laboratory","settings","daily","photos","qa","history"]){
   if (!document.getElementById("page-"+id)){ const dv=document.createElement("div"); dv.className="tabpage"; dv.id="page-"+id; host.appendChild(dv); }
   if (!TABS.includes(id)) TABS.push(id);
 }
@@ -4219,23 +4219,30 @@ function renderSettings(){
 
 /* ---------- sidebar ---------- */
 const ITEMS=[
-  ["home","⌂","Home","dashboard"],
-  ["projects","▦","Projects","projects"],
-  ["current","📁","Current Project","project"],
-  ["sep1","","",""],
-  ["scope","⛭","Scope","scope"],
+  ["sec","CONTROL CENTER"],
+  ["home","▦","Tower Dashboard","dashboard"],
+  ["scope","⛭","Scope & Plan","scope"],
+  ["current","📁","Project Setup","project"],
+  ["sec","FIELD CAPTURE"],
   ["boreholes","◨","Boreholes","boreholes"],
   ["fieldwork","⛏","Fieldwork","fieldwork"],
-  ["daily","✉","Daily Report","daily"],
-  ["soil","◱","Soil Log","soil"],
-  ["rock","▤","Rock Log","rock"],
-  ["corebox","▣","Corebox","corebox"],
-  ["spt","▼","SPT","spt"],
+  ["soil","◱","Soil Logs","soil"],
+  ["rock","▤","Rock Logs","rock"],
+  ["corebox","▣","Corebox Viewer","corebox"],
+  ["spt","▼","SPT & Field Tests","spt"],
+  ["photos","📷","Photos","photos"],
+  ["sec","SAMPLES & LAB"],
   ["samples","◰","Samples","samples"],
   ["laboratory","⚗","Laboratory","laboratory"],
-  ["sep2","","",""],
-  ["reports","▤","Reports","preview"],
-  ["export","⇩","Export","export"],
+  ["sec","REPORTS & OUTPUT"],
+  ["daily","✉","Daily Report","daily"],
+  ["reports","▥","Report Assembly","preview"],
+  ["export","⇩","Data Export","export"],
+  ["sec","INTELLIGENCE"],
+  ["qa","⚠","QA Alerts","qa"],
+  ["history","🕘","Project History","history"],
+  ["sec",""],
+  ["projects","⌂","All Projects","projects"],
   ["settings","⚙","Settings","settings"]
 ];
 let side=null, backdrop=null;
@@ -4245,9 +4252,9 @@ function buildSide(){
     backdrop.addEventListener("click",()=>{ side.classList.remove("open"); backdrop.classList.remove("show"); }); }
   const active=S.activeTab;
   const pj=(typeof pjActive==="function" && pjActive())||null;
-  side.innerHTML=`<div class="brand">STS GeoFlow<small>GEOTECHNICAL WORKFLOW · AS 1726</small></div>`+
+  side.innerHTML=`<div class="brand">STS GEOTECHNICS<small>STS GEOFLOW · AS 1726</small></div>`+
     ITEMS.map(([k,ic,label,tab])=>{
-      if (k.startsWith("sep")) return '<div class="sep"></div>';
+      if (k==="sec") return ic? `<div class="ssec">${ic}</div>` : '<div class="sep"></div>';
       if (k==="current"){
         const num=pj?.number||S.project?.projectNumber||"—";
         const stt=S.scope?.status||pj?.status||"";
@@ -4268,7 +4275,7 @@ document.querySelector(".topbar").prepend(burger);
 burger.addEventListener("click",()=>{ side.classList.add("open"); backdrop.classList.add("show"); });
 
 /* ---------- showTab wrapper: render new pages + sidebar state + clean layouts ---------- */
-const SCMAX=["scope","fieldwork","laboratory","settings","daily"];
+const SCMAX=["scope","fieldwork","laboratory","settings","daily","photos","qa","history"];
 const _showTab14=showTab;
 showTab=function(tab){
   _showTab14(tab);
@@ -4277,6 +4284,10 @@ showTab=function(tab){
   if (tab==="laboratory") renderLaboratory();
   if (tab==="settings") renderSettings();
   if (tab==="daily" && window.renderDaily) window.renderDaily();
+  if (tab==="photos" && window.renderPhotos) window.renderPhotos();
+  if (tab==="qa" && window.renderQA) window.renderQA();
+  if (tab==="history" && window.renderHistory) window.renderHistory();
+  if (window.v16After) window.v16After(tab);
   buildSide();
 };
 /* ---------- new job → Scope first ---------- */
@@ -4303,6 +4314,211 @@ document.addEventListener("touchend",e=>{ if (tx0===null) return;
 },{passive:true});
 /* re-sync sidebar highlight with whatever tab loaded first */
 buildSide();
+})();
+</script>
+<style id="v16-shell-css">
+/* ---------- Unified enterprise shell ---------- */
+body { background:#f8fafc; }
+.leftpanel { display:none !important; }               /* old secondary sidebar removed */
+.topbar h1, #pjCtx { display:none !important; }        /* fragmented header removed */
+.topbar { position:sticky; top:0; z-index:60; height:48px; border-bottom:1px solid #e2e8f0; }
+#gh { display:flex; align-items:center; gap:12px; flex:1; min-width:0; font-size:13px; }
+#gh .co { font-weight:800; letter-spacing:.6px; color:#0f172a; font-size:12.5px; white-space:nowrap; cursor:pointer; }
+#gh select.pipe { border:none; background:none; font:inherit; font-weight:600; color:#334155; cursor:pointer; max-width:210px; }
+#gh .crumb { color:#64748b; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; min-width:0; }
+#gh .crumb b { color:#0f172a; font-weight:600; }
+#gh .sp { flex:1; }
+#gh .pill16 { font-size:11px; font-weight:700; border-radius:12px; padding:3px 10px; white-space:nowrap; }
+#gh .pill16.rdy { background:#ecfdf5; color:#047857; border:1px solid #a7f3d0; }
+#gh .pill16.mid { background:#fffbeb; color:#b45309; border:1px solid #fde68a; }
+#gh .av16 { width:28px; height:28px; border-radius:50%; background:#0f172a; color:#fff; font-size:11px; font-weight:700;
+  display:flex; align-items:center; justify-content:center; cursor:pointer; }
+#ctlBar { position:sticky; top:48px; z-index:50; background:#fff; border-bottom:1px solid #e2e8f0;
+  display:flex; align-items:center; gap:8px; padding:6px 16px; font-size:12.5px; min-height:40px; flex-wrap:wrap; }
+#ctlBar .bc { color:#64748b; } #ctlBar .bc b { color:#0f172a; }
+#ctlBar .spacer { flex:1; }
+.cbtn { display:inline-flex; align-items:center; gap:5px; border:1px solid #e2e8f0; background:#fff; border-radius:7px;
+  padding:4px 10px; font-size:12px; font-weight:600; color:#334155; cursor:pointer; }
+.cbtn:hover { background:#f1f5f9; }
+.cbtn.pri { background:#1d4ed8; border-color:#1d4ed8; color:#fff; }
+#ctlBar select.bhsw { border:1px solid #e2e8f0; border-radius:7px; padding:4px 8px; font-size:12px; font-weight:600; background:#fff; }
+/* tower strip → clean white cards */
+.tower-strip { background:#fff !important; border:1px solid #e2e8f0; border-radius:12px; color:#0f172a !important; padding:14px 16px; }
+.tower-strip > div:first-child { color:#64748b !important; }
+.tower-strip .tk { background:#f8fafc; border:1px solid #eef2f7; border-radius:10px; padding:8px 12px; margin:4px 8px 4px 0; }
+.tower-strip .tk b { color:#0f172a !important; }
+.tower-strip .alert { color:#b45309 !important; }
+/* density pass */
+.sc-card { border-color:#e2e8f0; }
+table.sc-tbl th { position:sticky; top:0; background:#fff; }
+table.sc-tbl td, table.sc-tbl th { padding:5px 8px; }
+/* sidebar polish */
+#sideNav { background:#020617; }
+#sideNav .ssec { font-size:9.5px; letter-spacing:1.6px; font-weight:700; color:#475569; padding:12px 16px 4px; }
+#sideNav .sn { padding:7px 16px; font-size:12.5px; }
+#sideNav .sn.on { background:#1d4ed8; }
+/* phone bottom nav */
+#botNav { display:none; }
+@media (max-width:720px){
+  #botNav { display:flex; position:fixed; left:0; right:0; bottom:0; background:#fff; border-top:1px solid #e2e8f0; z-index:70; }
+  #botNav button { flex:1; min-height:54px; border:none; background:none; font-size:10.5px; color:#64748b; cursor:pointer; }
+  #botNav button span { display:block; font-size:17px; }
+  #botNav button.on { color:#1d4ed8; font-weight:700; }
+  body { padding-bottom:54px; }
+  #gh .crumb, #gh select.pipe { display:none; }
+}
+</style>
+<script id="v16-shell">
+"use strict";
+(function(){
+const e16=s=>String(s??"").replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/"/g,"&quot;");
+const PIPES=["Geotechnical Investigation","Construction Phase Verification","Environmental & Contamination Services","Pavement & DCP Testing","Pile / Footing Inspections"];
+const SLUG={dashboard:"tower",scope:"scope",project:"setup",boreholes:"boreholes",fieldwork:"fieldwork",soil:"soil-logs",
+  rock:"rock-logs",corebox:"corebox",spt:"spt",samples:"samples",laboratory:"laboratory",daily:"daily-report",
+  preview:"reports",export:"export",settings:"settings",photos:"photos",qa:"qa-alerts",history:"history"};
+const UNSLUG={}; for (const k in SLUG) UNSLUG[SLUG[k]]=k;
+const SECTION={dashboard:"Project Control Tower",scope:"Scope & Plan",project:"Project Setup",boreholes:"Boreholes",
+  fieldwork:"Fieldwork",soil:"Soil Logs",rock:"Rock Logs",corebox:"Corebox Viewer",spt:"SPT & Field Tests",
+  samples:"Samples",laboratory:"Laboratory",daily:"Daily Report",preview:"Report Assembly",export:"Data Export",
+  settings:"Settings",photos:"Photos",qa:"QA Alerts",history:"Project History",projects:"All Projects"};
+const LOGTABS=["boreholes","soil","rock","corebox","spt","samples"];
+function pjMeta(){ try{ return (typeof pjActive==="function" && pjActive())||null; }catch(e){ return null; } }
+function readiness(){
+  const p=S.scope?.plan; if (!p) return null;
+  const doneBh=S.boreholes.filter(b=>{ const l=(S.logs||{})[b.id]; return b.termDepth||(l&&((l.soil||[]).length||(l.rock||[]).length)); }).length;
+  const spt=Object.values(S.logs||{}).reduce((a,l)=>a+((l&&l.spt)||[]).length,0);
+  const sm=Object.values(S.logs||{}).reduce((a,l)=>a+((l&&l.samples)||[]).length,0);
+  const pct=x=>x[1]? Math.min(100,Math.round(100*x[0]/x[1])):0;
+  return Math.round((pct([doneBh,p.totals.bh])+pct([spt,p.totals.spt||1])+pct([sm,p.totals.samples||p.totals.bh||1]))/3);
+}
+/* ---------- global header ---------- */
+const tb=document.querySelector(".topbar");
+const gh=document.createElement("div"); gh.id="gh"; tb.appendChild(gh);
+function buildHeader(){
+  const pj=pjMeta(); const num=pj?.number||S.project?.projectNumber||""; const name=pj?.name||S.project?.projectName||S.project?.clientName||"";
+  const r=readiness();
+  gh.innerHTML=`<span class="co" id="coHome">STS GEOTECHNICS ▾</span>
+    <select class="pipe" id="pipeSel">${PIPES.map(p=>`<option ${(S.pipeline||PIPES[0])===p?"selected":""}>${p}</option>`).join("")}</select>
+    <span class="crumb">STS GeoFlow${num?` / <b>${e16(num)}${name?" — "+e16(name.slice(0,30)):""}</b>`:""}</span>
+    <span class="sp"></span>
+    ${r!==null?`<span class="pill16 ${r>=70?"rdy":"mid"}">Report Readiness ${r}%</span>`:""}
+    <span id="ghSync"></span>
+    <span class="av16" id="ghAv">${e16((S.project?.loggedBy||"·").split(/[\/,\s]+/)[0].slice(0,2).toUpperCase()||"·")}</span>
+    <button class="cbtn" id="ghSet" title="Settings">⚙</button>`;
+  const sync=document.getElementById("syncStatus");
+  if (sync && sync.parentElement!==gh.querySelector("#ghSync")) gh.querySelector("#ghSync").appendChild(sync);
+  gh.querySelector("#coHome").addEventListener("click",()=>showTab("projects"));
+  gh.querySelector("#pipeSel").addEventListener("change",e=>{ S.pipeline=e.target.value;
+    try{ save(); }catch(x){ localStorage.setItem("autosoil-logger", JSON.stringify(S)); } });
+  gh.querySelector("#ghAv").addEventListener("click",()=>showTab("settings"));
+  gh.querySelector("#ghSet").addEventListener("click",()=>showTab("settings"));
+}
+/* ---------- workspace control bar ---------- */
+const bar=document.createElement("div"); bar.id="ctlBar";
+tb.after(bar);
+function buildBar(tab){
+  const pj=pjMeta(); const num=pj?.number||S.project?.projectNumber||"";
+  const isLog=LOGTABS.includes(tab);
+  bar.style.display = tab==="projects"? "none":"flex";
+  bar.innerHTML=`<span class="bc">${e16(SECTION[tab]||"")} / <b>${e16(num||"—")}</b></span>
+    ${isLog?`<select class="bhsw" id="bhSw">${S.boreholes.map(b=>`<option ${b.id===S.activeBh?"selected":""}>${e16(b.id)}</option>`).join("")}</select>
+      <button class="cbtn" id="cbAddBh">＋ Borehole</button>`:""}
+    ${tab==="dashboard"?`<button class="cbtn" id="cbProp">⛭ Upload Proposal</button>
+      <button class="cbtn" id="cbDaily">✉ Daily Report</button>
+      <button class="cbtn" id="cbRep">▥ Report Assembly</button>`:""}
+    ${tab==="samples"?`<button class="cbtn" id="cbLab">⚗ Laboratory</button>`:""}
+    <span class="spacer"></span>
+    ${SLUG[tab]?`<button class="cbtn" id="cbNewTab" title="Open this page in a new tab">↗ Open in New Tab</button>`:""}
+    <button class="cbtn" id="cbRefresh">⟳</button>
+    <button class="cbtn" id="cbExport">Export</button>`;
+  const sw=bar.querySelector("#bhSw");
+  if (sw) sw.addEventListener("change",()=>{ S.activeBh=sw.value; try{ save(); renderAll(); }catch(e){} });
+  const ab=bar.querySelector("#cbAddBh");
+  if (ab) ab.addEventListener("click",()=>{
+    const id=prompt("Borehole ID:","BH"+String(S.boreholes.length+1).padStart(2,"0"));
+    if (!id||S.boreholes.some(b=>b.id===id)) return;
+    S.boreholes.push(blankBh? blankBh(id):{id}); S.logs[id]=blankLogs(); S.activeBh=id;
+    try{ save(); renderAll(); }catch(e){} buildBar(tab); });
+  const nt=bar.querySelector("#cbNewTab");
+  if (nt) nt.addEventListener("click",()=>{
+    const pid=(typeof PJ!=="undefined"&&PJ.activePid)||"p";
+    window.open(location.origin+location.pathname+"#/projects/"+pid+"/"+SLUG[tab],"_blank","noopener"); });
+  const rf=bar.querySelector("#cbRefresh"); if (rf) rf.addEventListener("click",()=>showTab(tab));
+  const xp=bar.querySelector("#cbExport"); if (xp) xp.addEventListener("click",()=>showTab("export"));
+  const pr=bar.querySelector("#cbProp"); if (pr) pr.addEventListener("click",()=>showTab("scope"));
+  const dl=bar.querySelector("#cbDaily"); if (dl) dl.addEventListener("click",()=>showTab("daily"));
+  const rp=bar.querySelector("#cbRep"); if (rp) rp.addEventListener("click",()=>showTab("preview"));
+  const lb=bar.querySelector("#cbLab"); if (lb) lb.addEventListener("click",()=>showTab("laboratory"));
+}
+/* ---------- hash routes ---------- */
+function setHash(tab){
+  const pid=(typeof PJ!=="undefined"&&PJ.activePid)||"";
+  const h = tab==="projects"? "#/projects" : (pid&&SLUG[tab]? `#/projects/${pid}/${SLUG[tab]}` : "");
+  if (h) history.replaceState(null,"",h);
+}
+function applyHashRoute(){
+  const m=/^#\/projects\/([^/]+)\/([\w-]+)/.exec(location.hash);
+  if (!m) return false;
+  const [,pid,slug]=m; const tab=UNSLUG[slug];
+  if (!tab) return false;
+  try{ if (typeof PJ!=="undefined" && PJ.projects.some(p=>p.pid===pid) && PJ.activePid!==pid) pjOpen(pid); }catch(e){}
+  showTab(tab); return true;
+}
+/* ---------- new light pages ---------- */
+window.renderPhotos=function(){
+  const el=document.getElementById("page-photos"); if (!el) return;
+  let n=0;
+  const blocks=S.boreholes.map(b=>{ const ph=(S.logs?.[b.id]?.photos)||[]; n+=ph.length;
+    if (!ph.length) return "";
+    return `<div class="sc-card"><h3>${e16(b.id)} — ${ph.length} photo(s)</h3>
+      <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(130px,1fr));gap:8px">
+      ${ph.map(p=>`<div><img src="${p.img}" style="width:100%;height:110px;object-fit:cover;border-radius:8px;border:1px solid #e2e8f0">
+        <div style="font-size:10.5px;color:#64748b">${e16(p.type||"")}${p.depth?` · ${p.depth} m`:""}${p.caption?` · ${e16(p.caption)}`:""}</div></div>`).join("")}
+      </div></div>`; }).join("");
+  el.innerHTML=`<h2 style="font-size:19px;margin:6px 0 12px">Field photos <span class="tag">${n}</span></h2>`+
+    (blocks||`<div class="sc-card">No photos synced yet. Field crews capture photos in the STS GeoFlow field app — they land here automatically after sync. <a href="field.html" target="_blank" rel="noopener noreferrer" style="color:#1d4ed8">Open field app →</a></div>`);
+};
+window.renderQA=function(){
+  const el=document.getElementById("page-qa"); if (!el) return;
+  const qa=(S.scope?.plan?.qa)||[];
+  const labP=S.scope?.plan? Math.max(0,(S.scope.plan.totals.labs||0)-Object.values(S.labStatus||{}).filter(x=>x!=="Pending").length):0;
+  const noGw=S.boreholes.filter(b=>{ const g=S.logs?.[b.id]?.gw; return !(g&&g.state); }).map(b=>b.id);
+  const rows=[
+    ...qa.map(q=>({sev:"warning", src:"Scope", msg:q})),
+    ...(labP?[{sev:"warning", src:"Laboratory", msg:labP+" lab test(s) not yet submitted"}]:[]),
+    ...(noGw.length?[{sev:"warning", src:"Groundwater", msg:"No groundwater status recorded: "+noGw.join(", ")}]:[]),
+  ];
+  el.innerHTML=`<h2 style="font-size:19px;margin:6px 0 12px">QA Alerts <span class="tag">${rows.length}</span></h2>
+  ${rows.length? rows.map(r=>`<div class="sc-warn">⚠ <b>${e16(r.src)}:</b> ${e16(r.msg)}</div>`).join("")
+    : '<div class="sc-ok">✓ No open QA alerts for this project.</div>'}
+  <div class="sc-card" style="margin-top:10px"><div style="font-size:12.5px;color:#64748b">Validation issues inside individual logs appear on the Data Export page badge. Scope QA re-evaluates when the field plan is regenerated.</div></div>`;
+};
+window.renderHistory=function(){
+  const el=document.getElementById("page-history"); if (!el) return;
+  const acts=(pjMeta()?.activity)||[];
+  const em=(S.emailLog||[]).map(x=>({ts:x.ts, msg:`Daily email ${x.status} — ${x.subject||""}`}));
+  const all=[...acts.map(a=>({ts:a.ts||a.date||"", msg:a.msg||a.text||String(a)})), ...em]
+    .filter(x=>x.ts).sort((a,b)=>b.ts.localeCompare(a.ts)).slice(0,80);
+  el.innerHTML=`<h2 style="font-size:19px;margin:6px 0 12px">Project History</h2>
+  <div class="sc-card">${all.map(x=>`<div class="qrow"><span style="color:#64748b;white-space:nowrap">${new Date(x.ts).toLocaleString()}</span> ${e16(x.msg)}</div>`).join("")||'<div style="font-size:12.5px;color:#64748b">No activity recorded yet.</div>'}</div>`;
+};
+/* ---------- phone bottom nav ---------- */
+const bn=document.createElement("nav"); bn.id="botNav";
+bn.innerHTML=[["dashboard","▦","Tower"],["fieldwork","⛏","Field"],["soil","◱","Logs"],["samples","◰","Samples"],["__more","☰","More"]]
+  .map(([t,i,l])=>`<button data-bn="${t}"><span>${i}</span>${l}</button>`).join("");
+document.body.appendChild(bn);
+bn.querySelectorAll("[data-bn]").forEach(b=>b.addEventListener("click",()=>{
+  if (b.dataset.bn==="__more"){ document.getElementById("sideNav").classList.add("open"); document.getElementById("snBackdrop").classList.add("show"); return; }
+  showTab(b.dataset.bn); }));
+/* ---------- per-tab hook called from the sidebar layer ---------- */
+window.v16After=function(tab){
+  buildHeader(); buildBar(tab); setHash(tab);
+  bn.querySelectorAll("[data-bn]").forEach(b=>b.classList.toggle("on", b.dataset.bn===tab));
+};
+/* boot: honour deep links, else leave landing as-is */
+buildHeader();
+if (!applyHashRoute()) buildBar(S.activeTab||"projects");
+window.addEventListener("hashchange",applyHashRoute);
 })();
 </script>
 <script id="v15-daily">
