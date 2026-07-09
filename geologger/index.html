@@ -323,63 +323,6 @@ function wireGrid(id, rowsRef, handlers) {
   });
 }
 </script>
-<script id="v9-storage-offload">
-/* v9: localStorage image offload -> IndexedDB (fixes quota from base64 corebox photos).
-   Transparent: patches Storage setItem/getItem for the app's keys only. Big data-URL images are
-   moved to IndexedDB and replaced in localStorage with a lightweight token; reads re-inflate from an
-   in-memory cache hydrated at startup. Full image quality preserved. Safe: images are cached in memory
-   before the token is written, and only app keys are touched. */
-(function () {
-  "use strict";
-  if (!window.indexedDB || !window.Storage) return;
-  var APP_KEYS = /^(autosoil-logger$|autosoil-prj-|geoflow$)/;
-  var TOK = "idbimg:";
-  var MIN = 200000;                     // only offload data-URLs larger than ~200 KB
-  var CACHE = {};                        // token -> dataURL (sync access after hydrate)
-  var origSet = Storage.prototype.setItem, origGet = Storage.prototype.getItem;
-
-  function openDB() { return new Promise(function (res, rej) { var r = indexedDB.open("geoflow-img", 1); r.onupgradeneeded = function () { r.result.createObjectStore("img"); }; r.onsuccess = function () { res(r.result); }; r.onerror = function () { rej(r.error); }; }); }
-  function idbPut(k, v) { return openDB().then(function (d) { return new Promise(function (res, rej) { var t = d.transaction("img", "readwrite"); t.objectStore("img").put(v, k); t.oncomplete = res; t.onerror = function () { rej(t.error); }; }); }); }
-  function idbAll() { return openDB().then(function (d) { return new Promise(function (res, rej) { var t = d.transaction("img", "readonly"), s = t.objectStore("img"), o = {}, c = s.openCursor(); c.onsuccess = function (e) { var cur = e.target.result; if (cur) { o[cur.key] = cur.value; cur.continue(); } else res(o); }; c.onerror = function () { rej(c.error); }; }); }); }
-  function hashOf(s) { var h = 5381, i = s.length; while (i) h = (h * 33) ^ s.charCodeAt(--i); return (h >>> 0).toString(36) + "-" + s.length; }
-
-  function deflate(o) { var changed = false; (function walk(x) { if (!x || typeof x !== "object") return; for (var k in x) { var v = x[k]; if (typeof v === "string" && v.length > MIN && v.indexOf("data:image/") === 0) { var tok = TOK + hashOf(v); CACHE[tok] = v; idbPut(tok, v).catch(function () { }); x[k] = tok; changed = true; } else if (v && typeof v === "object") walk(v); } })(o); return changed; }
-  function inflate(o) { (function walk(x) { if (!x || typeof x !== "object") return; for (var k in x) { var v = x[k]; if (typeof v === "string" && v.indexOf(TOK) === 0) { if (CACHE[v]) x[k] = CACHE[v]; } else if (v && typeof v === "object") walk(v); } })(o); return o; }
-
-  Storage.prototype.setItem = function (key, value) {
-    try { if (typeof key === "string" && APP_KEYS.test(key) && typeof value === "string" && value.length > MIN && value.indexOf("data:image/") >= 0) { var o = JSON.parse(value); if (deflate(o)) value = JSON.stringify(o); } } catch (e) { }
-    return origSet.call(this, key, value);
-  };
-  Storage.prototype.getItem = function (key) {
-    var value = origGet.call(this, key);
-    try { if (typeof key === "string" && APP_KEYS.test(key) && typeof value === "string" && value.indexOf(TOK) >= 0) { var o = JSON.parse(value); inflate(o); value = JSON.stringify(o); } } catch (e) { }
-    return value;
-  };
-
-  // hydrate cache, then re-attach images into the live in-memory state + re-render
-  idbAll().then(function (all) {
-    Object.assign(CACHE, all);
-    try {
-      if (typeof S !== "undefined" && typeof logs === "function") {
-        var reattach = function (raw) {
-          if (!raw || raw.indexOf(TOK) < 0) return;
-          var full = inflate(JSON.parse(raw));
-          if (full && full.logs) for (var bh in full.logs) {
-            if (S.logs && S.logs[bh] && S.logs[bh].corebox && full.logs[bh].corebox && typeof full.logs[bh].corebox.img === "string")
-              S.logs[bh].corebox.img = full.logs[bh].corebox.img;
-          }
-        };
-        reattach(origGet.call(localStorage, "autosoil-logger"));
-        if (typeof PJ !== "undefined" && PJ.activePid) reattach(origGet.call(localStorage, "autosoil-prj-" + PJ.activePid));
-        if (typeof renderCorebox === "function" && S.activeTab === "corebox") renderCorebox();
-      }
-    } catch (e) { }
-  }).catch(function () { });
-
-  window.__v9offload = { CACHE: CACHE, TOK: TOK, deflate: deflate, inflate: inflate, idbAll: idbAll, origGet: function(k){ return origGet.call(localStorage,k); }, restore: function () { Storage.prototype.setItem = origSet; Storage.prototype.getItem = origGet; } };
-})();
-
-</script>
 <script id="modules-script">
 /* ============ tabs & left panel ============ */
 const TABS = ["project","boreholes","soil","rock","corebox","spt","samples","preview","export"];
@@ -3527,1180 +3470,603 @@ function pjCtxBar(){
   showTab("projects");
 })();
 </script>
-<script id="v6-as1726-soillog">
-/*!
- * STS GeoFlow — AS 1726:2017 Soil Log Engine  (framework-free, browser + Node)
- * Structured soil interval model + deterministic description grammar engine,
- * material-first field visibility, graphic-log symbols, depth intelligence,
- * and engineering validation. No external dependencies.
- */
-(function (root, factory) {
-  var api = factory();
-  if (typeof module !== "undefined" && module.exports) module.exports = api;
-  if (typeof window !== "undefined") window.STSSoilLog = api;
-})(this, function () {
-  "use strict";
+<style id="v13-scope-css">
+/* ---------- Proposal Scope module ---------- */
+#page-scope { padding:14px 18px; }
+.sc-step { display:flex; gap:6px; margin:4px 0 16px; flex-wrap:wrap; }
+.sc-step .st { flex:1; min-width:120px; padding:9px 12px; border-radius:9px; border:1px solid #d7dee9; background:#fff; font-size:12.5px; font-weight:600; color:#5a6675; cursor:pointer; text-align:center; }
+.sc-step .st.on { background:#1d4ed8; border-color:#1d4ed8; color:#fff; }
+.sc-step .st.done { border-color:#1d4ed8; color:#1d4ed8; }
+.sc-card { background:#fff; border:1px solid #dde3ec; border-radius:12px; padding:16px; margin-bottom:12px; }
+.sc-card h3 { font-size:14.5px; margin:0 0 10px; color:#152238; }
+.sc-drop { border:2px dashed #b9c5d8; border-radius:12px; padding:34px 16px; text-align:center; color:#5a6675; cursor:pointer; background:#f8fafc; }
+.sc-drop:hover { border-color:#1d4ed8; }
+.sc-grid2 { display:grid; grid-template-columns:repeat(auto-fit,minmax(210px,1fr)); gap:10px; }
+.sc-grid2 label { font-size:11.5px; color:#5a6675; font-weight:600; display:block; margin-bottom:2px; }
+.sc-grid2 input { width:100%; border:1px solid #ccd5e3; border-radius:8px; padding:8px 10px; font-size:13px; }
+.sc-btn { display:inline-flex; align-items:center; gap:6px; min-height:38px; padding:0 14px; border-radius:8px; border:1px solid #ccd5e3; background:#fff; font-size:13px; font-weight:600; color:#22304a; cursor:pointer; }
+.sc-btn.pri { background:#1d4ed8; border-color:#1d4ed8; color:#fff; }
+.sc-btn.ghost { border:none; background:none; color:#1d4ed8; }
+.sc-btn:disabled { opacity:.5; cursor:default; }
+.sc-split { display:grid; grid-template-columns:minmax(0,46%) minmax(0,54%); gap:12px; align-items:start; }
+.sc-pane-tabs { display:none; gap:6px; margin-bottom:10px; }
+.sc-pane-tabs button { flex:1; padding:9px; border-radius:8px; border:1px solid #ccd5e3; background:#fff; font-weight:600; font-size:12.5px; cursor:pointer; }
+.sc-pane-tabs button.on { background:#1d4ed8; color:#fff; border-color:#1d4ed8; }
+@media (max-width:940px){
+  .sc-split { grid-template-columns:1fr; }
+  .sc-pane-tabs { display:flex; }
+  .sc-split .sc-pane { display:none; } .sc-split .sc-pane.mob-on { display:block; }
+  .sc-btn { min-height:44px; }
+}
+.sc-prev { border:1px solid #dde3ec; border-radius:10px; background:#fff; overflow:hidden; }
+.sc-prev .bar { display:flex; align-items:center; gap:8px; padding:8px 10px; border-bottom:1px solid #e6ebf2; font-size:12.5px; flex-wrap:wrap; }
+.sc-prev .doc { max-height:560px; overflow:auto; padding:12px; background:#f4f6f9; }
+.sc-prev canvas { display:block; margin:0 auto 10px; box-shadow:0 1px 4px rgba(20,30,50,.18); background:#fff; max-width:100%; }
+.sc-txt { background:#fff; border:1px solid #e6ebf2; border-radius:8px; padding:12px 14px; margin-bottom:10px; font-size:12.5px; line-height:1.55; white-space:pre-wrap; font-family:Georgia,serif; }
+.sc-txt mark { border-radius:3px; padding:0 2px; }
+.sc-legend { display:flex; flex-wrap:wrap; gap:8px; padding:8px 10px; font-size:11px; border-top:1px solid #e6ebf2; }
+.sc-legend i { display:inline-block; width:10px; height:10px; border-radius:3px; margin-right:4px; vertical-align:-1px; }
+table.sc-tbl { width:100%; border-collapse:collapse; font-size:12.5px; }
+table.sc-tbl th { text-align:left; font-size:11px; color:#5a6675; padding:6px 8px; border-bottom:2px solid #dde3ec; white-space:nowrap; }
+table.sc-tbl td { padding:7px 8px; border-bottom:1px solid #eef1f6; vertical-align:top; }
+.sc-cat { display:inline-block; width:10px; height:10px; border-radius:3px; margin-right:6px; }
+.sc-conf { font-size:10.5px; font-weight:700; border-radius:9px; padding:2px 7px; white-space:nowrap; }
+.sc-conf.hi { background:#e3f4e8; color:#166534; } .sc-conf.md { background:#fdf3d7; color:#92600a; } .sc-conf.lo { background:#fde3e1; color:#b3392f; }
+.sc-st { font-size:10.5px; font-weight:700; border-radius:9px; padding:2px 7px; white-space:nowrap; cursor:pointer; border:1px solid transparent; }
+.sc-st.acc { background:#e3f4e8; color:#166534; } .sc-st.rev { background:#fdf3d7; color:#92600a; } .sc-st.rej { background:#eceff3; color:#7a8494; text-decoration:line-through; }
+.sc-ico { border:none; background:none; cursor:pointer; font-size:14px; padding:3px 5px; color:#5a6675; }
+.sc-filters { display:flex; flex-wrap:wrap; gap:6px; margin-bottom:8px; }
+.sc-filters .fc { font-size:11px; font-weight:600; padding:5px 10px; border-radius:14px; border:1px solid #ccd5e3; background:#fff; cursor:pointer; }
+.sc-filters .fc.on { background:#22304a; color:#fff; border-color:#22304a; }
+.sc-kpi { display:grid; grid-template-columns:repeat(auto-fit,minmax(120px,1fr)); gap:10px; }
+.sc-kpi .k { background:#f8fafc; border:1px solid #e6ebf2; border-radius:10px; padding:10px 12px; }
+.sc-kpi .k b { display:block; font-size:20px; color:#152238; }
+.sc-kpi .k span { font-size:11px; color:#5a6675; font-weight:600; }
+.sc-warn { background:#fff8ed; border:1px solid #f1dfb8; color:#92600a; border-radius:8px; padding:8px 12px; font-size:12.5px; margin:4px 0; }
+.sc-ok { background:#effaf2; border:1px solid #cbe8d3; color:#166534; border-radius:8px; padding:8px 12px; font-size:12.5px; margin:4px 0; }
+.sc-ready { height:10px; background:#e6ebf2; border-radius:6px; overflow:hidden; margin:6px 0; }
+.sc-ready i { display:block; height:100%; background:#1d4ed8; }
+.tower-strip { background:#152238; color:#dbe4f0; border-radius:12px; padding:14px 16px; margin:0 0 14px; }
+.tower-strip .tk { display:inline-block; margin:4px 18px 4px 0; font-size:12px; }
+.tower-strip .tk b { display:block; font-size:17px; color:#fff; }
+.tower-strip .alert { color:#ffce7a; font-size:12px; margin-top:6px; }
+</style>
+<script id="v13-scope">
+"use strict";
+/* ================= SUB-PROMPT 11: Proposal upload, scope extraction, field plan ================= */
+(function(){
+const $id = s=>document.getElementById(s);
+const scEsc = s=>String(s??"").replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/"/g,"&quot;");
+const CATS = {
+  drilling:  {label:"Drilling",        col:"#b7791f"},
+  insitu:    {label:"In-situ testing", col:"#1f8a4c"},
+  sampling:  {label:"Sampling",        col:"#7c3aed"},
+  gw:        {label:"Groundwater",     col:"#1d6fd8"},
+  lab:       {label:"Laboratory",      col:"#d6409f"},
+  reporting: {label:"Reporting",       col:"#e07c24"},
+  env:       {label:"Environmental",   col:"#0f9b8e"},
+  qa:        {label:"QA / Review",     col:"#7a8494"},
+  missing:   {label:"Missing / uncertain", col:"#c73a32"}
+};
+const PJ_STATUSES=["Not Started","Fieldwork","Lab","Engineering Review","Report Ready","Issued"];
+function SC(){ if (!S.scope) S.scope = { step:1, meta:{}, docs:[], items:[], plan:null, status:"Not Started", sptRule:"1.5" }; return S.scope; }
+function scSave(){ try { save(); } catch(e){ localStorage.setItem("autosoil-logger", JSON.stringify(S)); } }
+window._scopeMem = window._scopeMem || {};   /* in-memory originals: pdf docs + image dataURLs (not persisted) */
 
-  /* ---------------- AS 1726 vocabularies ---------------- */
-  var PRIMARY_MATERIALS = ["FILL","TOPSOIL","CLAY","SILT","SAND","GRAVEL","COBBLES","BOULDERS","ORGANIC SOIL","PEAT","WEATHERED ROCK"];
-  var COHESIVE = { CLAY:1, SILT:1, "ORGANIC SOIL":1, PEAT:1 };
-  var GRANULAR = { SAND:1, GRAVEL:1, COBBLES:1, BOULDERS:1 };
-  var FILL_ORIGINS = ["soil fill","gravel fill","crushed sandstone","DGB","roadbase","demolition fill","concrete fragments","brick fragments","ash","slag","mixed fill","other"];
-  // canonical adjective order (finer -> coarser) so "silty"+"sandy" -> "silty sandy"
-  var ADJ_ORDER = ["clayey","silty","sandy","gravelly"];
-  var SECONDARY_ADJ = ["clayey","silty","sandy","gravelly"];
-  var PLASTICITY = ["non-plastic","low plasticity","low to medium plasticity","medium plasticity","medium to high plasticity","high plasticity","low liquid limit","high liquid limit"];
-  var GRAIN_SIZE = ["fine grained","fine to medium grained","medium grained","medium to coarse grained","coarse grained","fine to coarse grained"];
-  var PARTICLE_SHAPE = ["angular","subangular","subangular to angular","subrounded","subrounded to subangular","rounded","subrounded to rounded"];
-  var MOISTURE = ["dry","slightly moist","moist","very moist","moist to wet","wet"];
-  var CONSISTENCY = ["very soft","soft","firm","stiff","very stiff","hard","friable"];
-  var DENSITY = ["very loose","loose","medium dense","dense","very dense"];
-  var STRUCTURE = ["homogeneous","layered","laminated","fissured","blocky","nuggety","root affected","intact","cemented"];
+/* ---------- lazy libs ---------- */
+function loadScript(src){ return new Promise((res,rej)=>{ if (document.querySelector(`script[src="${src}"]`)) return res();
+  const s=document.createElement("script"); s.src=src; s.onload=res; s.onerror=rej; document.head.appendChild(s); }); }
+async function pdfjs(){ await loadScript("https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js");
+  window.pdfjsLib.GlobalWorkerOptions.workerSrc="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js"; return window.pdfjsLib; }
+async function mammothLib(){ await loadScript("https://cdnjs.cloudflare.com/ajax/libs/mammoth/1.6.0/mammoth.browser.min.js"); return window.mammoth; }
 
-  /* material-first field visibility (which fields matter for each primary) */
-  var MATERIAL_FIELDS = {
-    FILL:      { origin:true, fillOrigin:true, secondary:true, plasticity:true, grainSize:true, colour:true, moisture:true, consistency:true, density:true, structure:true, components:true },
-    TOPSOIL:   { origin:true, secondary:true, plasticity:true, colour:true, moisture:true, structure:true, components:true },
-    CLAY:      { secondary:true, plasticity:true, colour:true, moisture:true, consistency:true, structure:true, origin:true, components:true },
-    SILT:      { secondary:true, plasticity:true, colour:true, moisture:true, consistency:true, structure:true, origin:true, components:true },
-    SAND:      { secondary:true, grainSize:true, grading:true, colour:true, moisture:true, density:true, structure:true, origin:true, components:true },
-    GRAVEL:    { secondary:true, grainSize:true, grading:true, particleShape:true, colour:true, moisture:true, density:true, origin:true, components:true },
-    COBBLES:   { secondary:true, particleShape:true, colour:true, moisture:true, density:true, origin:true, components:true },
-    BOULDERS:  { secondary:true, particleShape:true, colour:true, moisture:true, density:true, origin:true, components:true },
-    "ORGANIC SOIL": { secondary:true, colour:true, moisture:true, consistency:true, structure:true, components:true, origin:true },
-    PEAT:      { colour:true, moisture:true, structure:true, components:true, origin:true },
-    "WEATHERED ROCK": { colour:true, moisture:true, structure:true, weathering:true, strength:true, components:true },
-    _default:  { secondary:true, plasticity:true, colour:true, moisture:true, consistency:true, density:true, structure:true, origin:true, components:true }
-  };
-
-  /* graphic-log symbol keys (renderer maps these to hatch patterns) */
-  var GRAPHIC_SYMBOL = {
-    FILL:"fill", TOPSOIL:"topsoil", CLAY:"clay", SILT:"silt", SAND:"sand", GRAVEL:"gravel",
-    COBBLES:"cobbles", BOULDERS:"boulders", "ORGANIC SOIL":"organic", PEAT:"peat", "WEATHERED ROCK":"weathered_rock"
-  };
-  function isRockMaterial(m){ return /STONE|SHALE|BASALT|TUFF|LAMINITE|CONGLOMERATE|BRECCIA|BEDROCK|COAL|QUARTZITE|GRANITE|DOLERITE|WEATHERED ROCK|Formation|Group/i.test(m||""); }
-  function graphicSymbolFor(material){
-    var m = (material||"").trim();
-    if (!m) return "none";
-    var up = m.toUpperCase();
-    if (GRAPHIC_SYMBOL[up]) return GRAPHIC_SYMBOL[up];
-    if (isRockMaterial(m)) return "weathered_rock";
-    // fall back on principal fraction contained in a compound name
-    if (/CLAY/i.test(m)) return "clay";
-    if (/SILT/i.test(m)) return "silt";
-    if (/SAND/i.test(m)) return "sand";
-    if (/GRAVEL/i.test(m)) return "gravel";
-    if (/FILL/i.test(m)) return "fill";
-    return "soil";
-  }
-
-  function isCohesive(m){ return !!COHESIVE[(m||"").toUpperCase()]; }
-  function isGranular(m){ return !!GRANULAR[(m||"").toUpperCase()]; }
-
-  /* ---------------- structured interval model ---------------- */
-  function blankInterval(prev) {
-    return {
-      interval_id: uid(),
-      from_depth: prev && prev.to_depth != null && prev.to_depth !== "" ? prev.to_depth : (prev ? "" : 0),
-      to_depth: "",
-      origin: "",                 // FILL / TOPSOIL / alluvium / residual ...
-      fill_origin: "",            // soil fill / roadbase ... (when origin=FILL)
-      primary_material: "",
-      secondary_components: [],   // ["silty","sandy"]
-      plasticity: "",             // cohesive: "medium plasticity" | "low liquid limit"
-      grading: "",                // granular grading term
-      grain_size: "",             // "fine to medium grained"
-      particle_shape: "",         // "subangular to angular"
-      colour_primary: "",
-      colour_secondary: "",
-      moisture: "",
-      consistency: "",            // cohesive
-      density: "",                // granular
-      structure: "",
-      additional_components: [],  // major: ["fine grained sand","low liquid limit silt","rootlets"]
-      inclusions: [],             // minor/trace: ["trace fine gravel"]
-      weathering: "",
-      strength: "",
-      description_generated: "",
-      description_override: "",
-      graphic_symbol: "",
-      comments: "",
-      created_by: "",
-      reviewed_by: "",
-      status: "DRAFT",            // DRAFT | VALID | WARNING | SUBMITTED | APPROVED
-      created_at: nowISO(),
-      updated_at: nowISO()
-    };
-  }
-
-  /* ---------------- description grammar engine ---------------- */
-  // colour: combine primary + secondary colour (e.g. "grey" + "mottled orange-brown")
-  function colourPhrase(iv){
-    var c = clean(iv.colour_primary || iv.colour || "");
-    var c2 = clean(iv.colour_secondary || "");
-    if (c && c2) return c + " " + c2;
-    return c || c2;
-  }
-  // order secondary adjectives canonically and de-duplicate
-  function orderedSecondary(list){
-    var seen = {}, out = [];
-    (list||[]).forEach(function(x){ x = clean(x).toLowerCase(); if (x && !seen[x]) { seen[x]=1; out.push(x); } });
-    out.sort(function(a,b){
-      var ia = ADJ_ORDER.indexOf(a), ib = ADJ_ORDER.indexOf(b);
-      if (ia === -1) ia = 99; if (ib === -1) ib = 99;
-      return ia - ib;
-    });
-    return out;
-  }
-  function splitComponents(iv){
-    var majors = [], minors = [];
-    (iv.additional_components||[]).forEach(function(x){ x = clean(x); if (!x) return; (/^trace\b/i.test(x) ? minors : majors).push(x); });
-    (iv.inclusions||[]).forEach(function(x){ x = clean(x); if (!x) return; (/^trace\b/i.test(x) ? minors : majors).push(x); });
-    return { majors: dedupe(majors), minors: dedupe(minors) };
-  }
-
-  function generateSoilDescription(iv) {
-    var m = clean(iv.primary_material || "");
-    if (!m) return "";
-    var up = m.toUpperCase();
-
-    // origin prefix — only fill/topsoil style origins prefix the description
-    var head = "";
-    var org = clean(iv.origin || "").toUpperCase();
-    if ((org === "FILL" || org === "TOPSOIL") && org !== up) head = org + ": ";
-
-    // principal fraction, capitalised, preceded by lower-case secondary adjectives
-    var sec = orderedSecondary(iv.secondary_components);
-    var primaryPhrase = (sec.length ? sec.join(" ") + " " : "") + up;
-
-    // ordered middle descriptors
-    var mid = [];
-    push(mid, iv.plasticity);
-    push(mid, iv.grain_size);
-    push(mid, iv.grading);
-    push(mid, iv.particle_shape);
-    push(mid, colourPhrase(iv));
-    push(mid, iv.moisture);
-    push(mid, isGranular(up) ? (iv.density || iv.consistency) : (iv.consistency || iv.density));
-    push(mid, iv.structure);
-    mid = dedupe(mid);
-
-    var core = head + primaryPhrase + (mid.length ? ", " + mid.join(", ") : "");
-
-    // additional (major) + minor/trace components
-    var comp = splitComponents(iv);
-    if (comp.majors.length) {
-      var withClause = "with " + comp.majors.join(" and ");
-      if (comp.minors.length) {
-        var sep = comp.majors.length >= 2 ? ", " : " and ";
-        withClause += sep + comp.minors.join(", ");
-      }
-      core += ", " + withClause;
-    } else if (comp.minors.length) {
-      core += ", " + comp.minors.join(", ");
-    }
-    return core + ".";
-  }
-
-  // the effective description shown/exported: override wins but structured data is preserved
-  function effectiveDescription(iv){
-    var o = clean(iv.description_override || "");
-    return o || generateSoilDescription(iv);
-  }
-
-  /* ---------------- depth intelligence ---------------- */
-  function num(v){ if (v === "" || v == null) return null; var n = parseFloat(v); return isNaN(n) ? null : n; }
-  function computeNextFrom(prevTo){ return num(prevTo); }
-
-  // recompute continuity: each row.from follows previous row.to (non-destructive suggestions returned)
-  function validateIntervals(list) {
-    var issues = [];
-    for (var i = 0; i < list.length; i++) {
-      var r = list[i], f = num(r.from_depth), t = num(r.to_depth);
-      if (f != null && t != null) {
-        if (t < f) issues.push({ index:i, level:"error", code:"negative", msg:"Negative interval at row " + (i+1) + " (" + f + "–" + t + " m)." });
-        else if (t === f) issues.push({ index:i, level:"warning", code:"zero", msg:"Zero-thickness layer at " + f + " m (row " + (i+1) + ")." });
-      }
-      if (i > 0) {
-        var pt = num(list[i-1].to_depth);
-        if (pt != null && f != null) {
-          if (f < pt) issues.push({ index:i, level:"error", code:"overlap", msg:"Layer interval overlap at " + f + "–" + pt + " m." });
-          else if (f > pt) issues.push({ index:i, level:"warning", code:"gap", msg:"Depth gap between " + pt + " m and " + f + " m (row " + (i+1) + ")." });
-        }
-        if (num(list[i-1].from_depth) === f && pt === t && f != null) issues.push({ index:i, level:"warning", code:"duplicate", msg:"Duplicate interval " + f + "–" + t + " m." });
+/* ---------- extraction rules ---------- */
+const NUMW={one:1,two:2,three:3,four:4,five:5,six:6,seven:7,eight:8,nine:9,ten:10,eleven:11,twelve:12};
+const qty = m => m ? (NUMW[m.toLowerCase()]||parseInt(m)||null) : null;
+const RULES = [
+  { cat:"drilling", name:"Boreholes", re:/(\d+|one|two|three|four|five|six|seven|eight|nine|ten|eleven|twelve)\s*(?:x\s*|no\.?\s*)?(?:cored\s+|machine[- ]drilled\s+)?boreholes?/gi,
+    make:(m,txt)=>{ const q=qty(m[1]);
+      const dep=/(?:to\s+(?:a\s+)?(?:depth|target\s+depth)\s+of|to)\s+(\d+(?:\.\d+)?)\s*m\b/i.exec(txt);
+      const ref=/or\s+(?:auger\s+|practical\s+|prior\s+)?refusal/i.test(txt);
+      return { name:"Boreholes", details:`${q??"?"} borehole(s)`+(dep?` to ${dep[1]} m`:"")+(ref?" or refusal":""), qty:q, unit:"No.",
+        extra:{ depth:dep?parseFloat(dep[1]):null, refusal:ref }, conf:q?(dep?0.92:0.75):0.4 }; } },
+  { cat:"drilling", name:"Drilling method", re:/(solid\s+flight\s+auger|hollow\s+flight|push[- ]tube|wash\s?bor(?:e|ing)|rotary\s+air|NMLC|HQ3?|PQ|sonic|track[- ]mounted\s+rig|truck[- ]mounted\s+rig)/gi,
+    make:m=>({ name:"Drilling method", details:m[1], qty:null, unit:"", conf:0.85 }) },
+  { cat:"drilling", name:"Rock coring", re:/rock\s+coring|cored\s+drilling|(NMLC|HQ3?)\s+coring/gi,
+    make:m=>({ name:"Rock coring", details:m[0], qty:null, unit:"", conf:0.8 }) },
+  { cat:"drilling", name:"Test pits", re:/(\d+|one|two|three|four|five|six|seven|eight)\s*(?:x\s*|no\.?\s*)?test\s*pits?/gi,
+    make:m=>({ name:"Test pits", details:`${qty(m[1])} test pit(s)`, qty:qty(m[1]), unit:"No.", conf:0.9 }) },
+  { cat:"drilling", name:"Hand augers", re:/(\d+|one|two|three|four|five|six)\s*(?:x\s*|no\.?\s*)?hand\s*augers?/gi,
+    make:m=>({ name:"Hand augers", details:`${qty(m[1])} hand auger(s)`, qty:qty(m[1]), unit:"No.", conf:0.9 }) },
+  { cat:"insitu", name:"SPT", re:/standard\s+penetration\s+tests?|SPTs?\b/g,
+    make:(m,txt)=>{ const iv=/(\d+(?:\.\d+)?)\s*m\s*(?:intervals?|centres|spacing)/i.exec(txt);
+      return { name:"SPT", details:"SPT"+(iv?` at ${iv[1]} m intervals`:" (interval not stated)"), qty:null, unit:"per BH",
+        extra:{ interval:iv?parseFloat(iv[1]):null }, conf:iv?0.9:0.65 }; } },
+  { cat:"insitu", name:"DCP tests", re:/(\d+|one|two|three|four|five|six|seven|eight|nine|ten)?\s*(?:x\s*)?(?:DCP|dynamic\s+cone\s+penetromet\w+)/gi,
+    make:m=>({ name:"DCP tests", details:(qty(m[1])??"")+" DCP test(s)", qty:qty(m[1]), unit:"No.", conf:qty(m[1])?0.9:0.6 }) },
+  { cat:"insitu", name:"Point load tests", re:/point\s+load\s+tests?/gi, make:m=>({ name:"Point load tests", details:m[0], qty:null, unit:"No.", conf:0.75 }) },
+  { cat:"sampling", name:"Disturbed samples", re:/disturbed\s+samples?/gi, make:m=>({ name:"Disturbed samples", details:"Disturbed sampling", qty:null, unit:"No.", conf:0.7 }) },
+  { cat:"sampling", name:"U50 / undisturbed samples", re:/U50s?|undisturbed\s+(?:tube\s+)?samples?/gi, make:m=>({ name:"U50 / undisturbed samples", details:m[0], qty:null, unit:"No.", conf:0.75 }) },
+  { cat:"sampling", name:"Bulk / CBR samples", re:/bulk\s+samples?/gi, make:m=>({ name:"Bulk / CBR samples", details:"Bulk sampling", qty:null, unit:"No.", conf:0.7 }) },
+  { cat:"lab", name:"CBR", re:/\bCBR\b|california\s+bearing\s+ratio/gi, make:m=>({ name:"CBR", details:"CBR testing", qty:null, unit:"No.", conf:0.8 }) },
+  { cat:"lab", name:"Shrink-swell", re:/shrink[\s-]?swell/gi, make:m=>({ name:"Shrink-swell", details:"Shrink-swell index", qty:null, unit:"No.", conf:0.8 }) },
+  { cat:"lab", name:"Atterberg limits", re:/atterberg/gi, make:m=>({ name:"Atterberg limits", details:"Atterberg limits", qty:null, unit:"No.", conf:0.85 }) },
+  { cat:"lab", name:"PSD", re:/\bPSD\b|particle\s+size\s+distribution/gi, make:m=>({ name:"PSD", details:"Particle size distribution", qty:null, unit:"No.", conf:0.85 }) },
+  { cat:"lab", name:"Moisture content", re:/moisture\s+content/gi, make:m=>({ name:"Moisture content", details:"Moisture content", qty:null, unit:"No.", conf:0.8 }) },
+  { cat:"lab", name:"UCS", re:/\bUCS\b|unconfined\s+compressive/gi, make:m=>({ name:"UCS", details:"Unconfined compressive strength", qty:null, unit:"No.", conf:0.8 }) },
+  { cat:"env", name:"Environmental samples", re:/environmental\s+sampl\w+|contaminat\w+\s+(?:assessment|sampl\w+|testing)/gi, make:m=>({ name:"Environmental samples", details:m[0], qty:null, unit:"No.", conf:0.7 }) },
+  { cat:"env", name:"Acid sulfate soil", re:/acid\s+sulfate|ASS\s+(?:screening|testing)/gi, make:m=>({ name:"Acid sulfate soil", details:"ASS screening/testing", qty:null, unit:"No.", conf:0.8 }) },
+  { cat:"env", name:"Salinity testing", re:/salinity/gi, make:m=>({ name:"Salinity testing", details:"Salinity testing", qty:null, unit:"No.", conf:0.8 }) },
+  { cat:"gw", name:"Groundwater observations", re:/groundwater|water\s+levels?|standpipes?|piezometers?/gi,
+    make:m=>({ name:"Groundwater observations", details:/standpipe|piezometer/i.test(m[0])?"Monitoring well: "+m[0]:"Groundwater observation", qty:null, unit:"per BH", conf:0.75 }) },
+  { cat:"insitu", name:"Pavement investigation", re:/pavement\s+(?:investigation|testing|design)/gi, make:m=>({ name:"Pavement investigation", details:m[0], qty:null, unit:"", conf:0.8 }) },
+  { cat:"reporting", name:"Site classification", re:/site\s+classification|AS\s*2870/gi, make:m=>({ name:"Site classification", details:m[0], qty:null, unit:"", conf:0.85 }) },
+  { cat:"reporting", name:"Report", re:/(?:geotechnical|factual|interpretive|investigation)\s+report/gi, make:m=>({ name:"Report", details:m[0], qty:1, unit:"No.", conf:0.85 }) },
+  { cat:"reporting", name:"Due date", re:/(?:within|in)\s+(\d+)\s+(?:business\s+|working\s+)?days|due\s+(?:by|on)\s+([\d\/\-\w\s,]{4,20})/gi,
+    make:m=>({ name:"Due date", details:m[1]?`Deliverable within ${m[1]} days`:`Due ${m[2]}`.trim(), qty:m[1]?parseInt(m[1]):null, unit:"days", conf:0.7 }) },
+  { cat:"qa", name:"Inspection requirements", re:/inspections?\s+(?:by|during|of)|hold\s+points?/gi, make:m=>({ name:"Inspection requirements", details:m[0], qty:null, unit:"", conf:0.6 }) },
+  { cat:"qa", name:"Exclusions", re:/exclusions?[:\s]/gi, make:m=>({ name:"Exclusions", details:"Exclusions stated in proposal — review source page", qty:null, unit:"", conf:0.6 }) },
+  { cat:"qa", name:"Assumptions", re:/assumptions?[:\s]/gi, make:m=>({ name:"Assumptions", details:"Assumptions stated in proposal — review source page", qty:null, unit:"", conf:0.6 }) },
+  { cat:"missing", name:"Unclear locations", re:/selected\s+locations|locations?\s+to\s+be\s+(?:confirmed|advised)|TBC\b/gi,
+    make:m=>({ name:"Unclear locations", details:`Proposal says "${m[0]}" — quantity/positions unclear`, qty:null, unit:"", conf:0.35 }) }
+];
+function sentenceAround(text, idx){
+  const s=Math.max(0, text.lastIndexOf(".", idx)+1), e=text.indexOf(".", idx);
+  return text.slice(s, e<0? Math.min(text.length, idx+180) : Math.min(e+1, s+320)).trim();
+}
+function extractScope(){
+  const sc=SC(); const items=[]; const seen=new Set();
+  for (const doc of sc.docs) for (const pg of doc.pages){
+    const text=pg.text||"";
+    for (const rule of RULES){
+      rule.re.lastIndex=0; let m;
+      while ((m=rule.re.exec(text))){
+        const ctx=sentenceAround(text, m.index);
+        const base=rule.make(m, ctx);
+        const key=base.name+"|"+doc.id+"|"+pg.n+"|"+(base.details||"").slice(0,40);
+        if (seen.has(key)) continue; seen.add(key);
+        items.push(Object.assign({ id:Math.random().toString(36).slice(2,9), cat:rule.cat, page:pg.n, doc:doc.name,
+          snippet:ctx.slice(0,300), status: base.conf>=0.8? "acc":"rev", comment:"" , link:""}, base));
+        if (items.length>200) return items;
       }
     }
-    return issues;
   }
+  /* client special requirements: lines with "must", "required to" */
+  return items;
+}
+const confCls = c => c>=0.8?"hi":c>=0.55?"md":"lo";
 
-  /* row operations (return new array; pure) */
-  function addLayer(list){ var c = list.slice(); c.push(blankInterval(c[c.length-1])); return c; }
-  function insertBelow(list, i){ var c = list.slice(); c.splice(i+1, 0, blankInterval(list[i])); return relink(c); }
-  function insertAbove(list, i){ var c = list.slice(); c.splice(i, 0, blankInterval(i>0?list[i-1]:null)); return relink(c); }
-  function duplicateLayer(list, i){ var c = list.slice(); var d = JSON.parse(JSON.stringify(list[i])); d.interval_id = uid(); c.splice(i+1,0,d); return c; }
-  function deleteLayer(list, i){ var c = list.slice(); c.splice(i,1); return relink(c); }
-  function splitInterval(list, i){
-    var r = list[i], f = num(r.from_depth), t = num(r.to_depth);
-    if (f == null || t == null) return list.slice();
-    var mid = Math.round((f + t) / 2 * 100) / 100;
-    var c = list.slice(); var d = JSON.parse(JSON.stringify(r)); d.interval_id = uid();
-    d.from_depth = mid; c[i] = Object.assign({}, r, { to_depth: mid });
-    c.splice(i+1, 0, d); return c;
-  }
-  function mergeWithBelow(list, i){
-    if (i >= list.length - 1) return list.slice();
-    var c = list.slice(); c[i] = Object.assign({}, c[i], { to_depth: c[i+1].to_depth });
-    c.splice(i+1, 1); return c;
-  }
-  // re-chain from_depth to previous to_depth where blank/auto
-  function relink(list){
-    for (var i = 1; i < list.length; i++){
-      if (list[i].from_depth === "" || list[i].from_depth == null) list[i] = Object.assign({}, list[i], { from_depth: list[i-1].to_depth });
+/* ---------- file intake ---------- */
+async function handleScopeFiles(files){
+  const sc=SC();
+  for (const f of files){
+    const id=Math.random().toString(36).slice(2,9);
+    if (/\.pdf$/i.test(f.name)){
+      const lib=await pdfjs();
+      const buf=await f.arrayBuffer();
+      const pdf=await lib.getDocument({data:buf}).promise;
+      window._scopeMem[id]=pdf;
+      const pages=[];
+      for (let n=1;n<=pdf.numPages;n++){
+        const p=await pdf.getPage(n); const tc=await p.getTextContent();
+        pages.push({ n, text: tc.items.map(i=>i.str).join(" ") });
+      }
+      sc.docs.push({ id, name:f.name, kind:"pdf", pages });
+      if (pages.every(p=>p.text.trim().length<30))
+        alert(f.name+" appears to be a scanned PDF with no text layer.\nUse 'Paste proposal text' below, or type the scope manually in Review.");
+    } else if (/\.docx?$/i.test(f.name)){
+      const mm=await mammothLib();
+      const r=await mm.extractRawText({arrayBuffer: await f.arrayBuffer()});
+      sc.docs.push({ id, name:f.name, kind:"docx", pages:[{n:1, text:r.value}] });
+    } else if (/\.(png|jpe?g|webp|heic)$/i.test(f.name)){
+      const url=await new Promise(res=>{ const rd=new FileReader(); rd.onload=()=>res(rd.result); rd.readAsDataURL(f); });
+      window._scopeMem[id]=url;
+      sc.docs.push({ id, name:f.name, kind:"image", pages:[{n:1, text:""}] });
+      alert(f.name+": scanned image stored for preview. Text can't be read from images — paste the proposal text or add items manually.");
+    } else {
+      const text=await f.text();
+      sc.docs.push({ id, name:f.name, kind:"txt", pages:[{n:1, text}] });
     }
-    return list;
   }
+  scSave(); renderScope();
+}
 
-  /* ---------------- engineering validation (per interval) ---------------- */
-  function validateInterval(iv) {
-    var w = [], up = (iv.primary_material||"").toUpperCase();
-    if (!up) return w;
-    if (isCohesive(up) && !clean(iv.consistency)) w.push({ level:"warning", code:"consistency", msg:"Soil description incomplete — consistency missing for cohesive soil." });
-    if (isGranular(up) && !clean(iv.density))     w.push({ level:"warning", code:"density", msg:"Density missing for granular soil." });
-    if (!clean(iv.colour_primary) && !clean(iv.colour)) w.push({ level:"warning", code:"colour", msg:"Colour not recorded." });
-    if (!clean(iv.moisture)) w.push({ level:"warning", code:"moisture", msg:"Moisture condition not recorded." });
-    if (isRockMaterial(up) || up === "WEATHERED ROCK") w.push({ level:"suggestion", code:"rock", msg:"Rock coring may commence below weathered rock transition." });
-    return w;
-  }
-  function detectRockTransition(iv){
-    var up = (iv.primary_material||"").toUpperCase();
-    return up === "WEATHERED ROCK" || isRockMaterial(up);
-  }
-
-  /* ---------------- utils ---------------- */
-  function clean(s){ return (s == null ? "" : String(s)).replace(/\s+/g, " ").trim(); }
-  function push(arr, v){ v = clean(v); if (v) arr.push(v); }
-  function dedupe(arr){ var seen = {}, out = []; arr.forEach(function(x){ var k = x.toLowerCase(); if (!seen[k]) { seen[k]=1; out.push(x); } }); return out; }
-  function uid(){ return "iv_" + Math.random().toString(36).slice(2,10); }
-  function nowISO(){ try { return new Date().toISOString(); } catch(e){ return ""; } }
-
-  return {
-    PRIMARY_MATERIALS: PRIMARY_MATERIALS, FILL_ORIGINS: FILL_ORIGINS, SECONDARY_ADJ: SECONDARY_ADJ,
-    PLASTICITY: PLASTICITY, GRAIN_SIZE: GRAIN_SIZE, PARTICLE_SHAPE: PARTICLE_SHAPE, MOISTURE: MOISTURE,
-    CONSISTENCY: CONSISTENCY, DENSITY: DENSITY, STRUCTURE: STRUCTURE, MATERIAL_FIELDS: MATERIAL_FIELDS,
-    isCohesive: isCohesive, isGranular: isGranular, isRockMaterial: isRockMaterial,
-    graphicSymbolFor: graphicSymbolFor, blankInterval: blankInterval,
-    generateSoilDescription: generateSoilDescription, effectiveDescription: effectiveDescription,
-    computeNextFrom: computeNextFrom, validateIntervals: validateIntervals, validateInterval: validateInterval,
-    detectRockTransition: detectRockTransition,
-    addLayer: addLayer, insertBelow: insertBelow, insertAbove: insertAbove, duplicateLayer: duplicateLayer,
-    deleteLayer: deleteLayer, splitInterval: splitInterval, mergeWithBelow: mergeWithBelow, relink: relink
-  };
-});
-/* v6: AS 1726 grammar upgrade — maps existing soil-row fields to the structured engine.
-   Non-breaking: keeps the current data model; only the auto-generated description improves. */
-(function () {
-  "use strict";
-  var E = (typeof window !== "undefined" && window.STSSoilLog) || (typeof require !== "undefined" && require("/tmp/work/sts_soillog_engine.js"));
-  if (!E) return;
-  var ADJ = /^(Clayey|Silty|Sandy|Gravelly)\s+/i;
-  function parseMaterial(m) {
-    m = (m || "").trim(); var adj = [], mm;
-    while ((mm = m.match(ADJ))) { adj.push(mm[1].toLowerCase()); m = m.slice(mm[0].length); }
-    return { primary: m, adj: adj };
-  }
-  var BARE_ADJ = { clayey:1, silty:1, sandy:1, gravelly:1 };
-  function classify(s, majors, minors) {
-    s = (s || "").trim(); if (!s) return;
-    if (BARE_ADJ[s.toLowerCase()]) return;                 // handled as secondary adjective
-    (/^trace\b/i.test(s) ? minors : majors).push(s.replace(/^with\s+/i, ""));
-  }
-  function rowToInterval(r) {
-    var pm = parseMaterial(r.material || "");
-    var up = (pm.primary || "").toUpperCase();
-    var sec = pm.adj.slice();
-    if (r.secondary && BARE_ADJ[(r.secondary || "").toLowerCase()]) sec.push(r.secondary.toLowerCase());
-    var majors = [], minors = [];
-    classify(r.secondary, majors, minors);
-    classify(r.inclusions, majors, minors);
-    var origin = "";
-    if (r.fillNatural === "FILL" || /^FILL/i.test(r.material || "") || (r.origin || "").toLowerCase() === "fill") origin = "FILL";
-    else if (up === "TOPSOIL" || (r.origin || "").toLowerCase() === "topsoil") origin = "TOPSOIL";
-    var granular = E.isGranular(up);
-    return {
-      origin: origin, primary_material: pm.primary, secondary_components: sec,
-      plasticity: r.plasticity || "", grain_size: "", grading: "", particle_shape: "",
-      colour_primary: r.colour || "", moisture: r.moisture || "",
-      consistency: granular ? "" : (r.consistency || ""), density: granular ? (r.consistency || "") : "",
-      structure: r.structure || "", additional_components: majors, inclusions: minors,
-      description_override: r.descTouched ? (r.description || "") : ""
-    };
-  }
-  // reassign the global used by the soil grid's onChange
-  if (typeof soilDescription !== "undefined") { /* keep reference */ }
-  var newGen = function (r) { return E.generateSoilDescription(rowToInterval(r)); };
-  if (typeof window !== "undefined") { window.soilDescription = newGen; window.rowToInterval = rowToInterval; window.graphicSymbolFor = E.graphicSymbolFor; }
-  try { soilDescription = newGen; } catch (e) {}   // reassign existing top-level binding
-  if (typeof module !== "undefined" && module.exports) module.exports = { rowToInterval: rowToInterval, newGen: newGen };
-})();
-
-</script>
-<script id="v7-corerun-engine">
-/*!
- * STS GeoFlow — Core Run setup + per-run TCR/RQD engine (SUB-PROMPT 26). Framework-free.
- * Runs are generated from coring start/end + default length (grid-aligned to whole metres),
- * fully editable, and TCR/RQD are computed PER CONFIRMED RUN using the actual run length as the
- * denominator — never a fixed 1000 mm. All maths done in millimetres (integers) to avoid float drift.
- */
-(function (root, factory) {
-  var api = factory();
-  if (typeof module !== "undefined" && module.exports) module.exports = api;
-  if (typeof window !== "undefined") window.STSCoreRun = api;
-})(typeof self !== "undefined" ? self : this, function () {
-  "use strict";
-  var MM = function (m) { return Math.round(Number(m) * 1000); };
-  var M = function (mm) { return Math.round(mm) / 1000; };
-  var r1 = function (x) { return Math.round(x * 10) / 10; };
-  var r0 = function (x) { return Math.round(x); };
-  var QUALIFY_MM = 100; // RQD qualifying piece length (AS 1726 / ISRM)
-
-  function totalCoredMm(startM, endM) { return MM(endM) - MM(startM); }
-
-  /* generate proposed runs. align: "grid" (snap boundaries to multiples of default len — the STS
-     default that yields e.g. 2.10→3.00) or "fromStart" (start + k*len, e.g. 5.20→6.20). */
-  function generateRuns(startM, endM, defaultLenM, opts) {
-    opts = opts || {}; var align = opts.align || "grid";
-    var start = MM(startM), end = MM(endM), step = MM(defaultLenM);
-    if (!(end > start) || step <= 0) return [];
-    var runs = [], cur = start, boundary;
-    if (align === "fromStart") boundary = start + step;
-    else { boundary = Math.floor(start / step) * step; if (boundary <= start) boundary += step; }
-    var guard = 0;
-    while (cur < end && guard++ < 10000) {
-      var to = Math.min(boundary, end);
-      runs.push({ run_no: runs.length + 1, from: M(cur), to: M(to), length_mm: to - cur, length_m: M(to - cur), source: "proposed", confirmed: false });
-      cur = to; boundary += step;
-    }
-    return runs;
-  }
-
-  function renumber(runs) { runs.forEach(function (r, i) { r.run_no = i + 1; }); return runs; }
-  function lenMm(run) { return MM(run.to) - MM(run.from); }
-
-  /* ---- edit operations (pure; return new array) ---- */
-  function editRun(runs, i, fromM, toM) { var c = runs.slice(); c[i] = Object.assign({}, c[i], { from: fromM, to: toM, length_mm: MM(toM) - MM(fromM), length_m: M(MM(toM) - MM(fromM)), confirmed: true }); return c; }
-  function splitRun(runs, i, atM) {
-    var r = runs[i]; if (!(MM(atM) > MM(r.from) && MM(atM) < MM(r.to))) return runs.slice();
-    var c = runs.slice(); var a = Object.assign({}, r, { to: atM }), b = Object.assign({}, r, { from: atM });
-    a.length_mm = lenMm(a); a.length_m = M(a.length_mm); b.length_mm = lenMm(b); b.length_m = M(b.length_mm);
-    c.splice(i, 1, a, b); return renumber(c);
-  }
-  function mergeRuns(runs, i) { if (i >= runs.length - 1) return runs.slice(); var c = runs.slice(); var m = Object.assign({}, c[i], { to: c[i + 1].to }); m.length_mm = lenMm(m); m.length_m = M(m.length_mm); c.splice(i, 2, m); return renumber(c); }
-  function addRun(runs, fromM, toM) { var c = runs.slice(); c.push({ run_no: c.length + 1, from: fromM, to: toM, length_mm: MM(toM) - MM(fromM), length_m: M(MM(toM) - MM(fromM)), source: "manual", confirmed: true }); return renumber(c); }
-  function deleteRun(runs, i) { var c = runs.slice(); c.splice(i, 1); return renumber(c); }
-  function confirmAll(runs) { return runs.map(function (r) { return Object.assign({}, r, { confirmed: true }); }); }
-
-  /* overlap length (mm) between an interval and a run */
-  function overlapMm(fromM, toM, run) { return Math.max(0, Math.min(MM(toM), MM(run.to)) - Math.max(MM(fromM), MM(run.from))); }
-
-  /* assign each core-loss interval to the run(s) it falls in (split across boundaries) */
-  function assignCoreLoss(runs, losses) {
-    var map = runs.map(function () { return []; });
-    (losses || []).forEach(function (L) {
-      runs.forEach(function (run, i) { var ov = overlapMm(L.from, L.to, run); if (ov > 0) map[i].push({ from: Math.max(MM(L.from), MM(run.from)) / 1000, to: Math.min(MM(L.to), MM(run.to)) / 1000, length_mm: ov, source: L }); });
-    });
-    return map;
-  }
-
-  /* per-run TCR/RQD. run length denominator = actual confirmed run length.
-     losses: [{from,to}] (borehole coords) — overlap with the run is used.
-     pieces: array of piece lengths in mm OR objects {length_mm[, run_no]} qualifying for this run. */
-  function computeRun(run, opts) {
-    opts = opts || {};
-    var runLen = lenMm(run);
-    var lossMm = (opts.losses || []).reduce(function (s, L) { return s + overlapMm(L.from, L.to, run); }, 0);
-    var recovered = Math.max(0, runLen - lossMm);
-    var pieceLens = (opts.pieces || []).map(function (p) { return typeof p === "number" ? p : (p.length_mm || 0); });
-    var qual = pieceLens.filter(function (l) { return l >= QUALIFY_MM; });
-    var rqdMm = qual.reduce(function (s, l) { return s + l; }, 0);
-    var tcr = runLen ? recovered / runLen * 100 : 0;
-    var rqd = runLen ? rqdMm / runLen * 100 : 0;
-    return {
-      run_no: run.run_no, from: run.from, to: run.to,
-      run_length_mm: runLen, loss_mm: lossMm, recovered_mm: recovered,
-      tcr: r1(tcr), tcr_rounded: r0(tcr),
-      rqd_qualifying_mm: rqdMm, rqd: r1(rqd), rqd_rounded: r0(rqd),
-      pieces_ge100: qual.length, pieces_lt100: pieceLens.length - qual.length
-    };
-  }
-
-  function computeAll(runs, data) {
-    data = data || {};
-    var perRun = runs.map(function (run) {
-      return computeRun(run, { losses: data.losses, pieces: (data.piecesByRun && data.piecesByRun[run.run_no]) || [] });
-    });
-    var totLen = perRun.reduce(function (s, r) { return s + r.run_length_mm; }, 0);
-    var totRec = perRun.reduce(function (s, r) { return s + r.recovered_mm; }, 0);
-    var totQual = perRun.reduce(function (s, r) { return s + r.rqd_qualifying_mm; }, 0);
-    return {
-      runs: perRun,
-      borehole: { total_run_length_mm: totLen, recovered_mm: totRec, tcr: r1(totLen ? totRec / totLen * 100 : 0), rqd: r1(totLen ? totQual / totLen * 100 : 0) }
-    };
-  }
-
-  /* validation before TCR/RQD (SUB-PROMPT 26 §I) */
-  function validateRuns(runs, startM, endM) {
-    var issues = [], tol = 1; // 1 mm
-    if (!runs.length) return [{ level: "error", code: "empty", msg: "No runs defined." }];
-    if (Math.abs(MM(runs[0].from) - MM(startM)) > tol) issues.push({ level: "warning", code: "first", msg: "First run (" + runs[0].from + " m) does not begin at coring start " + startM + " m." });
-    if (Math.abs(MM(runs[runs.length - 1].to) - MM(endM)) > tol) issues.push({ level: "warning", code: "last", msg: "Final run (" + runs[runs.length - 1].to + " m) does not end at coring end " + endM + " m." });
-    for (var i = 1; i < runs.length; i++) {
-      var prevTo = MM(runs[i - 1].to), curFrom = MM(runs[i].from);
-      if (curFrom < prevTo - tol) issues.push({ level: "error", code: "overlap", msg: "Run overlap at " + runs[i].from + "–" + runs[i - 1].to + " m." });
-      else if (curFrom > prevTo + tol) issues.push({ level: "error", code: "gap", msg: "Unassigned interval " + M(prevTo) + "–" + M(curFrom) + " m." });
-    }
-    var sumLen = runs.reduce(function (s, r) { return s + lenMm(r); }, 0);
-    var cored = totalCoredMm(startM, endM);
-    if (Math.abs(sumLen - cored) > tol) issues.push({ level: "error", code: "reconcile", msg: "RUN DEPTH MISMATCH — total coring " + startM + "–" + endM + " m = " + M(cored) + " m; confirmed runs total " + M(sumLen) + " m (" + (sumLen > cored ? "over" : "short") + " " + M(Math.abs(sumLen - cored)) + " m)." });
-    return issues;
-  }
-
-  /* image-row mapping — a run visually split across trays becomes 4A/4B for DISPLAY only;
-     the engineering run (and its single TCR/RQD) is preserved. */
-  function mapRunsToRows(runs, detectedRows) {
-    return runs.map(function (run) {
-      var rows = (detectedRows || []).filter(function (row) { return overlapMm(row.from, row.to, run) > 0; });
-      var labels = rows.length > 1 ? rows.map(function (_, k) { return run.run_no + String.fromCharCode(65 + k); }) : [String(run.run_no)];
-      return { run_no: run.run_no, from: run.from, to: run.to, image_rows: rows.length, display_labels: labels };
-    });
-  }
-
-  return {
-    QUALIFY_MM: QUALIFY_MM, totalCoredMm: totalCoredMm, generateRuns: generateRuns,
-    editRun: editRun, splitRun: splitRun, mergeRuns: mergeRuns, addRun: addRun, deleteRun: deleteRun, confirmAll: confirmAll,
-    assignCoreLoss: assignCoreLoss, computeRun: computeRun, computeAll: computeAll,
-    validateRuns: validateRuns, mapRunsToRows: mapRunsToRows, _mm: MM, _m: M
-  };
-});
-
-</script>
-<script id="v7-corerun-glue">
-/* v7: per-run Core Run TCR/RQD panel — additive integration into the Corebox tab.
-   Reuses the app's calibrated scale (topD/botD) + cb().defects; syncs per-run to Rock Log.
-   Non-breaking: only ADDS a toolbar button + panel; existing corebox logic untouched. */
-(function () {
-  "use strict";
-  var R = window.STSCoreRun; if (!R) return;
-  function n(v) { var x = parseFloat(v); return isNaN(x) ? null : x; }
-  function cbc() { try { return (typeof cb === "function") ? cb() : null; } catch (e) { return null; } }
-  var ST = { runs: [], len: 1.0 };
-
-  function runMetrics(run) {
-    var c = cbc(); if (!c) return R.computeRun(run, {});
-    var defs = c.defects || [];
-    var breaks = defs.filter(function (d) { return d.type !== "Core loss" && d.type !== "Void"; })
-      .map(function (d) { return d.depth; }).filter(function (x) { return x > run.from && x < run.to; }).sort(function (a, b) { return a - b; });
-    var pts = [run.from].concat(breaks, [run.to]), pieces = [];
-    for (var i = 1; i < pts.length; i++) pieces.push(Math.round((pts[i] - pts[i - 1]) * 1000));
-    var losses = defs.filter(function (d) { return d.type === "Core loss"; })
-      .map(function (d) { return { from: d.depth, to: d.depth + (n(d.len) || 0) }; });
-    return R.computeRun(run, { losses: losses, pieces: pieces });
-  }
-
-  function ensureRuns() {
-    var c = cbc(); if (!c) return;
-    var s = n(c.topD), e = n(c.botD);
-    if (s == null || e == null || e <= s) { ST.runs = []; return; }
-    if (!ST.runs.length) ST.runs = R.generateRuns(s, e, ST.len);
-  }
-
-  function panelHTML() {
-    var c = cbc(); var s = n(c && c.topD), e = n(c && c.botD);
-    if (s == null || e == null || e <= s) return '<div class="hint" style="padding:8px">Calibrate the corebox top &amp; bottom depths first (set Top/Bottom depth above), then core runs generate automatically.</div>';
-    var head = '<div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin:6px 0">'
-      + '<b>Coring ' + s.toFixed(2) + '–' + e.toFixed(2) + ' m = ' + (R.totalCoredMm(s, e) / 1000).toFixed(2) + ' m</b>'
-      + '<label>Default run <input id="crLen" value="' + ST.len + '" style="width:56px"></label>'
-      + '<button class="btn" id="crGen">Regenerate</button>'
-      + '<button class="btn" id="crSync">Sync per-run TCR/RQD → Rock Log</button></div>';
-    var iss = R.validateRuns(ST.runs, s, e);
-    var warn = iss.length ? '<div style="background:#3a3320;border:1px solid #6b5a24;color:#f0d48a;border-radius:6px;padding:6px 9px;font-size:12px;margin-bottom:6px">' + iss.map(function (x) { return (x.level === "error" ? "⛔ " : "⚠ ") + x.msg; }).join("<br>") + '</div>' : '';
-    var rows = ST.runs.map(function (run, i) {
-      var m = runMetrics(run);
-      return '<tr><td>Run ' + run.run_no + '</td>'
-        + '<td><input data-i="' + i + '" data-e="from" value="' + run.from.toFixed(2) + '" style="width:60px"></td>'
-        + '<td><input data-i="' + i + '" data-e="to" value="' + run.to.toFixed(2) + '" style="width:60px"></td>'
-        + '<td>' + (m.run_length_mm) + ' mm</td>'
-        + '<td><b>' + m.tcr + '%</b></td><td><b>' + m.rqd + '%</b></td>'
-        + '<td><button class="btn" data-op="split" data-i="' + i + '">Split</button> '
-        + '<button class="btn" data-op="merge" data-i="' + i + '">Merge↓</button> '
-        + '<button class="btn" data-op="del" data-i="' + i + '">✕</button></td></tr>';
-    }).join("");
-    return head + warn + '<table style="width:100%;border-collapse:collapse;font-size:12px"><tr style="text-align:left;color:#dce9f5"><th>Run</th><th>From</th><th>To</th><th>Length</th><th>TCR</th><th>RQD</th><th></th></tr>' + rows + '</table>';
-  }
-
-  function renderPanel() {
-    ensureRuns();
-    var p = document.getElementById("cbRunPanel"); if (!p) return;
-    p.style.display = ""; p.innerHTML = panelHTML();
-    var s = n((cbc() || {}).topD), e = n((cbc() || {}).botD);
-    var gen = document.getElementById("crGen"); if (gen) gen.onclick = function () { var L = document.getElementById("crLen"); ST.len = n(L && L.value) || 1.0; ST.runs = R.generateRuns(s, e, ST.len); renderPanel(); };
-    var sync = document.getElementById("crSync"); if (sync) sync.onclick = syncToRock;
-    p.querySelectorAll("input[data-e]").forEach(function (inp) { inp.onchange = function () { var i = +inp.dataset.i, r = ST.runs[i]; ST.runs = R.editRun(ST.runs, i, inp.dataset.e === "from" ? n(inp.value) : r.from, inp.dataset.e === "to" ? n(inp.value) : r.to); renderPanel(); }; });
-    p.querySelectorAll("button[data-op]").forEach(function (b) { b.onclick = function () { var i = +b.dataset.i, op = b.dataset.op; if (op === "split") { var r = ST.runs[i]; ST.runs = R.splitRun(ST.runs, i, Math.round((r.from + r.to) / 2 * 100) / 100); } else if (op === "merge") ST.runs = R.mergeRuns(ST.runs, i); else ST.runs = R.deleteRun(ST.runs, i); renderPanel(); }; });
-  }
-
-  function syncToRock() {
-    try {
-      var L = logs(); ensureRuns();
-      ST.runs.forEach(function (run) {
-        var m = runMetrics(run);
-        var target = L.rock.find(function (r) { return num(r.from) === run.from && num(r.to) === run.to; });
-        if (!target) { target = blankRock(); target.from = run.from; target.to = run.to; target.remarks = "core run " + run.run_no; L.rock.push(target); }
-        target.tcr = m.tcr_rounded; target.scr = m.tcr_rounded; target.rqd = m.rqd_rounded;
-      });
-      save(); if (typeof renderRock === "function") { /* refresh if on rock tab */ }
-      if (typeof setStatus === "function") setStatus("Synced " + ST.runs.length + " runs' TCR/RQD to Rock Log ✓");
-    } catch (e) { if (typeof setStatus === "function") setStatus("Sync failed: " + e.message); }
-  }
-
-  function inject() {
-    var page = document.getElementById("page-corebox"); if (!page) return;
-    var tb = page.querySelector(".toolbar"); if (!tb || document.getElementById("cbCoreRuns")) return;
-    var b = document.createElement("button"); b.className = "btn"; b.id = "cbCoreRuns"; b.textContent = "⚙ Core runs";
-    b.onclick = function () { var p = document.getElementById("cbRunPanel"); if (p && p.style.display !== "none" && p.innerHTML) { p.style.display = "none"; } else renderPanel(); };
-    tb.appendChild(b);
-    if (!document.getElementById("cbRunPanel")) { var d = document.createElement("div"); d.id = "cbRunPanel"; d.style.cssText = "display:none;margin-top:10px;padding:0 4px"; page.querySelector(".panel").appendChild(d); }
-  }
-  if (typeof renderCorebox !== "undefined") { var _r = renderCorebox; renderCorebox = function () { _r.apply(this, arguments); ST.runs = []; try{inject();}catch(e){} }; }
-  document.addEventListener("DOMContentLoaded", function(){try{inject();}catch(e){}}); try{inject();}catch(e){}
-})();
-
-</script>
-<script id="v8-defect-engine">
-/*!
- * STS GeoFlow — Corebox rock-defect engine (SUB-PROMPT 14). Framework-free.
- * Viewport transform with image-relative coordinate safety (pan/zoom never move defects),
- * click-to-depth off calibrated runs, STS defect codes, attribute vocab, validation,
- * repeat-previous / apply-to-similar / bulk edit, sync-to-Rock-Log mapping, edit history.
- */
-(function (root, factory) {
-  var api = factory();
-  if (typeof module !== "undefined" && module.exports) module.exports = api;
-  if (typeof window !== "undefined") window.STSDefect = api;
-})(typeof self !== "undefined" ? self : this, function () {
-  "use strict";
-
-  /* ---- STS defect codes (§8) — CZ=Crushed, CLZ=Clay (never share a code) ---- */
-  var CODES = {
-    J: "Joint", BP: "Bedding Plane", VN: "Vein", SM: "Seam", FZ: "Fractured Zone",
-    SZ: "Sheared Zone", CZ: "Crushed Zone", CLZ: "Clay Zone", CS: "Clay Seam",
-    CG: "Clay Gouge", CL: "Core Loss", MB: "Mechanical Break", NB: "Natural Break"
-  };
-  var VOCAB = {
-    shape: ["PL", "CU", "UN", "ST", "IR"],
-    roughness: ["VS", "SM", "SR", "RO", "VR"],
-    aperture: ["Closed", "<0.1 mm", "0.1–1 mm", "1–5 mm", "5–20 mm", ">20 mm"],
-    infill: ["Clean", "Clay", "Clay gouge", "Silt", "Sand", "Calcite", "Quartz", "Iron oxide", "Carbonaceous", "Manganese", "Other"],
-    infill_thickness: ["0 mm", "<1 mm", "1–5 mm", "5–20 mm", "20–50 mm", ">50 mm"],
-    coating: ["None", "Iron stained", "Clay coating", "Calcite coating", "Manganese coating", "Carbonaceous coating"],
-    weathering: ["FR", "SW", "MW", "HW", "XW"],
-    persistence: ["Short", "Medium", "Long", "Through core diameter", "Unknown"],
-    water: ["Dry", "Damp", "Wet"]
-  };
-  var ZONE_TYPES = { FZ: 1, SZ: 1, CZ: 1, CLZ: 1, CL: 1 }; // have thickness / from-to
-
-  /* ---- viewport transform (§2, §17): screen = image*scale + pan ---- */
-  function makeViewport(o) { o = o || {}; return { scale: o.scale || 1, panX: o.panX || 0, panY: o.panY || 0 }; }
-  function imageToScreen(vp, ix, iy) { return { x: ix * vp.scale + vp.panX, y: iy * vp.scale + vp.panY }; }
-  function screenToImage(vp, sx, sy) { return { x: (sx - vp.panX) / vp.scale, y: (sy - vp.panY) / vp.scale }; }
-  function panBy(vp, dx, dy) { return { scale: vp.scale, panX: vp.panX + dx, panY: vp.panY + dy }; }
-  function zoomAt(vp, sx, sy, factor, min, max) {
-    var ns = Math.min(max || 40, Math.max(min || 0.05, vp.scale * factor));
-    var img = screenToImage(vp, sx, sy);            // keep the point under the cursor fixed
-    return { scale: ns, panX: sx - img.x * ns, panY: sy - img.y * ns };
-  }
-
-  /* ---- click-to-depth off a calibrated run (§6) ---- */
-  // run.image = { axis:"y"|"x", from_px, to_px } maps run.depth_from@from_px .. run.depth_to@to_px
-  function defectDepth(run, point) {
-    var im = run.image || { axis: "y", from_px: 0, to_px: 1 };
-    var p = im.axis === "x" ? point.x : point.y;
-    var t = (im.to_px === im.from_px) ? 0 : (p - im.from_px) / (im.to_px - im.from_px);
-    t = Math.min(1, Math.max(0, t));
-    return round3(run.depth_from + t * (run.depth_to - run.depth_from));
-  }
-  function zoneDepths(run, p1, p2) {
-    var d1 = defectDepth(run, p1), d2 = defectDepth(run, p2);
-    var from = Math.min(d1, d2), to = Math.max(d1, d2);
-    return { depth_from: from, depth_to: to, thickness_mm: Math.round((to - from) * 1000) };
-  }
-
-  /* ---- id allocation (§4) ---- */
-  function allocateId(code, defects) {
-    var n = 0; (defects || []).forEach(function (d) { if (d.defect_code === code) { var m = /(\d+)$/.exec(d.defect_id || ""); if (m) n = Math.max(n, +m[1]); } });
-    return code + (n + 1);
-  }
-
-  /* ---- defect model + edit history (§15, §17) ---- */
-  function makeDefect(o, defects) {
-    o = o || {};
-    var code = o.defect_code || "J";
-    return {
-      defect_id: o.defect_id || allocateId(code, defects || []),
-      defect_code: code, defect_type: o.defect_type || CODES[code] || "Joint",
-      corebox_id: o.corebox_id || "", image_id: o.image_id || "", run_id: o.run_id || "",
-      geometry_type: o.geometry_type || (ZONE_TYPES[code] ? "zone" : "point"),
-      image_x: o.image_x == null ? null : o.image_x, image_y: o.image_y == null ? null : o.image_y,
-      image_geometry: o.image_geometry || null,          // [{x,y}...] in image px
-      depth_from: o.depth_from == null ? null : o.depth_from,
-      depth_to: o.depth_to == null ? null : o.depth_to,
-      shape: o.shape || "", orientation: o.orientation || "", alpha: o.alpha == null ? null : o.alpha, beta: o.beta == null ? null : o.beta,
-      roughness: o.roughness || "", aperture: o.aperture || "", infill: o.infill || "",
-      infill_thickness: o.infill_thickness || "", coating: o.coating || "", weathering: o.weathering || "",
-      persistence: o.persistence || "", water: o.water || "", comments: o.comments || "",
-      confidence: o.confidence == null ? null : o.confidence,
-      review_status: o.review_status || "unreviewed",     // unreviewed|reviewed|approved
-      created_by: o.created_by || "", created_at: o.created_at || nowISO(),
-      updated_by: "", updated_at: "",
-      original_ai_suggestion: o.original_ai_suggestion || (o.confidence != null ? pickAttrs(o) : null),
-      engineer_override: null, override_reason: ""
-    };
-  }
-  var ATTR = ["defect_code", "defect_type", "shape", "orientation", "roughness", "aperture", "infill", "infill_thickness", "coating", "weathering", "persistence", "water"];
-  function pickAttrs(d) { var o = {}; ATTR.forEach(function (k) { o[k] = d[k]; }); return o; }
-
-  function applyEdit(defect, changes, by, reason) {
-    var before = pickAttrs(defect);
-    var d = Object.assign({}, defect, changes);
-    if (changes.defect_code && CODES[changes.defect_code]) d.defect_type = CODES[changes.defect_code];
-    d.updated_by = by || ""; d.updated_at = nowISO();
-    if (defect.original_ai_suggestion) { d.engineer_override = pickAttrs(d); if (reason) d.override_reason = reason; }
-    d._before = before;
-    return d;
-  }
-
-  /* repeat previous (§10) — copy attributes only, keep id/coords/depth */
-  function repeatAttributes(prev, target) {
-    var o = Object.assign({}, target); ATTR.forEach(function (k) { if (prev[k]) o[k] = prev[k]; });
-    if (prev.defect_code) o.defect_type = CODES[prev.defect_code] || o.defect_type;
-    return o;
-  }
-  function applyToSimilar(defects, changes, filterFn) {
-    return defects.map(function (d) { return filterFn(d) ? Object.assign({}, d, changes) : d; });
-  }
-
-  /* bulk edit (§11) */
-  function summarizeSelection(defects, ids) {
-    var sel = defects.filter(function (d) { return ids.indexOf(d.defect_id) >= 0; });
-    var out = {};
-    ATTR.forEach(function (k) { var vals = sel.map(function (d) { return d[k]; }); var uniq = vals.filter(function (v, i) { return v && vals.indexOf(v) === i; }); out[k] = uniq.length === 1 ? uniq[0] : (uniq.length ? "«mixed»" : ""); });
-    return out;
-  }
-  function bulkEdit(defects, ids, changes, by) {
-    return defects.map(function (d) { return ids.indexOf(d.defect_id) >= 0 ? applyEdit(d, changes, by) : d; });
-  }
-
-  /* validation (§13) — warnings, not blocks */
-  function validateDefect(d) {
-    var w = [], c = d.defect_code;
-    if (c === "VN" && (!d.infill || d.infill === "Clean")) w.push({ level: "warning", code: "vein_infill", msg: "Vein: specify infill / mineral type." });
-    if (c === "CLZ" && (d.depth_from == null || d.depth_to == null)) w.push({ level: "error", code: "zone_depth", msg: "Clay Zone requires From and To depth." });
-    if (c === "J") { if (!d.shape) w.push({ level: "warning", code: "j_shape", msg: "Joint: shape not recorded." }); if (!d.roughness) w.push({ level: "warning", code: "j_rough", msg: "Joint: roughness not recorded." }); if (!d.aperture) w.push({ level: "warning", code: "j_ap", msg: "Joint: aperture not recorded." }); }
-    if (d.infill === "Clay gouge") w.push({ level: "suggestion", code: "gouge", msg: "Clay gouge — possible sheared condition (not forced)." });
-    if (d.aperture === "Closed" && d.infill_thickness && d.infill_thickness !== "0 mm") w.push({ level: "warning", code: "closed_infill", msg: "Aperture Closed — infill thickness should normally be 0 (coating only)." });
-    // Core Loss does NOT require roughness/orientation — no warning raised for those
-    return w;
-  }
-
-  /* sync to Rock Log (§14) — only reviewed/approved; structured mapping, no re-typing */
-  function toRockLogDefect(d) {
-    return {
-      depth_from: d.depth_from, depth_to: d.depth_to, defect_type: d.defect_type, defect_code: d.defect_code,
-      shape: d.shape, orientation: d.orientation, alpha: d.alpha, beta: d.beta, roughness: d.roughness,
-      aperture: d.aperture, infill: d.infill, infill_thickness: d.infill_thickness, coating: d.coating,
-      weathering: d.weathering, persistence: d.persistence, water: d.water, comment: d.comments,
-      source: "corebox", source_defect_id: d.defect_id
-    };
-  }
-  function syncApproved(defects, opts) {
-    opts = opts || {}; var ids = opts.selectedIds;
-    return defects.filter(function (d) {
-      if (ids && ids.indexOf(d.defect_id) < 0) return false;
-      return d.review_status === "reviewed" || d.review_status === "approved"; // never sync unreviewed
-    }).map(toRockLogDefect);
-  }
-
-  function round3(x) { return Math.round(x * 1000) / 1000; }
-  function nowISO() { try { return new Date().toISOString(); } catch (e) { return ""; } }
-
-  return {
-    CODES: CODES, VOCAB: VOCAB, ZONE_TYPES: ZONE_TYPES, ATTR: ATTR,
-    makeViewport: makeViewport, imageToScreen: imageToScreen, screenToImage: screenToImage, panBy: panBy, zoomAt: zoomAt,
-    defectDepth: defectDepth, zoneDepths: zoneDepths, allocateId: allocateId, makeDefect: makeDefect,
-    applyEdit: applyEdit, repeatAttributes: repeatAttributes, applyToSimilar: applyToSimilar,
-    summarizeSelection: summarizeSelection, bulkEdit: bulkEdit, validateDefect: validateDefect,
-    toRockLogDefect: toRockLogDefect, syncApproved: syncApproved
-  };
-});
-
-/*!
- * STS GeoFlow — rapid multiple-defect logging (SUB-PROMPT 15). Framework-free.
- * Extends the defect engine: template-once + click-each rapid create (each defect kept
- * individually), spacing computation, closely-spaced group detection (never auto-FZ),
- * defect_group object, <100mm piece segmentation for RQD, natural-vs-mechanical rules,
- * per-run frequency, copy-attributes, group MIXED summary, Rock Log output modes A/B.
- */
-(function (root, factory) {
-  var api = factory(root && root.STSDefect);
-  if (typeof module !== "undefined" && module.exports) module.exports = api;
-  if (typeof window !== "undefined") window.STSRapidDefect = api;
-})(typeof self !== "undefined" ? self : this, function (D) {
-  "use strict";
-  D = D || (typeof require !== "undefined" && require("/sessions/brave-fervent-feynman/mnt/outputs/soillog-upgrade/sts_defect_engine.js"));
-  var QUALIFY_MM = 100;
-  var NATURAL = { J: 1, BP: 1, VN: 1, SM: 1, CS: 1, VN_BREAK: 1 };
-  var MECH = { MB: 1 };
-  var ATTR = ["defect_code", "orientation", "shape", "roughness", "aperture", "infill", "coating"];
-
-  function depthOf(d) { return d.depth_from != null ? d.depth_from : (d.depth != null ? d.depth : null); }
-  function sortByDepth(defs) { return defs.slice().sort(function (a, b) { return (depthOf(a) || 0) - (depthOf(b) || 0); }); }
-  function round(x, n) { var f = Math.pow(10, n || 0); return Math.round(x * f) / f; }
-  function isMechanical(d) { return !!MECH[d.defect_code] || d.break_class === "mechanical"; }
-  function isNatural(d) { return !isMechanical(d) && d.break_class !== "artificial"; }
-
-  /* §4 spacing between consecutive defects (mm) */
-  function computeSpacings(defs) {
-    var s = sortByDepth(defs), out = [];
-    for (var i = 1; i < s.length; i++) out.push({ from_id: s[i - 1].defect_id, to_id: s[i].defect_id, spacing_mm: Math.round((depthOf(s[i]) - depthOf(s[i - 1])) * 1000) });
-    return out;
-  }
-  function spacingStats(defs) {
-    var sp = computeSpacings(defs).map(function (x) { return x.spacing_mm; });
-    if (!sp.length) return { min: null, max: null, mean: null };
-    return { min: Math.min.apply(null, sp), max: Math.max.apply(null, sp), mean: Math.round(sp.reduce(function (a, b) { return a + b; }, 0) / sp.length) };
-  }
-
-  /* §5 group object — parent group, individual children preserved */
-  function commonAttributes(defs) {
-    var o = {}; ATTR.forEach(function (k) { var vals = defs.map(function (d) { return d[k]; }); var uniq = vals.filter(function (v, i) { return v != null && v !== "" && vals.indexOf(v) === i; }); o[k] = uniq.length === 1 ? uniq[0] : (uniq.length ? "MIXED" : ""); });
-    return o;
-  }
-  function makeGroup(defs, groupType) {
-    var s = sortByDepth(defs), st = spacingStats(s);
-    return {
-      group_id: "grp_" + Math.random().toString(36).slice(2, 9), group_type: groupType || s[0].defect_code,
-      depth_from: depthOf(s[0]), depth_to: depthOf(s[s.length - 1]), count: s.length,
-      member_defect_ids: s.map(function (d) { return d.defect_id; }),
-      spacing_min: st.min, spacing_max: st.max, spacing_mean: st.mean,
-      common_attributes: commonAttributes(s), reviewed: false
-    };
-  }
-  /* §4 detect closely spaced groups of same-type natural defects (< threshold). NEVER auto-FZ. */
-  function detectCloselySpacedGroups(defs, opts) {
-    opts = opts || {}; var thr = opts.threshold_mm || QUALIFY_MM;
-    var s = sortByDepth(defs.filter(isNatural)), groups = [], cur = [];
-    for (var i = 0; i < s.length; i++) {
-      if (!cur.length) { cur = [s[i]]; continue; }
-      var prev = cur[cur.length - 1];
-      var sameType = prev.defect_code === s[i].defect_code;
-      var spacing = Math.round((depthOf(s[i]) - depthOf(prev)) * 1000);
-      if (sameType && spacing < thr) cur.push(s[i]);
-      else { if (cur.length >= 2) groups.push(cur); cur = [s[i]]; }
-    }
-    if (cur.length >= 2) groups.push(cur);
-    return groups.map(function (g) { var grp = makeGroup(g); grp.suggestion = "closely_spaced"; grp.classification_locked = true; return grp; });
-  }
-
-  /* §1–3 rapid create: template applied to each click depth; each is a SEPARATE record */
-  function rapidCreate(template, clickDepths, ctx, existing) {
-    ctx = ctx || {}; var pool = (existing || []).slice(), out = [];
-    clickDepths.forEach(function (depth) {
-      var base = Object.assign({}, template, {
-        depth_from: depth, depth: depth, run_id: ctx.run_id || "", corebox_id: ctx.corebox_id || "",
-        image_id: ctx.image_id || "", batch_id: ctx.batch_id || "", created_by: ctx.created_by || "",
-        geometry_type: "point", review_status: "unreviewed"
-      });
-      var d = D.makeDefect(base, pool);
-      d.orientation = template.orientation != null ? template.orientation : d.orientation;
-      d.batch_id = ctx.batch_id || "";
-      pool.push(d); out.push(d);
-    });
-    return out;
-  }
-
-  /* §9 <100mm piece segmentation for RQD — individual defects preserved */
-  function segmentPieces(defs, run, opts) {
-    opts = opts || {}; var q = opts.qualify_mm || QUALIFY_MM;
-    // natural defects split pieces; confirmed mechanical breaks are reconstructed (do NOT split) unless opts.splitMechanical
-    var splitters = sortByDepth(defs.filter(function (d) {
-      var dd = depthOf(d); if (dd == null || dd <= run.from || dd >= run.to) return false;
-      if (isMechanical(d)) return !!opts.splitMechanical;   // §10: reconstruct mechanical unless asked
-      return isNatural(d);
-    }));
-    var pts = [run.from].concat(splitters.map(depthOf), [run.to]), pieces = [];
-    for (var i = 1; i < pts.length; i++) {
-      var len = Math.round((pts[i] - pts[i - 1]) * 1000);
-      pieces.push({ from: round(pts[i - 1], 3), to: round(pts[i], 3), length_mm: len, qualifies_rqd: len >= q, rqd_class: len >= q ? ">=100mm" : "<100mm" });
-    }
-    return pieces;
-  }
-  function rqdFromPieces(pieces, runLenMm) {
-    var qual = pieces.filter(function (p) { return p.qualifies_rqd; }).reduce(function (s, p) { return s + p.length_mm; }, 0);
-    return runLenMm ? round(qual / runLenMm * 100, 1) : 0;
-  }
-
-  /* §13 per-run natural-defect frequency (excludes mechanical/artificial breaks) */
-  function defectFrequency(defs, run) {
-    var nat = defs.filter(function (d) { var dd = depthOf(d); return isNatural(d) && dd >= run.from && dd <= run.to; });
-    var byType = {}; nat.forEach(function (d) { byType[d.defect_code] = (byType[d.defect_code] || 0) + 1; });
-    var st = spacingStats(nat);
-    return { run_id: run.run_id, from: run.from, to: run.to, natural_count: nat.length, by_type: byType, spacing_min: st.min, spacing_max: st.max, spacing_mean: st.mean };
-  }
-
-  /* §12 copy attributes (never depth/coords/id/run) */
-  function copyAttributes(source, targets) {
-    return targets.map(function (t) { var o = Object.assign({}, t); ATTR.forEach(function (k) { if (source[k] != null && source[k] !== "") o[k] = source[k]; }); if (source.defect_code && D.CODES[source.defect_code]) o.defect_type = D.CODES[source.defect_code]; return o; });
-  }
-
-  /* §16 Rock Log output modes */
-  function outputModeA(defs) {
-    return sortByDepth(defs).map(function (d) {
-      return [round(depthOf(d), 3).toFixed(3) + " m", d.defect_code, (d.orientation != null ? d.orientation : ""), d.shape, d.roughness, d.aperture, d.infill].filter(function (x) { return x !== "" && x != null; }).join("  ");
-    });
-  }
-  var SHAPE = { PL: "planar", CU: "curved", UN: "undulating", ST: "stepped", IR: "irregular" };
-  var ROUGH = { VS: "very smooth", SM: "smooth", SR: "slightly rough", RO: "rough", VR: "very rough" };
-  function outputModeB(group) {
-    var ca = group.common_attributes;
-    var parts = [D.CODES[group.group_type] + " defects", "closely spaced", "generally " + group.spacing_min + "–" + group.spacing_max + " mm apart"];
-    if (ca.orientation && ca.orientation !== "MIXED") parts.push("approximately " + ca.orientation + " to core axis");
-    if (ca.shape && ca.shape !== "MIXED") parts.push(SHAPE[ca.shape] || ca.shape);
-    if (ca.roughness && ca.roughness !== "MIXED") parts.push(ROUGH[ca.roughness] || ca.roughness);
-    var tail = "";
-    if (ca.aperture === "Closed" && ca.infill === "Clean") tail = "closed and clean";
-    else { var t = []; if (ca.aperture && ca.aperture !== "MIXED") t.push(ca.aperture === "Closed" ? "closed" : ca.aperture); if (ca.infill && ca.infill !== "MIXED") t.push(ca.infill.toLowerCase()); tail = t.join(", "); }
-    if (tail) parts.push(tail);
-    return group.depth_from.toFixed(3) + "–" + group.depth_to.toFixed(3) + " m: " + parts.join(", ") + ".";
-  }
-
-  /* §18 undo batch helpers */
-  function newBatch(template, ctx) { return { batch_id: "batch_" + Math.random().toString(36).slice(2, 9), template_id: (template && template.template_id) || "", run_id: (ctx && ctx.run_id) || "", created_by: (ctx && ctx.created_by) || "", created_at: new Date().toISOString() }; }
-  function undoLast(defs, batchId) { var s = defs.slice(); for (var i = s.length - 1; i >= 0; i--) { if (!batchId || s[i].batch_id === batchId) { s.splice(i, 1); break; } } return s; }
-  function undoBatch(defs, batchId) { return defs.filter(function (d) { return d.batch_id !== batchId; }); }
-
-  return {
-    QUALIFY_MM: QUALIFY_MM, ATTR: ATTR, isNatural: isNatural, isMechanical: isMechanical, depthOf: depthOf,
-    computeSpacings: computeSpacings, spacingStats: spacingStats, commonAttributes: commonAttributes,
-    makeGroup: makeGroup, detectCloselySpacedGroups: detectCloselySpacedGroups, rapidCreate: rapidCreate,
-    segmentPieces: segmentPieces, rqdFromPieces: rqdFromPieces, defectFrequency: defectFrequency,
-    copyAttributes: copyAttributes, outputModeA: outputModeA, outputModeB: outputModeB,
-    newBatch: newBatch, undoLast: undoLast, undoBatch: undoBatch
-  };
-});
-
-</script>
-<script id="v8-defect-glue">
-/* v8.1: Rapid multiple-defect + Defect Set RANGE logging for the Corebox (SUB-PROMPT 14/15/16).
-   Additive: reuses cb().defects + cbDepthAt/cbYAt. Adds a Multi mode, a 2-click RANGE selector that
-   creates a Defect Set (range + shared defaults), tags each placed defect with set_id (individual
-   depth records preserved — the set is only a grouping), a subtle interval band, grouped review with
-   per-defect override, spacing / closely-spaced groups / <100mm pieces, feeding the live TCR/RQD. */
-(function () {
-  "use strict";
-  var D = window.STSDefect, RP = window.STSRapidDefect; if (!D || !RP) return;
-  var CODE2TYPE = { J: "Joint", BP: "Bedding parting", VN: "Bedding parting", SM: "Sheared seam", CS: "Clay seam", MB: "Mechanical break", NB: "Natural break", CL: "Core loss" };
-  var TYPE2CODE = { "Joint": "J", "Bedding parting": "BP", "Sheared seam": "SM", "Clay seam": "CS", "Mechanical break": "MB", "Drilling break": "MB", "Natural break": "NB", "Core loss": "CL" };
-  var VOCAB = { code: ["BP", "J", "VN", "SM"], orientation: ["0°", "5°", "15°", "30°", "45°", "60°", "90°"], shape: ["PL", "CU", "UN", "ST", "IR"], roughness: ["VS", "SM", "SR", "RO", "VR"], aperture: ["Closed", "<0.1 mm", "0.1–1 mm", "1–5 mm", ">5 mm"], infill: ["Clean", "Clay", "CG", "Calcite", "Quartz", "Fe"] };
-  var MULTI = { on: false, tpl: { code: "BP", orientation: "0°", shape: "PL", roughness: "RO", aperture: "Closed", infill: "Clean" }, lastCount: 0 };
-  var rangeStep = 0, rangeStart = null, activeSetId = null, expanded = {};
-
-  function cbo() { try { return (typeof cb === "function") ? cb() : null; } catch (e) { return null; } }
-  function sets() { var c = cbo(); if (!c) return []; if (!c.defectSets) c.defectSets = []; return c.defectSets; }
-  function codeOf(d) { return d.defect_code || TYPE2CODE[d.type] || "J"; }
-  function members(setId) { var c = cbo(); return c ? c.defects.filter(function (d) { return d.set_id === setId; }) : []; }
-  function activeSet() { return sets().filter(function (s) { return s.set_id === activeSetId; })[0] || null; }
-  function newSet(code, a, b) {
-    var same = sets().filter(function (s) { return s.set_type === code; }).length;
-    return { set_id: code + "-SET-" + String(same + 1).padStart(2, "0"), set_type: code, range_from: Math.min(a, b), range_to: Math.max(a, b), defaults: Object.assign({}, MULTI.tpl), created_at: new Date().toISOString() };
-  }
-  function rapidView() { var c = cbo(); if (!c) return []; return c.defects.map(function (d, i) { return { defect_id: d.defect_id || (codeOf(d) + (i + 1)), defect_code: codeOf(d), depth_from: d.depth, depth: d.depth, break_class: (d.type === "Mechanical break" || d.type === "Drilling break") ? "mechanical" : undefined }; }); }
-  function coringRun() { var c = cbo(); var t = c && parseFloat(c.topD), b = c && parseFloat(c.botD); if (isNaN(t) || isNaN(b) || b <= t) return null; return { run_id: "CB", from: t, to: b }; }
-
-  /* ---- overlays: subtle interval bands (do not obscure the photo) ---- */
-  function drawBands() {
-    var inner = document.getElementById("cbInner"); if (!inner) return;
-    inner.querySelectorAll(".cb-setband").forEach(function (x) { x.remove(); });
-    if (typeof cbYAt !== "function") return;
-    sets().forEach(function (s) {
-      var y1 = cbYAt(s.range_from), y2 = cbYAt(s.range_to); if (y1 == null || y2 == null) return;
-      var d = document.createElement("div"); d.className = "cb-setband";
-      var active = s.set_id === activeSetId;
-      d.style.cssText = "position:absolute;left:0;right:0;top:" + Math.min(y1, y2) + "px;height:" + Math.abs(y2 - y1) + "px;background:" + (active ? "rgba(20,116,71,.18)" : "rgba(0,224,255,.08)") + ";border-top:1px solid " + (active ? "#147447" : "#00e0ff") + ";border-bottom:1px solid " + (active ? "#147447" : "#00e0ff") + ";pointer-events:none;z-index:1";
-      d.innerHTML = '<span style="position:absolute;left:4px;top:2px;font-size:' + (10) + 'px;color:' + (active ? "#0b3a28" : "#0b5") + ';background:rgba(255,255,255,.75);padding:0 4px;border-radius:3px">' + s.set_id + ' · ' + s.range_from.toFixed(2) + '–' + s.range_to.toFixed(2) + ' m</span>';
-      inner.appendChild(d);
-    });
-  }
-
-  /* ---- range pick (2 clicks) via capture listener so it doesn't add a defect ---- */
-  function onCapture(e) {
-    if (rangeStep === 0) return;
-    e.stopPropagation(); e.preventDefault();
-    var stage = document.getElementById("cbStage"); var rect = stage.getBoundingClientRect();
-    var y = (e.clientY - rect.top - (typeof cbPanY !== "undefined" ? cbPanY : 0)) / (typeof cbZoom !== "undefined" ? cbZoom : 1);
-    var depth = cbDepthAt(y);
-    if (depth == null) { if (typeof setStatus === "function") setStatus("Calibrate top/bottom depths first"); rangeStep = 0; renderPanel(); return; }
-    depth = Math.round(depth * 100) / 100;
-    if (rangeStep === 1) { rangeStart = depth; rangeStep = 2; renderPanel(); }
-    else { var s = newSet(MULTI.tpl.code, rangeStart, depth); sets().push(s); activeSetId = s.set_id; rangeStep = 0; if (typeof save === "function") save(); drawBands(); renderPanel(); }
-  }
-
-  /* ---- enrich each placed defect with the template + active set ---- */
-  function onStageClick() {
-    if (!MULTI.on || rangeStep !== 0) return;
-    var c = cbo(); if (!c) return;
-    if (c.defects.length > MULTI.lastCount) {
-      var d = c.defects[c.defects.length - 1];
-      d.orientation = MULTI.tpl.orientation; d.angle = parseFloat(MULTI.tpl.orientation) || 0;
-      d.shape = MULTI.tpl.shape; d.roughness = MULTI.tpl.roughness; d.aperture = MULTI.tpl.aperture; d.infill = MULTI.tpl.infill; d.defect_code = MULTI.tpl.code;
-      var s = activeSet();
-      if (s && d.depth >= s.range_from - 1e-9 && d.depth <= s.range_to + 1e-9) d.set_id = s.set_id;
-      if (typeof save === "function") save();
-    }
-    MULTI.lastCount = c.defects.length; drawBands(); renderPanel();
-  }
-
-  function chips(field) { return '<div style="display:flex;flex-wrap:wrap;gap:4px;margin:2px 0">' + VOCAB[field].map(function (o) { var on = MULTI.tpl[field] === o; return '<button class="btn' + (on ? " primary" : "") + '" data-mf="' + field + '" data-mv="' + o + '" style="height:26px;min-width:40px;font-size:11px;padding:0 8px">' + o + '</button>'; }).join("") + '</div>'; }
-
-  function panelHTML() {
-    var t = MULTI.tpl, v = rapidView(), run = coringRun();
-    var out = '<div style="background:#0D523E;color:#fff;border-radius:6px;padding:7px 10px;font-size:12.5px;margin:6px 0"><b>DEFECT-SET DEFAULTS:</b> ' + t.code + ' | ' + t.orientation + ' | ' + t.shape + ' | ' + t.roughness + ' | ' + t.aperture + ' | ' + t.infill + '</div>';
-    out += '<div style="font-size:11px;color:#5b6b62;text-transform:uppercase;margin:6px 0 2px">Set defaults once</div>';
-    ["code", "orientation", "shape", "roughness", "aperture", "infill"].forEach(function (f) { out += chips(f); });
-    // range control
-    if (rangeStep === 1) out += '<div style="background:#fff7e6;border:1px solid #f0d48a;border-radius:6px;padding:7px 9px;font-size:12.5px;margin:8px 0">▸ Click the <b>START</b> depth of the ' + t.code + ' interval on the core…</div>';
-    else if (rangeStep === 2) out += '<div style="background:#fff7e6;border:1px solid #f0d48a;border-radius:6px;padding:7px 9px;font-size:12.5px;margin:8px 0">▸ Start = <b>' + rangeStart.toFixed(2) + ' m</b>. Now click the <b>END</b> depth…</div>';
-    else { var as = activeSet(); out += '<div style="margin:8px 0"><button class="btn primary" id="setRange">◧ New ' + t.code + ' set (click start + end)</button>' + (as ? ' <span style="font-size:12.5px;margin-left:6px">Active: <b>' + as.set_id + '</b> · ' + as.range_from.toFixed(2) + '–' + as.range_to.toFixed(2) + ' m — click defects inside</span>' : '') + '</div>'; }
-    // grouped review (SUB-PROMPT 16 §9)
-    if (sets().length) {
-      out += '<div style="font-size:11px;color:#5b6b62;text-transform:uppercase;margin:10px 0 4px">Defect sets (review)</div>';
-      sets().forEach(function (s) {
-        var mem = members(s.set_id).sort(function (a, b) { return a.depth - b.depth; });
-        var d = s.defaults;
-        out += '<div style="border:1px solid #cdd8d1;border-radius:6px;padding:7px 9px;margin:5px 0;font-size:12.5px">'
-          + '<div style="cursor:pointer" data-exp="' + s.set_id + '"><b>' + s.range_from.toFixed(2) + '–' + s.range_to.toFixed(2) + ' m</b> · ' + s.set_type + ' Set · ' + mem.length + ' defects &nbsp;<span style="color:#5b6b62">Default: ' + d.orientation + ' · ' + d.shape + ' · ' + d.roughness + ' · ' + d.aperture + ' · ' + d.infill + '</span> ' + (activeSetId === s.set_id ? '<span class="btn primary" style="height:18px;font-size:10px;padding:0 6px">active</span>' : '<button class="btn" data-act="' + s.set_id + '" style="height:20px;font-size:10px;padding:0 6px">make active</button>') + ' <span style="float:right">' + (expanded[s.set_id] ? "▾" : "▸") + '</span></div>';
-        if (expanded[s.set_id]) out += '<table style="width:100%;border-collapse:collapse;font-size:11.5px;margin-top:5px"><tr style="color:#5b6b62"><th style="text-align:left">Defect</th><th>Depth</th><th>Orient</th><th>Shape</th><th>Rough</th></tr>' + mem.map(function (m2, i) {
-          return '<tr><td>' + s.set_type + '-' + String(i + 1).padStart(2, "0") + '</td><td>' + m2.depth.toFixed(3) + ' m</td><td><input data-ov="' + s.set_id + '|' + i + '|orientation" value="' + (m2.orientation || "") + '" style="width:46px"></td><td><input data-ov="' + s.set_id + '|' + i + '|shape" value="' + (m2.shape || "") + '" style="width:40px"></td><td><input data-ov="' + s.set_id + '|' + i + '|roughness" value="' + (m2.roughness || "") + '" style="width:40px"></td></tr>';
-        }).join("") + '</table>';
-        out += '</div>';
-      });
-    }
-    if (run) {
-      var groups = RP.detectCloselySpacedGroups(v), freq = RP.defectFrequency(v, run);
-      var under = RP.segmentPieces(v, run).filter(function (p) { return p.length_mm < 100; });
-      out += '<div style="margin-top:8px;font-size:12.5px">Natural defects in run: <b>' + freq.natural_count + '</b>' + (freq.spacing_min != null ? ' · spacing ' + freq.spacing_min + '–' + freq.spacing_max + ' mm' : '') + '</div>';
-      if (groups.length) out += '<div style="background:#fff7e6;border:1px solid #f0d48a;border-radius:6px;padding:6px 9px;font-size:12px;margin:4px 0">⚠ Closely-spaced group(s) — kept individual, NOT auto-classified as FZ (engineer decides).</div>';
-      if (under.length) out += '<div style="background:#fff7e6;border:1px solid #f0d48a;border-radius:6px;padding:6px 9px;font-size:12px;margin:4px 0">' + under.length + ' core piece(s) &lt;100 mm — excluded from RQD qualifying, retained in TCR.</div>';
-    }
-    return out;
-  }
-
-  function renderPanel() { var p = document.getElementById("cbMultiPanel"); if (!p) return; p.style.display = MULTI.on ? "" : "none"; if (!MULTI.on) return; p.innerHTML = panelHTML(); wire(p); }
-  function wire(p) {
-    p.querySelectorAll("[data-mf]").forEach(function (b) { b.onclick = function () { MULTI.tpl[b.dataset.mf] = b.dataset.mv; if (b.dataset.mf === "code") { try { cbDefType = CODE2TYPE[MULTI.tpl.code] || "Bedding parting"; var sel = document.getElementById("cbDefType"); if (sel) sel.value = cbDefType; } catch (e) { } } renderPanel(); }; });
-    var sr = p.querySelector("#setRange"); if (sr) sr.onclick = function () { rangeStep = 1; renderPanel(); };
-    p.querySelectorAll("[data-exp]").forEach(function (el) { el.onclick = function (e) { if (e.target.dataset.act || e.target.dataset.ov) return; expanded[el.dataset.exp] = !expanded[el.dataset.exp]; renderPanel(); }; });
-    p.querySelectorAll("[data-act]").forEach(function (b) { b.onclick = function (e) { e.stopPropagation(); activeSetId = b.dataset.act; drawBands(); renderPanel(); }; });
-    p.querySelectorAll("[data-ov]").forEach(function (inp) { inp.onchange = function () { var parts = inp.dataset.ov.split("|"); var mem = members(parts[0]).sort(function (a, b) { return a.depth - b.depth; }); var d = mem[+parts[1]]; if (d) { d[parts[2]] = inp.value; if (parts[2] === "orientation") d.angle = parseFloat(inp.value) || 0; if (typeof save === "function") save(); } }; });
-  }
-
-  function inject() {
-    var page = document.getElementById("page-corebox"); if (!page) return;
-    var c = cbo(); MULTI.lastCount = c ? c.defects.length : 0;
-    var tb = page.querySelector(".toolbar");
-    if (tb && !document.getElementById("cbMulti")) { var b = document.createElement("button"); b.className = "btn"; b.id = "cbMulti"; b.textContent = "▦ Multi / Set (M)"; b.onclick = toggle; tb.appendChild(b); }
-    if (!document.getElementById("cbMultiPanel")) { var d = document.createElement("div"); d.id = "cbMultiPanel"; d.style.cssText = "display:none;padding:0 10px 10px"; var list = document.getElementById("cbDefList"); if (list && list.parentNode) list.parentNode.insertBefore(d, list); else page.querySelector(".panel").appendChild(d); }
-    var stage = document.getElementById("cbStage");
-    if (stage && !stage._v8) { stage._v8 = true; stage.addEventListener("click", onStageClick); stage.addEventListener("click", onCapture, true); }
-    drawBands(); renderPanel();
-  }
-  function toggle() { MULTI.on = !MULTI.on; rangeStep = 0; var b = document.getElementById("cbMulti"); if (b) b.classList.toggle("primary", MULTI.on); if (MULTI.on) { try { cbMode = "defect"; cbDefType = CODE2TYPE[MULTI.tpl.code] || "Bedding parting"; } catch (e) { } } renderPanel(); }
-
-  document.addEventListener("keydown", function (e) {
-    if (e.target.tagName === "INPUT" || e.target.tagName === "SELECT" || e.target.tagName === "TEXTAREA") return;
-    var p = document.getElementById("page-corebox"); if (!p || !p.classList.contains("show")) return;
-    if (e.key === "m" || e.key === "M") { e.preventDefault(); toggle(); }
-    else if (e.key === "Escape" && rangeStep) { rangeStep = 0; renderPanel(); }
+/* ---------- STEP RENDERERS ---------- */
+function renderScope(){
+  const host=$id("page-scope"); if (!host) return;
+  const sc=SC();
+  const steps=["Upload Proposal","Extract Scope","Review & Confirm","Field Plan"];
+  host.innerHTML = `<h2 style="font-size:19px;margin:2px 0 10px">Proposal → Scope of Works</h2>
+    <div class="sc-step">${steps.map((s,i)=>`<div class="st ${sc.step===i+1?"on":(sc.step>i+1?"done":"")}" data-scstep="${i+1}">${i+1}. ${s}</div>`).join("")}</div>
+    <div id="scBody"></div>`;
+  host.querySelectorAll("[data-scstep]").forEach(b=>b.addEventListener("click",()=>{ sc.step=+b.dataset.scstep; scSave(); renderScope(); }));
+  const body=$id("scBody");
+  if (sc.step===1) renderScUpload(body);
+  else if (sc.step===2) renderScExtract(body);
+  else if (sc.step===3) renderScReview(body);
+  else renderScPlan(body);
+}
+function renderScUpload(el){
+  const sc=SC(); const p=S.project||{};
+  sc.meta = Object.assign({ projectNumber:p.projectNumber||"", jobNumber:p.jobNumber||"", client:p.clientName||"",
+    site:p.siteAddress||"", proposalDate:"", pm:p.projectManager||p.pm||"", loggedBy:p.loggedBy||"", dueDate:"", notes:"" }, sc.meta);
+  el.innerHTML = `<div class="sc-card">
+    <h3>Upload proposal documents</h3>
+    <div class="sc-drop" id="scDrop">📄 Tap to select or drop files here<br><small>PDF · Word · scanned image · email attachment · multiple files supported</small>
+      <input type="file" id="scFile" multiple accept=".pdf,.doc,.docx,.png,.jpg,.jpeg,.txt,.eml" style="display:none"></div>
+    ${sc.docs.length?`<div style="margin-top:10px">${sc.docs.map(d=>`<div style="font-size:13px;padding:5px 2px">📎 <b>${scEsc(d.name)}</b> — ${d.pages.length} page(s), ${d.pages.reduce((a,p2)=>a+p2.text.length,0)} chars of text
+      <button class="sc-ico" data-scdocdel="${d.id}" title="Remove">🗑</button></div>`).join("")}</div>`:""}
+    <details style="margin-top:10px"><summary style="cursor:pointer;font-size:12.5px;color:#1d4ed8">Paste proposal text instead (for emails / scans)</summary>
+      <textarea id="scPaste" style="width:100%;min-height:110px;margin-top:8px;border:1px solid #ccd5e3;border-radius:8px;padding:10px;font-size:13px" placeholder="Paste the scope section of the proposal or email here…"></textarea>
+      <button class="sc-btn" id="scPasteAdd" style="margin-top:6px">Add pasted text</button></details>
+  </div>
+  <div class="sc-card"><h3>Project details</h3><div class="sc-grid2">
+    ${[["projectNumber","Project number"],["jobNumber","STS job number"],["client","Client"],["site","Site address"],
+       ["proposalDate","Proposal date"],["pm","Project manager"],["loggedBy","Logged by"],["dueDate","Due date"],["notes","Notes"]]
+      .map(([k,l])=>`<div><label>${l}</label><input data-scm="${k}" ${/date/i.test(k)?'type="date"':""} value="${scEsc(sc.meta[k])}"></div>`).join("")}
+  </div></div>
+  <div style="display:flex;gap:8px;flex-wrap:wrap">
+    <button class="sc-btn pri" id="scToExtract" ${sc.docs.length?"":"disabled"}>Extract Scope →</button>
+    <button class="sc-btn" id="scNewProp">Upload New Proposal (reset)</button>
+  </div>`;
+  const drop=$id("scDrop"), fi=$id("scFile");
+  drop.addEventListener("click",()=>fi.click());
+  drop.addEventListener("dragover",e=>{e.preventDefault();});
+  drop.addEventListener("drop",e=>{e.preventDefault(); handleScopeFiles([...e.dataTransfer.files]);});
+  fi.addEventListener("change",()=>handleScopeFiles([...fi.files]));
+  el.querySelectorAll("[data-scm]").forEach(i=>i.addEventListener("input",()=>{ sc.meta[i.dataset.scm]=i.value; scSave(); }));
+  el.querySelectorAll("[data-scdocdel]").forEach(b=>b.addEventListener("click",()=>{ sc.docs=sc.docs.filter(d=>d.id!==b.dataset.scdocdel); scSave(); renderScope(); }));
+  $id("scPasteAdd").addEventListener("click",()=>{ const t=$id("scPaste").value.trim(); if(!t) return;
+    sc.docs.push({ id:Math.random().toString(36).slice(2,9), name:"Pasted text", kind:"txt", pages:[{n:1,text:t}] }); scSave(); renderScope(); });
+  $id("scToExtract").addEventListener("click",()=>{ sc.step=2; scSave(); renderScope(); });
+  $id("scNewProp").addEventListener("click",()=>{ if(!confirm("Clear proposal documents and extracted scope?"))return;
+    S.scope=null; scSave(); renderScope(); });
+}
+function renderScExtract(el){
+  const sc=SC();
+  el.innerHTML=`<div class="sc-card"><h3>Scope extraction</h3>
+    <div style="font-size:13px;color:#5a6675">Rule engine scans every page for drilling, in-situ testing, sampling, laboratory, groundwater, environmental, reporting and QA scope items. Each hit records its source page, text and a confidence score.</div>
+    <div style="margin-top:12px;display:flex;gap:8px;flex-wrap:wrap">
+      <button class="sc-btn pri" id="scRunEx">${sc.items.length?"Re-extract (replaces items)":"Extract Scope"}</button>
+      ${sc.items.length?`<button class="sc-btn" id="scKeep">Keep existing ${sc.items.length} items →</button>`:""}
+    </div><div id="scExOut" style="margin-top:10px"></div></div>`;
+  $id("scRunEx").addEventListener("click",()=>{
+    sc.items = extractScope(); scSave();
+    const byCat={}; sc.items.forEach(i=>byCat[i.cat]=(byCat[i.cat]||0)+1);
+    $id("scExOut").innerHTML = sc.items.length?
+      `<div class="sc-ok">✓ ${sc.items.length} scope items extracted</div>`+
+      Object.entries(byCat).map(([c,n])=>`<span style="font-size:12px;margin-right:12px"><i class="sc-cat" style="background:${CATS[c].col}"></i>${CATS[c].label}: <b>${n}</b></span>`).join("")+
+      `<div style="margin-top:12px"><button class="sc-btn pri" id="scToRev">Review & Confirm →</button></div>`
+      : `<div class="sc-warn">No scope items found — the document may be scanned (no text). Paste the text on step 1 or add items manually in Review.</div>
+         <div style="margin-top:12px"><button class="sc-btn" id="scToRev">Go to Review (add manually) →</button></div>`;
+    $id("scToRev").addEventListener("click",()=>{ sc.step=3; scSave(); renderScope(); });
   });
-  if (typeof renderCorebox !== "undefined") { var _r = renderCorebox; renderCorebox = function () { _r.apply(this, arguments); try{inject();}catch(e){} }; }
-  document.addEventListener("DOMContentLoaded", function(){try{inject();}catch(e){}}); try{inject();}catch(e){}
+  const k=$id("scKeep"); if (k) k.addEventListener("click",()=>{ sc.step=3; scSave(); renderScope(); });
+}
+
+/* ---------- review: split view ---------- */
+let scFilter="all", scMobPane="items", scPvDoc=0, scPvPage=1, scPvZoom=1.1;
+function renderScReview(el){
+  const sc=SC();
+  const items=sc.items.filter(i=>scFilter==="all"||i.cat===scFilter);
+  el.innerHTML=`
+  <div class="sc-pane-tabs">
+    <button class="${scMobPane==="doc"?"on":""}" data-mp="doc">Document</button>
+    <button class="${scMobPane==="items"?"on":""}" data-mp="items">Extracted items</button>
+    <button class="${scMobPane==="sum"?"on":""}" data-mp="sum">Summary</button>
+  </div>
+  <div class="sc-split">
+    <div class="sc-pane ${scMobPane==="doc"?"mob-on":""}">
+      <div class="sc-prev">
+        <div class="bar">
+          <select id="scPvSel" style="max-width:170px">${sc.docs.map((d,i)=>`<option value="${i}" ${i===scPvDoc?"selected":""}>${scEsc(d.name)}</option>`).join("")}</select>
+          <button class="sc-btn" id="pvPrev" style="min-height:30px;padding:0 9px">‹</button>
+          <span id="pvPg" style="font-size:12px">p.${scPvPage}</span>
+          <button class="sc-btn" id="pvNext" style="min-height:30px;padding:0 9px">›</button>
+          <button class="sc-btn" id="pvZi" style="min-height:30px;padding:0 9px">＋</button>
+          <button class="sc-btn" id="pvZo" style="min-height:30px;padding:0 9px">－</button>
+          <input id="pvFind" placeholder="find text…" style="border:1px solid #ccd5e3;border-radius:6px;padding:4px 8px;font-size:12px;width:110px">
+        </div>
+        <div class="doc" id="pvDoc"></div>
+        <div class="sc-legend">${Object.values(CATS).map(c=>`<span><i style="background:${c.col}"></i>${c.label}</span>`).join("")}</div>
+      </div>
+    </div>
+    <div class="sc-pane ${scMobPane!=="doc"?"mob-on":""}">
+      ${scMobPane==="sum"? scSummaryCard() : `
+      <div class="sc-card" style="padding:12px">
+        <div class="sc-filters">
+          <button class="fc ${scFilter==="all"?"on":""}" data-fc="all">All (${sc.items.length})</button>
+          ${Object.entries(CATS).map(([k,c])=>{ const n=sc.items.filter(i=>i.cat===k).length; return n?`<button class="fc ${scFilter===k?"on":""}" data-fc="${k}"><i class="sc-cat" style="background:${c.col}"></i>${c.label} (${n})</button>`:""; }).join("")}
+        </div>
+        <div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:8px">
+          <button class="sc-btn" id="scAdd">＋ Add Scope Item</button>
+          <button class="sc-btn" id="scReEx">Re-extract</button>
+          <button class="sc-btn" id="scAccAll">Approve all high-confidence</button>
+        </div>
+        <div style="overflow:auto"><table class="sc-tbl"><thead><tr>
+          <th></th><th>Item</th><th>Details</th><th>Qty</th><th>Unit</th><th>Pg</th><th>Conf</th><th>Status</th><th></th></tr></thead><tbody>
+        ${items.map(it=>`<tr>
+          <td><i class="sc-cat" style="background:${CATS[it.cat].col}" title="${CATS[it.cat].label}"></i></td>
+          <td style="font-weight:600">${scEsc(it.name)}${it.comment?`<div style="font-weight:400;font-size:11px;color:#5a6675">💬 ${scEsc(it.comment)}</div>`:""}${it.link?`<div style="font-weight:400;font-size:11px;color:#1d4ed8">🔗 ${scEsc(it.link)}</div>`:""}</td>
+          <td style="max-width:230px">${scEsc(it.details)}</td>
+          <td>${it.qty??"—"}</td><td>${scEsc(it.unit||"")}</td>
+          <td><a href="#" data-scpg="${it.page}" data-scdoc="${scEsc(it.doc||"")}" style="color:#1d4ed8">${it.page||"—"}</a></td>
+          <td><span class="sc-conf ${confCls(it.conf)}">${Math.round(it.conf*100)}%</span></td>
+          <td><span class="sc-st ${it.status}" data-scst="${it.id}">${({acc:"Accepted",rev:"Needs review",rej:"Rejected"})[it.status]}</span></td>
+          <td style="white-space:nowrap">
+            <button class="sc-ico" data-scedit="${it.id}" title="Edit">✎</button>
+            <button class="sc-ico" data-scsplit="${it.id}" title="Split into two items">⑂</button>
+            <button class="sc-ico" data-scdel="${it.id}" title="Delete">🗑</button></td>
+        </tr>`).join("")||`<tr><td colspan="9" style="color:#5a6675;padding:16px">No items — extract on step 2 or add manually.</td></tr>`}
+        </tbody></table></div>
+      </div>
+      ${scQaCard()}
+      <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:4px">
+        <button class="sc-btn pri" id="scApprove">Approve Scope → Generate Field Plan</button>
+        <button class="sc-btn" id="scExport">Export Scope Summary</button>
+      </div>`}
+    </div>
+  </div>`;
+  wireScReview(el);
+  renderScPreview();
+}
+function scQa(){
+  const sc=SC(); const acc=sc.items.filter(i=>i.status!=="rej"); const has=n=>acc.some(i=>i.name===n);
+  const bhIt=acc.find(i=>i.name==="Boreholes"); const w=[];
+  if (!bhIt||!bhIt.qty) w.push("Borehole quantity missing or unclear.");
+  if (bhIt && !(bhIt.extra&&bhIt.extra.depth)) w.push("Borehole depth missing.");
+  const labs=acc.filter(i=>i.cat==="lab");
+  if (labs.length && !acc.some(i=>i.cat==="sampling")) w.push("Lab tests mentioned but samples not specified.");
+  if (has("Groundwater observations") && !acc.some(i=>i.name==="Groundwater observations" && i.status==="acc")) w.push("Groundwater required but reading task not yet accepted.");
+  if (has("CBR") && !has("Bulk / CBR samples")) w.push("CBR required but no bulk sample / depth entered.");
+  if (has("Shrink-swell") && !acc.some(i=>i.cat==="sampling" && /U50|undisturbed/i.test(i.name))) w.push("Shrink-swell required but no undisturbed sample depth entered.");
+  if (acc.some(i=>i.cat==="env" && i.name==="Environmental samples") && !acc.some(i=>/analyte|schedule/i.test(i.details))) w.push("Environmental sampling mentioned but no analyte schedule.");
+  if (has("Report") && !SC().meta.reportTemplate) w.push("Report required but no report template selected (set on Field Plan step).");
+  if (has("Unclear locations")) w.push('Proposal says "selected locations" — quantity/positions unclear.');
+  return w;
+}
+function scQaCard(){
+  const w=scQa();
+  return `<div class="sc-card" style="padding:12px"><h3>QA checks</h3>
+    ${w.length? w.map(x=>`<div class="sc-warn">⚠ ${scEsc(x)}</div>`).join("") : '<div class="sc-ok">✓ No scope QA warnings</div>'}</div>`;
+}
+function scSummaryCard(){
+  const sc=SC(); const acc=sc.items.filter(i=>i.status==="acc");
+  return `<div class="sc-card"><h3>Scope summary</h3>
+    <div style="font-size:13px">${acc.length} accepted · ${sc.items.filter(i=>i.status==="rev").length} need review · ${sc.items.filter(i=>i.status==="rej").length} rejected</div>
+    ${Object.entries(CATS).map(([k,c])=>{ const n=acc.filter(i=>i.cat===k); return n.length?`<div style="margin-top:8px"><b style="font-size:12.5px"><i class="sc-cat" style="background:${c.col}"></i>${c.label}</b>${n.map(i=>`<div style="font-size:12px;color:#3c4656;padding:2px 0 2px 16px">• ${scEsc(i.name)}${i.qty?` × ${i.qty}`:""} — ${scEsc(i.details)}</div>`).join("")}</div>`:""; }).join("")}
+  </div>${scQaCard()}`;
+}
+function wireScReview(el){
+  const sc=SC();
+  el.querySelectorAll("[data-mp]").forEach(b=>b.addEventListener("click",()=>{ scMobPane=b.dataset.mp; renderScope(); }));
+  el.querySelectorAll("[data-fc]").forEach(b=>b.addEventListener("click",()=>{ scFilter=b.dataset.fc; renderScope(); }));
+  el.querySelectorAll("[data-scst]").forEach(b=>b.addEventListener("click",()=>{
+    const it=sc.items.find(x=>x.id===b.dataset.scst);
+    it.status = it.status==="acc"?"rev":it.status==="rev"?"rej":"acc"; scSave(); renderScope(); }));
+  el.querySelectorAll("[data-scdel]").forEach(b=>b.addEventListener("click",()=>{ sc.items=sc.items.filter(x=>x.id!==b.dataset.scdel); scSave(); renderScope(); }));
+  el.querySelectorAll("[data-scedit]").forEach(b=>b.addEventListener("click",()=>{
+    const it=sc.items.find(x=>x.id===b.dataset.scedit);
+    const d=prompt("Details:", it.details); if (d===null) return; it.details=d;
+    const q=prompt("Quantity (blank = n/a):", it.qty??""); if (q!==null) it.qty=q===""?null:parseFloat(q);
+    const u=prompt("Unit:", it.unit||""); if (u!==null) it.unit=u;
+    const c=prompt("Comment:", it.comment||""); if (c!==null) it.comment=c;
+    const lk=prompt("Link to (borehole / sample / test / report section):", it.link||""); if (lk!==null) it.link=lk;
+    if (it.name==="Boreholes"){ const dep=prompt("Target borehole depth (m):", it.extra?.depth??"");
+      if (dep!==null){ it.extra=it.extra||{}; it.extra.depth=parseFloat(dep)||null; } }
+    scSave(); renderScope(); }));
+  el.querySelectorAll("[data-scsplit]").forEach(b=>b.addEventListener("click",()=>{
+    const it=sc.items.find(x=>x.id===b.dataset.scsplit);
+    const copy=JSON.parse(JSON.stringify(it)); copy.id=Math.random().toString(36).slice(2,9);
+    copy.details=prompt("Details for the split-off item:", it.details)||it.details;
+    sc.items.splice(sc.items.indexOf(it)+1,0,copy); scSave(); renderScope(); }));
+  el.querySelectorAll("[data-scpg]").forEach(a=>a.addEventListener("click",e=>{
+    e.preventDefault(); scPvPage=+a.dataset.scpg||1;
+    const di=sc.docs.findIndex(d=>d.name===a.dataset.scdoc); if (di>=0) scPvDoc=di;
+    scMobPane="doc"; renderScope(); }));
+  const addB=el.querySelector("#scAdd");
+  if (addB) addB.addEventListener("click",()=>{
+    const name=prompt("Scope item name:"); if (!name) return;
+    const cat=prompt("Category — one of: drilling, insitu, sampling, gw, lab, reporting, env, qa, missing", "sampling");
+    sc.items.push({ id:Math.random().toString(36).slice(2,9), cat:CATS[cat]?cat:"qa", name, details:prompt("Details:")||"",
+      qty:parseFloat(prompt("Quantity:")||"")||null, unit:prompt("Unit:","No.")||"", page:null, doc:"manual",
+      snippet:"", conf:1, status:"acc", comment:"", link:"" });
+    scSave(); renderScope(); });
+  const rex=el.querySelector("#scReEx"); if (rex) rex.addEventListener("click",()=>{ sc.step=2; scSave(); renderScope(); });
+  const aa=el.querySelector("#scAccAll"); if (aa) aa.addEventListener("click",()=>{ sc.items.forEach(i=>{ if (i.conf>=0.8 && i.status==="rev") i.status="acc"; }); scSave(); renderScope(); });
+  const ap=el.querySelector("#scApprove"); if (ap) ap.addEventListener("click",()=>{ sc.step=4; scSave(); renderScope(); });
+  const ex=el.querySelector("#scExport"); if (ex) ex.addEventListener("click",exportScopeSummary);
+  const sel=el.querySelector("#scPvSel"); if (sel) sel.addEventListener("change",()=>{ scPvDoc=+sel.value; scPvPage=1; renderScPreview(); });
+  const pp=el.querySelector("#pvPrev"); if (pp) pp.addEventListener("click",()=>{ scPvPage=Math.max(1,scPvPage-1); renderScPreview(); });
+  const pn=el.querySelector("#pvNext"); if (pn) pn.addEventListener("click",()=>{ scPvPage++; renderScPreview(); });
+  const zi=el.querySelector("#pvZi"); if (zi) zi.addEventListener("click",()=>{ scPvZoom=Math.min(3,scPvZoom+0.25); renderScPreview(); });
+  const zo=el.querySelector("#pvZo"); if (zo) zo.addEventListener("click",()=>{ scPvZoom=Math.max(0.5,scPvZoom-0.25); renderScPreview(); });
+  const fd=el.querySelector("#pvFind"); if (fd) fd.addEventListener("change",()=>renderScPreview(fd.value));
+}
+async function renderScPreview(find){
+  const sc=SC(); const out=$id("pvDoc"); if (!out) return;
+  const doc=sc.docs[scPvDoc]; if (!doc){ out.innerHTML='<div style="color:#5a6675;font-size:13px;padding:20px">No documents.</div>'; return; }
+  scPvPage=Math.min(scPvPage, doc.pages.length||1);
+  const pgEl=$id("pvPg"); if (pgEl) pgEl.textContent=`p.${scPvPage}/${doc.pages.length}`;
+  const mem=window._scopeMem[doc.id];
+  if (doc.kind==="pdf" && mem){
+    out.innerHTML=""; const page=await mem.getPage(scPvPage);
+    const vp=page.getViewport({scale:scPvZoom});
+    const cv=document.createElement("canvas"); cv.width=vp.width; cv.height=vp.height; out.appendChild(cv);
+    await page.render({canvasContext:cv.getContext("2d"), viewport:vp}).promise;
+    highlightText(out, doc, find); return;
+  }
+  if (doc.kind==="image" && mem){ out.innerHTML=`<img src="${mem}" style="max-width:100%;transform:scale(${scPvZoom});transform-origin:top left">`; return; }
+  /* text preview with category highlights */
+  highlightText(out, doc, find, true);
+}
+function highlightText(out, doc, find, replace){
+  const sc=SC(); const pg=doc.pages[scPvPage-1]; if (!pg) return;
+  let html=scEsc(pg.text||"(no text on this page — original file preview available in the session it was uploaded)");
+  const marks=sc.items.filter(i=>i.doc===doc.name && i.page===pg.n && i.snippet);
+  for (const it of marks){
+    const frag=scEsc(it.snippet.slice(0,80));
+    if (frag.length>15) html=html.replace(frag, `<mark style="background:${CATS[it.cat].col}33;border-bottom:2px solid ${CATS[it.cat].col}">${frag}</mark>`);
+  }
+  if (find) html=html.replace(new RegExp(scEsc(find).replace(/[.*+?^${}()|[\]\\]/g,"\\$&"),"gi"), m=>`<mark style="background:#ffe58a">${m}</mark>`);
+  const box=`<div class="sc-txt" style="font-size:${12.5*scPvZoom/1.1}px">${html}</div>`;
+  if (replace) out.innerHTML=box; else out.insertAdjacentHTML("beforeend", `<div style="font-size:11px;color:#5a6675;margin:4px 0 2px">Extracted text (highlights):</div>`+box);
+}
+
+/* ---------- field plan ---------- */
+function genPlan(){
+  const sc=SC(); const acc=sc.items.filter(i=>i.status==="acc");
+  const bhIt=acc.find(i=>i.name==="Boreholes");
+  const n=bhIt?.qty||0; const depth=bhIt?.extra?.depth||null; const refusal=!!bhIt?.extra?.refusal;
+  const sptIt=acc.find(i=>i.name==="SPT");
+  const iv=parseFloat(sc.sptRule)||sptIt?.extra?.interval||1.5;
+  const bhs=[]; for (let i=1;i<=n;i++) bhs.push({ id:"BH"+String(i).padStart(2,"0"), depth, refusal });
+  const spt = sptIt? bhs.map(b=>({ bh:b.id, tests: depth? Math.max(1,Math.floor(depth/iv)) : "?", interval:iv })) : [];
+  const gw = acc.some(i=>i.cat==="gw")? bhs.map(b=>({ bh:b.id, task:"Record groundwater (strike / standing / GWNE)" })) : [];
+  const sampleCats=acc.filter(i=>i.cat==="sampling");
+  const labs=acc.filter(i=>i.cat==="lab").map(l=>({ test:l.name, qty:l.qty||n||1, note:l.details }));
+  const dcp=acc.find(i=>i.name==="DCP tests");
+  const totalSpt = spt.reduce((a,s)=>a+(typeof s.tests==="number"?s.tests:0),0);
+  const fieldDays = Math.max(1, Math.ceil((n*(depth||6))/25));
+  const reports=acc.filter(i=>i.cat==="reporting");
+  const checklist=[ "Dial-before-you-dig clearance", "Site access / induction confirmed", "Rig + drilling contractor booked",
+    "Sample containers and labels packed", "SPT hammer calibration current", "Camera / tablet charged (GeoFlow field app)",
+    ...(gw.length?["Water level dipper packed"]:[]), ...(dcp?["DCP kit packed"]:[]) ];
+  sc.plan = { bhs, spt, gw, samples:sampleCats.map(s2=>({ type:s2.name, note:s2.details, qty:s2.qty||null })),
+    labs, dcp: dcp?{qty:dcp.qty}:null, reports:reports.map(r=>r.details), checklist,
+    totals:{ bh:n, metres: depth? +(n*depth).toFixed(1):null, spt:totalSpt, dcp:dcp?.qty||0,
+      samples:sampleCats.reduce((a,s2)=>a+(s2.qty||0),0)||null, labs:labs.reduce((a,l)=>a+l.qty,0) },
+    fieldDays, qa:scQa(), created:new Date().toISOString() };
+  scSave();
+}
+function renderScPlan(el){
+  const sc=SC();
+  if (!sc.plan) genPlan();
+  const p=sc.plan; const t=p.totals;
+  const ready = Math.round(100*(1 - p.qa.length/9));
+  el.innerHTML=`
+  <div class="sc-card"><h3>Field plan summary</h3>
+    <div class="sc-kpi">
+      <div class="k"><b>${t.bh}</b><span>Boreholes</span></div>
+      <div class="k"><b>${t.metres??"?"}</b><span>Total metres</span></div>
+      <div class="k"><b>${t.spt}</b><span>SPT tests</span></div>
+      <div class="k"><b>${t.dcp}</b><span>DCP</span></div>
+      <div class="k"><b>${t.samples??"TBC"}</b><span>Samples</span></div>
+      <div class="k"><b>${t.labs}</b><span>Lab tests</span></div>
+      <div class="k"><b>${p.fieldDays}</b><span>Est. field days</span></div>
+    </div>
+    <div style="margin-top:10px;font-size:12.5px;color:#5a6675">Project readiness</div>
+    <div class="sc-ready"><i style="width:${ready}%"></i></div><div style="font-size:12px">${ready}% — ${p.qa.length} open QA item(s)</div>
+    <div class="sc-grid2" style="margin-top:10px">
+      <div><label>SPT rule (m intervals)</label><input id="scSptRule" value="${scEsc(sc.sptRule)}"></div>
+      <div><label>Report template</label><input id="scRepTpl" value="${scEsc(sc.meta.reportTemplate||"")}" placeholder="e.g. STS factual report"></div>
+      <div><label>Project status</label><select id="scStatus" style="width:100%;border:1px solid #ccd5e3;border-radius:8px;padding:8px">${PJ_STATUSES.map(s2=>`<option ${sc.status===s2?"selected":""}>${s2}</option>`).join("")}</select></div>
+    </div></div>
+  <div class="sc-split">
+    <div class="sc-pane mob-on">
+      <div class="sc-card"><h3>Borehole schedule</h3><table class="sc-tbl"><thead><tr><th>BH</th><th>Target depth</th><th>Refusal OK</th><th>SPT</th><th>GW</th></tr></thead><tbody>
+        ${p.bhs.map(b=>`<tr><td><b>${b.id}</b></td><td>${b.depth?b.depth.toFixed(1)+" m":"TBC"}</td><td>${b.refusal?"✓":"—"}</td>
+          <td>${(p.spt.find(s2=>s2.bh===b.id)?.tests)??"—"}</td><td>${p.gw.length?"✓":"—"}</td></tr>`).join("")||'<tr><td colspan="5">No boreholes in scope.</td></tr>'}
+      </tbody></table></div>
+      <div class="sc-card"><h3>Lab test register</h3><table class="sc-tbl"><thead><tr><th>Test</th><th>Qty</th><th>Note</th></tr></thead><tbody>
+        ${p.labs.map(l=>`<tr><td>${scEsc(l.test)}</td><td>${l.qty}</td><td>${scEsc(l.note)}</td></tr>`).join("")||'<tr><td colspan="3">None.</td></tr>'}
+      </tbody></table></div>
+    </div>
+    <div class="sc-pane mob-on">
+      <div class="sc-card"><h3>Sample schedule</h3>
+        ${p.samples.map(s2=>`<div style="font-size:12.5px;padding:3px 0">• ${scEsc(s2.type)}${s2.qty?` × ${s2.qty}`:""} — ${scEsc(s2.note)}</div>`).join("")||'<div style="font-size:12.5px;color:#5a6675">No sampling scope accepted.</div>'}</div>
+      <div class="sc-card"><h3>Groundwater checklist</h3>
+        ${p.gw.map(g=>`<div style="font-size:12.5px;padding:3px 0">☐ ${g.bh}: ${scEsc(g.task)}</div>`).join("")||'<div style="font-size:12.5px;color:#5a6675">Not in scope.</div>'}</div>
+      <div class="sc-card"><h3>Fieldwork checklist</h3>
+        ${p.checklist.map(c=>`<div style="font-size:12.5px;padding:3px 0">☐ ${scEsc(c)}</div>`).join("")}</div>
+      <div class="sc-card"><h3>Report deliverables</h3>
+        ${p.reports.map(r=>`<div style="font-size:12.5px;padding:3px 0">• ${scEsc(r)}</div>`).join("")||'<div style="font-size:12.5px;color:#5a6675">None stated.</div>'}
+        ${sc.meta.dueDate?`<div style="font-size:12.5px;margin-top:6px"><b>Due:</b> ${sc.meta.dueDate}</div>`:""}</div>
+      <div class="sc-card"><h3>Missing information</h3>
+        ${p.qa.map(q=>`<div class="sc-warn">⚠ ${scEsc(q)}</div>`).join("")||'<div class="sc-ok">✓ Nothing missing</div>'}</div>
+    </div>
+  </div>
+  <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:4px">
+    <button class="sc-btn pri" id="scTasks">Create Project Tasks (boreholes → app)</button>
+    <button class="sc-btn pri" id="scTower">Send to Project Control Tower</button>
+    <button class="sc-btn" id="scRegen">Regenerate plan</button>
+    <button class="sc-btn" id="scExport2">Export Scope Summary</button>
+  </div>`;
+  $id("scSptRule").addEventListener("input",e=>{ sc.sptRule=e.target.value; scSave(); });
+  $id("scRepTpl").addEventListener("input",e=>{ sc.meta.reportTemplate=e.target.value; scSave(); });
+  $id("scStatus").addEventListener("change",e=>{ sc.status=e.target.value; scSave(); });
+  $id("scRegen").addEventListener("click",()=>{ genPlan(); renderScope(); });
+  $id("scExport2").addEventListener("click",exportScopeSummary);
+  $id("scTasks").addEventListener("click",()=>{
+    let added=0;
+    for (const b of sc.plan.bhs){
+      if (!S.boreholes.some(x=>x.id===b.id)){
+        S.boreholes.push({ id:b.id, easting:"", northing:"", rl:"", termDepth:"", termReason:"", planned:b.depth||"", logger:S.project.loggedBy||"" });
+        if (S.logs && !S.logs[b.id]) S.logs[b.id]={soil:[],rock:[],spt:[],samples:[],corebox:{img:null,natW:0,natH:0,rows:[],defects:[],snap:0.01,layers:{scale:true,grid:true,defects:true,zones:true,labels:true,rows:true},includeMB:false}};
+        added++;
+      } else { const ex=S.boreholes.find(x=>x.id===b.id); if (b.depth && !ex.planned) ex.planned=b.depth; }
+    }
+    scSave(); alert(added+" borehole(s) created from scope. Open the Boreholes tab to see them.");
+  });
+  $id("scTower").addEventListener("click",()=>{
+    sc.sentToTower=new Date().toISOString(); scSave();
+    alert("Scope plan published to Project Control Tower.\nOpen the Dashboard tab — planned vs completed tracking is now live.");
+  });
+}
+function exportScopeSummary(){
+  const sc=SC(); const acc=sc.items.filter(i=>i.status!=="rej");
+  let csv="Category,Item,Details,Qty,Unit,Page,Confidence,Status,Comment\n";
+  for (const i of acc) csv+=[CATS[i.cat].label,i.name,(i.details||"").replace(/,/g,";"),i.qty??"",i.unit||"",i.page||"",Math.round(i.conf*100)+"%",i.status,(i.comment||"").replace(/,/g,";")].join(",")+"\n";
+  if (sc.plan) csv+="\nTotals,Boreholes,"+sc.plan.totals.bh+",,,,,,\nTotals,Metres,"+(sc.plan.totals.metres??"")+",,,,,,\nTotals,SPT,"+sc.plan.totals.spt+",,,,,,\nTotals,Lab tests,"+sc.plan.totals.labs+",,,,,,\n";
+  const a=document.createElement("a");
+  a.href=URL.createObjectURL(new Blob([csv],{type:"text/csv"}));
+  a.download=(sc.meta.projectNumber||"scope").replace(/[^\w-]/g,"_")+"_scope_summary.csv"; a.click();
+}
+
+/* ---------- Control Tower strip on dashboard ---------- */
+function towerStrip(){
+  const sc=S.scope; if (!sc||!sc.plan||!sc.sentToTower) return "";
+  const p=sc.plan;
+  const doneBh = S.boreholes.filter(b=>{ const l=(S.logs||{})[b.id]; return b.termDepth || (l&&((l.soil||[]).length||(l.rock||[]).length)); }).length;
+  const doneSpt = Object.values(S.logs||{}).reduce((a,l)=>a+((l&&l.spt)||[]).length,0);
+  const doneSm = Object.values(S.logs||{}).reduce((a,l)=>a+((l&&l.samples)||[]).length,0);
+  const pct = x=>x[1]? Math.min(100,Math.round(100*x[0]/x[1])) : 0;
+  const readiness = Math.round((pct([doneBh,p.totals.bh])+pct([doneSpt,p.totals.spt||1])+pct([doneSm,p.totals.samples||p.totals.bh||1]))/3);
+  const due = sc.meta.dueDate? Math.ceil((new Date(sc.meta.dueDate)-Date.now())/864e5) : null;
+  return `<div class="tower-strip">
+    <div style="font-size:11px;letter-spacing:1.4px;color:#8fa3c0;font-weight:700">PROJECT CONTROL TOWER · ${scEsc(sc.status)}</div>
+    <span class="tk"><b>${doneBh}/${p.totals.bh}</b>Boreholes</span>
+    <span class="tk"><b>${doneSpt}/${p.totals.spt||"—"}</b>SPT</span>
+    <span class="tk"><b>${doneSm}/${p.totals.samples||"—"}</b>Samples</span>
+    <span class="tk"><b>${p.totals.labs}</b>Lab tests pending</span>
+    <span class="tk"><b>${p.gw.length? p.gw.length-Math.min(doneBh,p.gw.length):0}</b>GW readings pending</span>
+    <span class="tk"><b>${Math.max(0,doneBh- S.boreholes.filter(b=>b.checked).length)}</b>Logs pending review</span>
+    <span class="tk"><b>${readiness}%</b>Report readiness</span>
+    ${due!==null?`<span class="tk"><b style="color:${due<7?"#ff9d8a":"#fff"}">${due}d</b>To due date</span>`:""}
+    ${p.qa.length?`<div class="alert">⚠ ${p.qa.length} missing-scope alert(s) — see Scope tab, Field Plan step.</div>`:""}
+  </div>`;
+}
+/* ---------- install tab + dashboard hook ---------- */
+const host=document.querySelector(".content");
+if (!document.getElementById("page-scope")){ const dv=document.createElement("div"); dv.className="tabpage"; dv.id="page-scope"; host.appendChild(dv); }
+if (!TABS.includes("scope")) TABS.splice(TABS.indexOf("project")+1, 0, "scope");
+const nav=document.querySelector(".topbar");
+if (!nav.querySelector('[data-tab="scope"]')){
+  const t=document.createElement("div"); t.className="navtab"; t.dataset.tab="scope"; t.textContent="Scope";
+  const after=nav.querySelector('[data-tab="project"]'); after.after(t);
+  t.addEventListener("click",()=>showTab("scope"));
+}
+const _showTabSc = showTab;
+showTab = function(tab){
+  _showTabSc(tab);
+  if (tab==="scope") renderScope();
+  if (tab==="dashboard"){ /* prepend control tower strip after dashboard renders */
+    setTimeout(()=>{ const pg=document.getElementById("page-dashboard"); if (!pg) return;
+      const old=pg.querySelector(".tower-strip"); if (old) old.remove();
+      const s2=towerStrip(); if (s2) pg.insertAdjacentHTML("afterbegin", s2); }, 60);
+  }
+};
 })();
-
-</script>
-<script id="v10-review-sheet">
-/* v10: Enhanced Defect Review sheet for the cb3 Corebox (SUB-PROMPT 18).
-   Additive overlay over the SAME cb().defects objects (no duplicates). Adds:
-   multi-select + bulk edit, + Add Defect (by depth), Draft->Reviewed->Approved->Synced states
-   (approve selected/all, return to draft, sync-approved-only), row-click locate on image.
-   Uses the app's own globals: CODE_INFO, CB_GROUPS, ORIENT2/SHAPE2/ROUGH2/APER_THK/INFILL2, cb(), save,
-   drawOverlays, logs, blankRock, num, esc. Non-breaking: only adds a button + overlay. */
-(function () {
-  "use strict";
-  function G(n) { try { return eval(n); } catch (e) { return undefined; } }
-  function cbo() { var f = G("cb"); return (typeof f === "function") ? f() : null; }
-  function has() { return G("CODE_INFO") && typeof G("cb") === "function"; }
-  var SEL = {};             // id -> true (multi-select)
-  var STATES = ["draft", "reviewed", "approved", "synced"];
-  var STATE_COLOR = { draft: "#8a968f", reviewed: "#2f6fed", approved: "#147447", synced: "#0D523E" };
-
-  function statusOf(d) { return d.review_status || (d.confirmed ? "reviewed" : "draft"); }
-  function short(v) { return String(v == null ? "" : v).split(" — ")[0]; }
-  function codeOptions(cur) {
-    var G0 = G("CB_GROUPS"); if (!G0) return "";
-    var out = "";
-    for (var g in G0) { out += '<optgroup label="' + G0[g].label + '">'; for (var c in G0[g].codes) out += '<option value="' + c + '"' + (c === cur ? " selected" : "") + '>' + c + ' — ' + G0[g].codes[c] + '</option>'; out += '</optgroup>'; }
-    return out;
-  }
-  function opts(list, cur) { return (list || [""]).map(function (o) { return '<option value="' + String(o).replace(/"/g, "&quot;") + '"' + (String(o) === String(cur) ? " selected" : "") + '>' + (short(o) || "—") + '</option>'; }).join(""); }
-
-  function overlay() {
-    var o = document.getElementById("v10ov");
-    if (o) return o;
-    o = document.createElement("div"); o.id = "v10ov";
-    o.style.cssText = "position:fixed;inset:0;background:rgba(10,15,13,.55);z-index:9999;display:flex;align-items:center;justify-content:center";
-    o.innerHTML = '<div id="v10box" style="background:#fff;color:#18201C;width:min(1000px,96vw);max-height:92vh;border-radius:12px;display:flex;flex-direction:column;overflow:hidden;box-shadow:0 20px 60px rgba(0,0,0,.4)"></div>';
-    o.addEventListener("click", function (e) { if (e.target === o) close(); });
-    document.body.appendChild(o); return o;
-  }
-  function close() { var o = document.getElementById("v10ov"); if (o) o.remove(); }
-
-  function render() {
-    var c = cbo(); if (!c) return;
-    var box = overlay().querySelector("#v10box");
-    var defs = (c.defects || []).slice().sort(function (a, b) { return (G("num")(a.from) || 0) - (G("num")(b.from) || 0); });
-    var selIds = Object.keys(SEL).filter(function (k) { return SEL[k]; });
-    var counts = { draft: 0, reviewed: 0, approved: 0, synced: 0 };
-    defs.forEach(function (d) { counts[statusOf(d)]++; });
-    var ORI = G("ORIENT2"), SH = G("SHAPE2"), RO = G("ROUGH2"), AP = G("APER_THK"), IN = G("INFILL2"), CI = G("CODE_INFO");
-
-    var head = '<div style="padding:12px 16px;border-bottom:1px solid #e2e8e3;display:flex;align-items:center;gap:10px">'
-      + '<b style="font-size:15px;color:#0D523E">Defect Review — ' + defs.length + ' defects</b>'
-      + '<span style="font-size:12px;color:#68716c">Draft ' + counts.draft + ' · Reviewed ' + counts.reviewed + ' · Approved ' + counts.approved + ' · Synced ' + counts.synced + '</span>'
-      + '<span style="flex:1"></span><button class="btn" id="v10add">+ Add defect</button><button class="btn" id="v10close">✕ Close</button></div>';
-
-    var bulk = '<div style="padding:8px 16px;background:#f5f7f5;border-bottom:1px solid #e2e8e3;display:flex;flex-wrap:wrap;gap:6px;align-items:center;font-size:12px">'
-      + '<b>' + selIds.length + ' selected</b> — bulk set:'
-      + ' <select id="bkcode"><option value="">Type…</option>' + codeOptions("") + '</select>'
-      + ' <select id="bkorientation"><option value="__">Orient…</option>' + opts(ORI, "__") + '</select>'
-      + ' <select id="bkshape"><option value="__">Shape…</option>' + opts(SH, "__") + '</select>'
-      + ' <select id="bkroughness"><option value="__">Rough…</option>' + opts(RO, "__") + '</select>'
-      + ' <select id="bkapertureThk"><option value="__">Aperture…</option>' + opts(AP, "__") + '</select>'
-      + ' <select id="bkinfill"><option value="__">Infill…</option>' + opts(IN, "__") + '</select>'
-      + ' <button class="btn primary" id="v10bulk"' + (selIds.length ? '' : ' disabled') + '>Apply to ' + selIds.length + '</button>'
-      + ' <span style="flex:1"></span>'
-      + ' <button class="btn" id="v10appSel"' + (selIds.length ? '' : ' disabled') + '>Approve selected</button>'
-      + ' <button class="btn" id="v10appAll">Approve all</button>'
-      + ' <button class="btn" id="v10draft"' + (selIds.length ? '' : ' disabled') + '>Return to draft</button>'
-      + ' <button class="btn primary" id="v10sync">Sync approved → Rock Log</button></div>';
-
-    var rows = defs.map(function (d) {
-      var info = CI[d.code] || {}; var st = statusOf(d); var isIv = G("num")(d.to) != null && G("num")(d.to) > G("num")(d.from) + 1e-9;
-      return '<tr data-id="' + d.id + '">'
-        + '<td><input type="checkbox" class="v10chk" data-id="' + d.id + '"' + (SEL[d.id] ? " checked" : "") + '></td>'
-        + '<td style="white-space:nowrap"><input class="v10f" data-id="' + d.id + '" data-k="from" value="' + (d.from != null ? d.from : "") + '" style="width:52px">' + (isIv ? '–<input class="v10f" data-id="' + d.id + '" data-k="to" value="' + d.to + '" style="width:52px">' : '') + ' m</td>'
-        + '<td><span class="legend-dot" style="background:' + (info.color || "#999") + '"></span><select class="v10f" data-id="' + d.id + '" data-k="code">' + codeOptions(d.code) + '</select></td>'
-        + '<td><select class="v10f" data-id="' + d.id + '" data-k="orientation">' + opts(ORI, d.orientation) + '</select></td>'
-        + '<td><select class="v10f" data-id="' + d.id + '" data-k="shape">' + opts(SH, d.shape) + '</select></td>'
-        + '<td><select class="v10f" data-id="' + d.id + '" data-k="roughness">' + opts(RO, d.roughness) + '</select></td>'
-        + '<td><select class="v10f" data-id="' + d.id + '" data-k="apertureThk">' + opts(AP, d.apertureThk) + '</select></td>'
-        + '<td><select class="v10f" data-id="' + d.id + '" data-k="infill">' + opts(IN, d.infill) + '</select></td>'
-        + '<td><select class="v10f" data-id="' + d.id + '" data-k="review_status" style="color:#fff;background:' + STATE_COLOR[st] + ';border:0;border-radius:10px;padding:2px 6px">' + STATES.map(function (s) { return '<option value="' + s + '"' + (s === st ? " selected" : "") + '>' + s + '</option>'; }).join("") + '</select></td>'
-        + '<td style="white-space:nowrap"><button class="btn" data-loc="' + d.id + '" title="Locate on image">◎</button> <button class="btn danger" data-del="' + d.id + '">🗑</button></td></tr>';
-    }).join("");
-
-    var table = '<div style="overflow:auto;flex:1"><table class="og" style="width:100%;font-size:12px"><thead><tr>'
-      + '<th style="width:26px"><input type="checkbox" id="v10all"></th><th>Depth</th><th>Type</th><th>Orient</th><th>Shape</th><th>Rough</th><th>Aperture</th><th>Infill</th><th>Status</th><th></th></tr></thead><tbody>'
-      + (rows || '<tr><td colspan="10" style="padding:16px;color:#8a968f">No defects yet — use “+ Add defect”, or mark defects on the core.</td></tr>') + '</tbody></table></div>';
-
-    box.innerHTML = head + bulk + table;
-
-    var q = function (s) { return box.querySelector(s); }, qa = function (s) { return box.querySelectorAll(s); };
-    q("#v10close").onclick = close;
-    q("#v10all").onclick = function (e) { defs.forEach(function (d) { SEL[d.id] = e.target.checked; }); render(); };
-    qa(".v10chk").forEach(function (ch) { ch.onclick = function () { SEL[ch.dataset.id] = ch.checked; render(); }; });
-    qa(".v10f").forEach(function (el) {
-      el.onchange = function () {
-        var d = (cbo().defects || []).find(function (x) { return x.id === el.dataset.id; }); if (!d) return;
-        var v = el.value, k = el.dataset.k;
-        if (v === "__") return;
-        if (k === "from" || k === "to") v = (v === "" ? "" : parseFloat(v));
-        d[k] = v; d.updated_at = new Date().toISOString();
-        if (k === "review_status") d.confirmed = (v === "approved" || v === "synced" || v === "reviewed");
-        G("save")(); var dr = G("drawOverlays"); if (typeof dr === "function") try { dr(); } catch (e) { }
-        if (k === "code" || k === "review_status" || k === "to") render();
-      };
-    });
-    qa("[data-loc]").forEach(function (b) { b.onclick = function () { try { window.cb2Sel = b.dataset.loc; } catch (e) { } try { eval("cb2Sel='" + b.dataset.loc + "'"); } catch (e) { } var dr = G("drawOverlays"); if (dr) try { dr(); } catch (e) { } b.textContent = "◉"; }; });
-    qa("[data-del]").forEach(function (b) { b.onclick = function () { if (!confirm("Delete this defect?")) return; var arr = cbo().defects; var i = arr.findIndex(function (x) { return x.id === b.dataset.del; }); if (i >= 0) arr.splice(i, 1); delete SEL[b.dataset.del]; G("save")(); var dr = G("drawOverlays"); if (dr) try { dr(); } catch (e) { } render(); }; });
-
-    q("#v10bulk").onclick = function () {
-      var arr = cbo().defects, ids = Object.keys(SEL).filter(function (k) { return SEL[k]; });
-      var fields = ["code", "orientation", "shape", "roughness", "apertureThk", "infill"];
-      ids.forEach(function (id) { var d = arr.find(function (x) { return x.id === id; }); if (!d) return; fields.forEach(function (f) { var el = q("#bk" + f); var v = el.value; if (v && v !== "__") { d[f] = v; } }); d.updated_at = new Date().toISOString(); });
-      G("save")(); var dr = G("drawOverlays"); if (dr) try { dr(); } catch (e) { } render();
-    };
-    q("#v10appSel").onclick = function () { setState(Object.keys(SEL).filter(function (k) { return SEL[k]; }), "approved"); };
-    q("#v10appAll").onclick = function () { setState(cbo().defects.map(function (d) { return d.id; }), "approved"); };
-    q("#v10draft").onclick = function () { setState(Object.keys(SEL).filter(function (k) { return SEL[k]; }), "draft"); };
-    q("#v10sync").onclick = syncApproved;
-    q("#v10add").onclick = addDefect;
-  }
-
-  function setState(ids, st) {
-    var arr = cbo().defects;
-    ids.forEach(function (id) { var d = arr.find(function (x) { return x.id === id; }); if (d) { d.review_status = st; d.confirmed = (st !== "draft"); d.updated_at = new Date().toISOString(); } });
-    G("save")(); render();
-  }
-  function addDefect() {
-    var depth = parseFloat(prompt("New defect — from depth (m):", "")); if (isNaN(depth)) return;
-    var code = (prompt("Type code (BP, JT, SZ, FZ, CZ, CS, MB, CL …):", "JT") || "JT").toUpperCase().trim();
-    if (!G("CODE_INFO")[code]) { alert("Unknown code: " + code); return; }
-    var d = { id: "cb_" + Date.now().toString(36) + Math.random().toString(36).slice(2, 6), code: code, from: depth, to: depth, orientation: "", persistence: "", aperture: "", apertureThk: "", roughness: "", shape: "", infill: "", infillHard: "", weatherZone: "", strengthZone: "", comments: "", countRqd: true, confirmed: false, review_status: "draft", source: "manual", created_at: new Date().toISOString(), updated_at: new Date().toISOString() };
-    cbo().defects.push(d); G("save")(); var dr = G("drawOverlays"); if (dr) try { dr(); } catch (e) { } SEL[d.id] = true; render();
-  }
-  // sync ONLY approved defects to the Rock Log (no drafts) — mirrors cb3's mapping
-  var TYPEMAP = { BP: "Bedding parting", PL: "Joint", CU: "Joint", IR: "Joint", JT: "Joint", CS: "Clay seam", QS: "Infilled seam", FS: "Infilled seam", IS: "Infilled seam", SZ: "Sheared seam", FZ: "Fracture zone", CZ: "Crushed seam", BZ: "Crushed seam", XWZ: "Fracture zone", HWZ: "Fracture zone", MWZ: "Fracture zone", NB: "Natural break", MB: "Mechanical break", DB: "Drilling break", CL: "Core loss", VD: "Void", V: "Void" };
-  function syncApproved() {
-    var c = cbo(); var L = G("logs")(); var blankRock = G("blankRock"); if (!L || typeof blankRock !== "function") { alert("Rock log unavailable"); return; }
-    var approved = c.defects.filter(function (d) { return statusOf(d) === "approved"; });
-    if (!approved.length) { alert("No approved defects to sync. Approve rows first (draft rows are not synced)."); return; }
-    var n = 0;
-    approved.forEach(function (d) {
-      if (L.rock.some(function (r) { return r._cbid === d.id; })) { d.review_status = "synced"; return; }
-      var info = G("CODE_INFO")[d.code] || {}; var isZone = info.group === "zone" || d.code === "CL" || d.code === "VD";
-      var row = blankRock(); row._cbid = d.id; row.from = d.from; row.to = isZone && G("num")(d.to) != null ? d.to : d.from;
-      row.defectType = TYPEMAP[d.code] || "Joint"; row.defectAngle = d.orientation || "";
-      row.defectRough = short(d.roughness).length === 2 ? short(d.roughness) : ((d.roughness || "").split(" — ")[1] || "");
-      row.defectInfill = d.infill && d.infill !== "None" ? String(d.infill).toLowerCase() : "";
-      row.defectAperture = (d.apertureThk || "").split(" — ")[1] || "";
-      row.remarks = d.code + (d.comments ? " — " + d.comments : "") + " (corebox review)";
-      L.rock.push(row); d.review_status = "synced"; n++;
-    });
-    L.rock.sort(function (a, b) { return (G("num")(a.from) == null ? 999 : G("num")(a.from)) - (G("num")(b.from) == null ? 999 : G("num")(b.from)); });
-    G("save")(); render();
-    var ss = G("setStatus"); if (typeof ss === "function") ss("Synced " + n + " approved defect(s) → Rock Log");
-    alert("Synced " + n + " approved defect(s) to the Rock Log. Drafts were left untouched.");
-  }
-
-  function inject() {
-    var bar = document.querySelector(".cb3-status"); if (!bar || document.getElementById("v10btn")) return;
-    var b = document.createElement("button"); b.className = "btn"; b.id = "v10btn"; b.textContent = "⊞ Review sheet";
-    b.onclick = function () { if (!has()) return; SEL = {}; overlay(); render(); };
-    var sync = bar.querySelector("#cbSync"); if (sync) bar.insertBefore(b, sync); else bar.appendChild(b);
-  }
-  if (typeof renderCorebox !== "undefined") { var _r = renderCorebox; renderCorebox = function () { _r.apply(this, arguments); try { inject(); } catch (e) { } }; }
-  document.addEventListener("DOMContentLoaded", function () { try { inject(); } catch (e) { } });
-  try { inject(); } catch (e) { }
-})();
-
 </script>
 </body>
 </html>
