@@ -4135,7 +4135,7 @@ body.scmax .content { max-width:none; }
 (function(){
 /* ---------- new light pages: fieldwork, laboratory, settings ---------- */
 const host=document.querySelector(".content");
-for (const id of ["fieldwork","laboratory","settings"]){
+for (const id of ["fieldwork","laboratory","settings","daily"]){
   if (!document.getElementById("page-"+id)){ const dv=document.createElement("div"); dv.className="tabpage"; dv.id="page-"+id; host.appendChild(dv); }
   if (!TABS.includes(id)) TABS.push(id);
 }
@@ -4226,6 +4226,7 @@ const ITEMS=[
   ["scope","⛭","Scope","scope"],
   ["boreholes","◨","Boreholes","boreholes"],
   ["fieldwork","⛏","Fieldwork","fieldwork"],
+  ["daily","✉","Daily Report","daily"],
   ["soil","◱","Soil Log","soil"],
   ["rock","▤","Rock Log","rock"],
   ["corebox","▣","Corebox","corebox"],
@@ -4267,7 +4268,7 @@ document.querySelector(".topbar").prepend(burger);
 burger.addEventListener("click",()=>{ side.classList.add("open"); backdrop.classList.add("show"); });
 
 /* ---------- showTab wrapper: render new pages + sidebar state + clean layouts ---------- */
-const SCMAX=["scope","fieldwork","laboratory","settings"];
+const SCMAX=["scope","fieldwork","laboratory","settings","daily"];
 const _showTab14=showTab;
 showTab=function(tab){
   _showTab14(tab);
@@ -4275,6 +4276,7 @@ showTab=function(tab){
   if (tab==="fieldwork") renderFieldwork();
   if (tab==="laboratory") renderLaboratory();
   if (tab==="settings") renderSettings();
+  if (tab==="daily" && window.renderDaily) window.renderDaily();
   buildSide();
 };
 /* ---------- new job → Scope first ---------- */
@@ -4301,6 +4303,235 @@ document.addEventListener("touchend",e=>{ if (tx0===null) return;
 },{passive:true});
 /* re-sync sidebar highlight with whatever tab loaded first */
 buildSide();
+})();
+</script>
+<script id="v15-daily">
+"use strict";
+/* ============ MODULE: Daily Site Progress Email ============ */
+(function(){
+const eD=s=>String(s??"").replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/"/g,"&quot;");
+const today=()=>new Date().toISOString().slice(0,10);
+const dateAU=()=>new Date().toLocaleDateString("en-AU",{day:"numeric",month:"long",year:"numeric"});
+function sv(){ try{ save(); }catch(e){ localStorage.setItem("autosoil-logger", JSON.stringify(S)); } }
+function cfg(){ if (!S.mailCfg) S.mailCfg={ pm:"", em:"", dir:"", cc:"", client:"", allowClient:false,
+  provider:"outlook", mode:"draft", time:"16:30" }; return S.mailCfg; }
+function elog(){ if (!S.emailLog) S.emailLog=[]; return S.emailLog; }
+function notes(){ if (!S.dailyNotes || S.dailyNotes.date!==today())
+  S.dailyNotes={ date:today(), weather:"", issues:"", variations:"", tomorrow:"", blockers:"" }; return S.dailyNotes; }
+function depthOf(id){ const l=(S.logs||{})[id]||{}; const b=S.boreholes.find(x=>x.id===id)||{};
+  return Math.max(...((l.soil||[]).map(r=>parseFloat(r.to)||0)), ...((l.rock||[]).map(r=>parseFloat(r.to)||0)), parseFloat(b.termDepth)||0, 0); }
+function snap(){ const s={bh:{},smp:{},spt:{}};
+  for (const b of S.boreholes){ const l=(S.logs||{})[b.id]||{};
+    s.bh[b.id]=depthOf(b.id); s.smp[b.id]=((l.samples)||[]).length; s.spt[b.id]=((l.spt)||[]).length; }
+  return s; }
+/* baseline = most recent end-of-day snapshot from a PREVIOUS date */
+function baseline(){
+  const h=S.dailyHist||{};
+  const dates=Object.keys(h).filter(d=>d<today()).sort();
+  return dates.length? h[dates[dates.length-1]] : {bh:{},smp:{},spt:{}};
+}
+function stampToday(){ if (!S.dailyHist) S.dailyHist={}; S.dailyHist[today()]=snap();
+  const ks=Object.keys(S.dailyHist).sort(); while (ks.length>14){ delete S.dailyHist[ks.shift()]; } sv(); }
+
+/* ---------- aggregation ---------- */
+function aggregate(){
+  const base=baseline(); const n=notes(); const p=S.project||{};
+  const bhRows=S.boreholes.map(b=>{ const cur=depthOf(b.id); const prev=base.bh[b.id]||0;
+    const done=!!b.termDepth || b.status==="COMPLETE";
+    return { id:b.id, planned:parseFloat(b.planned)||null, todayM:Math.max(0,cur-prev), cur,
+      final: done? (parseFloat(b.termDepth)||cur) : null,
+      status: done? "Completed" : (cur>0? "In Progress":"Not Started"),
+      remarks: (S.logs?.[b.id]?.spt||[]).length? "SPT recorded":"" }; });
+  const samples=[], tests=[];
+  for (const b of S.boreholes){ const l=(S.logs||{})[b.id]||{};
+    const sm=l.samples||[]; for (let i=base.smp[b.id]||0;i<sm.length;i++){ const s=sm[i];
+      samples.push({ sid:s.sid||`${b.id}-S${i+1}`, loc:b.id, depth:`${s.from??"?"}–${s.to??"?"} m`,
+        type:s.stype||s.type||"", test: typeof s.tests==="string"? s.tests : (s.tests||[]).join(", ") }); }
+    const sp=l.spt||[]; const newSpt=sp.slice(base.spt[b.id]||0);
+    if (newSpt.length) tests.push({ test:"SPT", loc:b.id, at:newSpt.map(t=>t.depth+" m").join(", "), status:"Recorded" });
+  }
+  const gw=[]; for (const b of S.boreholes){ const g=(S.logs||{})[b.id]?.gw;
+    if (g && g.state) gw.push(`${b.id}: ${g.state}${g.depth?` at ${g.depth} m`:""}`); }
+  const qa = (typeof window.__scQa==="function")? window.__scQa() : (S.scope?.plan?.qa||[]);
+  const started=bhRows.filter(r=>r.cur>0).length, comp=bhRows.filter(r=>r.status==="Completed").length;
+  const active = bhRows.some(r=>r.todayM>0.001) || samples.length || tests.length;
+  return { p, n, bhRows, samples, tests, gw, qa,
+    counts:{ planned:bhRows.length, started, completed:comp, remaining:bhRows.length-comp }, active };
+}
+/* ---------- email builders ---------- */
+function subjectLine(){ const p=S.project||{};
+  return `Daily Site Progress – ${p.projectNumber||"—"} – ${p.projectName||p.clientName||""} – ${dateAU()}`.replace(/\s+–\s+–/," –"); }
+function bodyText(a){
+  const L=[];
+  L.push("Dear Team,","",`Please find below the daily site progress update for ${a.p.projectName||a.p.projectNumber||"the project"}.`,"");
+  L.push("PROJECT DETAILS");
+  L.push(`Project Number: ${a.p.projectNumber||"—"}`);
+  L.push(`Site Address: ${a.p.siteAddress||"—"}`);
+  L.push(`Date: ${dateAU()}`);
+  L.push(`Field Engineer: ${a.p.loggedBy||"—"}`);
+  L.push(`Drilling Contractor: ${a.p.drillingContractor||"—"}${a.p.rig? " · "+a.p.rig:""}`);
+  if (a.n.weather) L.push(`Weather: ${a.n.weather}`);
+  L.push("", `BOREHOLE PROGRESS (${a.counts.completed}/${a.counts.planned} complete, ${a.counts.started} started)`);
+  for (const r of a.bhRows)
+    L.push(`${r.id}: planned ${r.planned?r.planned.toFixed(1)+" m":"TBC"} | today +${r.todayM.toFixed(1)} m | ${r.final? "final "+r.final.toFixed(1)+" m":"current "+r.cur.toFixed(1)+" m"} | ${r.status}${r.remarks? " | "+r.remarks:""}`);
+  L.push("", "SAMPLES COLLECTED TODAY");
+  if (a.samples.length) for (const s of a.samples) L.push(`${s.sid} | ${s.loc} | ${s.depth} | ${s.type||"—"} | ${s.test||"—"}`);
+  else L.push("None recorded today.");
+  L.push("", "TESTS COMPLETED TODAY");
+  if (a.tests.length) for (const t of a.tests) L.push(`${t.test} | ${t.loc} | ${t.at} | ${t.status}`);
+  else L.push("None recorded today.");
+  L.push("", "GROUNDWATER OBSERVATIONS");
+  L.push(a.gw.length? a.gw.join("\n") : "Groundwater not encountered / not recorded.");
+  L.push("", "ISSUES / DELAYS / VARIATIONS");
+  L.push([a.n.issues, a.n.variations].filter(Boolean).join("\n") || "None recorded.");
+  L.push("", "TOMORROW'S PLANNED WORKS");
+  L.push(a.n.tomorrow || "To be confirmed.");
+  L.push("", "REPORT READINESS / BLOCKERS");
+  const bl=[a.n.blockers, ...(a.qa||[]).map(q=>"QA: "+q)].filter(Boolean);
+  L.push(bl.length? bl.join("\n") : "No blockers recorded.");
+  L.push("", `Project link: ${location.origin}`, "", "Regards,", a.p.loggedBy||"", "STS Geotechnics");
+  return L.join("\n");
+}
+function bodyHTML(a){
+  const tbl=(head,rows)=>`<table style="border-collapse:collapse;font-size:12.5px;margin:6px 0 14px;width:100%">
+    <tr>${head.map(h=>`<th style="border:1px solid #cbd5e1;background:#f1f5f9;padding:5px 8px;text-align:left">${h}</th>`).join("")}</tr>
+    ${rows.map(r=>`<tr>${r.map(c=>`<td style="border:1px solid #e2e8f0;padding:5px 8px">${eD(c)}</td>`).join("")}</tr>`).join("")}</table>`;
+  return `<div style="font-family:Segoe UI,Arial,sans-serif;font-size:13.5px;color:#1e293b;max-width:760px">
+  <p>Dear Team,</p><p>Please find below the daily site progress update for <b>${eD(a.p.projectName||a.p.projectNumber||"the project")}</b>.</p>
+  <h3 style="margin:14px 0 4px">Project Details</h3>
+  ${tbl(["Item","Details"],[["Project Number",a.p.projectNumber||"—"],["Site Address",a.p.siteAddress||"—"],["Date",dateAU()],
+    ["Field Engineer",a.p.loggedBy||"—"],["Drilling Contractor",(a.p.drillingContractor||"—")+(a.p.rig?" · "+a.p.rig:"")],
+    ...(a.n.weather?[["Weather",a.n.weather]]:[])])}
+  <h3 style="margin:14px 0 4px">Borehole Progress <span style="font-weight:400;font-size:12px">(${a.counts.completed}/${a.counts.planned} complete)</span></h3>
+  ${tbl(["Borehole","Planned","Today","Final / Current","Status","Remarks"],
+    a.bhRows.map(r=>[r.id, r.planned?r.planned.toFixed(1)+" m":"TBC", "+"+r.todayM.toFixed(1)+" m",
+      r.final? r.final.toFixed(1)+" m (final)": r.cur.toFixed(1)+" m", r.status, r.remarks]))}
+  <h3 style="margin:14px 0 4px">Samples Collected Today</h3>
+  ${a.samples.length? tbl(["Sample ID","Location","Depth","Type","Intended Test"], a.samples.map(s=>[s.sid,s.loc,s.depth,s.type||"—",s.test||"—"])) : "<p>None recorded today.</p>"}
+  <h3 style="margin:14px 0 4px">Tests Completed Today</h3>
+  ${a.tests.length? tbl(["Test","Location","Depth / Level","Status"], a.tests.map(t=>[t.test,t.loc,t.at,t.status])) : "<p>None recorded today.</p>"}
+  <h3 style="margin:14px 0 4px">Groundwater Observations</h3><p>${eD(a.gw.join("; ")||"Groundwater not encountered / not recorded.")}</p>
+  <h3 style="margin:14px 0 4px">Issues / Delays / Variations</h3><p>${eD([a.n.issues,a.n.variations].filter(Boolean).join(" · ")||"None recorded.")}</p>
+  <h3 style="margin:14px 0 4px">Tomorrow's Planned Works</h3><p>${eD(a.n.tomorrow||"To be confirmed.")}</p>
+  <h3 style="margin:14px 0 4px">Report Readiness / Blockers</h3><p>${eD([a.n.blockers,...(a.qa||[]).map(q=>"QA: "+q)].filter(Boolean).join(" · ")||"No blockers recorded.")}</p>
+  <p style="margin-top:14px">Project link: <a href="${location.origin}">${location.origin}</a></p>
+  <p>Regards,<br>${eD(a.p.loggedBy||"")}<br><b>STS Geotechnics</b></p></div>`;
+}
+/* ---------- recipients + compose links ---------- */
+function recipients(){ const c=cfg();
+  const to=[c.pm,c.em,c.dir].map(x=>x.trim()).filter(Boolean);
+  let cc=(c.cc||"").split(/[,;\s]+/).filter(Boolean);
+  if (c.allowClient && c.clientConfirmed) cc=cc.concat((c.client||"").split(/[,;\s]+/).filter(Boolean));
+  return {to, cc};
+}
+function composeURL(provider){
+  const a=aggregate(); const r=recipients();
+  let body=bodyText(a); if (body.length>5800) body=body.slice(0,5700)+"\n\n[Truncated — use Copy Email Body in GeoFlow for the full report]";
+  const enc=encodeURIComponent;
+  if (provider==="gmail")
+    return `https://mail.google.com/mail/?view=cm&fs=1&to=${enc(r.to.join(","))}&cc=${enc(r.cc.join(","))}&su=${enc(subjectLine())}&body=${enc(body)}`;
+  return `https://outlook.office.com/mail/deeplink/compose?to=${enc(r.to.join(";"))}&cc=${enc(r.cc.join(";"))}&subject=${enc(subjectLine())}&body=${enc(body)}`;
+}
+function logEmail(action, status){
+  elog().unshift({ ts:new Date().toISOString(), action, status, subject:subjectLine(),
+    recipients:recipients().to.join(", "), provider:cfg().provider, by:S.project?.loggedBy||"", project:S.project?.projectNumber||"" });
+  if (S.emailLog.length>60) S.emailLog.length=60;
+  sv();
+}
+/* ---------- UI ---------- */
+window.renderDaily=function(){
+  const el=document.getElementById("page-daily"); if (!el) return;
+  const a=aggregate(); const c=cfg(); const n=notes();
+  const nf=(k,l,ph)=>`<div><label style="font-size:11.5px;color:#5a6675;font-weight:600;display:block;margin-bottom:2px">${l}</label>
+    <input data-dn="${k}" value="${eD(n[k])}" placeholder="${ph||""}" style="width:100%;border:1px solid #ccd5e3;border-radius:8px;padding:8px 10px;font-size:13px"></div>`;
+  const cf=(k,l,ph)=>`<div><label style="font-size:11.5px;color:#5a6675;font-weight:600;display:block;margin-bottom:2px">${l}</label>
+    <input data-dc="${k}" value="${eD(c[k])}" placeholder="${ph||""}" style="width:100%;border:1px solid #ccd5e3;border-radius:8px;padding:8px 10px;font-size:13px"></div>`;
+  el.innerHTML=`<h2 style="font-size:19px;margin:6px 0 12px">Daily Site Progress</h2>
+  ${!a.active?'<div class="sc-warn">⚠ No field activity detected today (vs last saved baseline). A "no activity" draft will be generated if scheduled.</div>':""}
+  <div class="sc-kpi" style="margin-bottom:12px">
+    <div class="k"><b>${a.counts.completed}/${a.counts.planned}</b><span>BH complete</span></div>
+    <div class="k"><b>${a.bhRows.reduce((x,r)=>x+r.todayM,0).toFixed(1)} m</b><span>Drilled today</span></div>
+    <div class="k"><b>${a.samples.length}</b><span>Samples today</span></div>
+    <div class="k"><b>${a.tests.length}</b><span>Tests today</span></div>
+  </div>
+  <div class="sc-split">
+    <div class="sc-pane mob-on">
+      <div class="sc-card"><h3>Today's notes (included in email)</h3>
+        <div class="sc-grid2">
+          ${nf("weather","Weather","e.g. Fine, 24°C")}${nf("issues","Issues / delays","e.g. Access delay BH3")}
+          ${nf("variations","Variations","e.g. Extra depth BH2 approved")}${nf("tomorrow","Tomorrow's plan","e.g. Continue BH2, commence BH3")}
+          ${nf("blockers","Blockers","e.g. Awaiting client decision")}
+        </div></div>
+      <div class="sc-card"><h3>Recipients & mode</h3>
+        <div class="sc-grid2">
+          ${cf("pm","Project Manager email")}${cf("em","Engineering Manager email")}
+          ${cf("dir","Director email")}${cf("cc","CC (comma separated)")}
+          ${cf("client","Client emails")}
+          <div><label style="font-size:11.5px;color:#5a6675;font-weight:600;display:block;margin-bottom:2px">Provider / mode / draft time</label>
+            <div style="display:flex;gap:6px">
+              <select data-dcs="provider" style="flex:1;border:1px solid #ccd5e3;border-radius:8px;padding:8px">${["outlook","gmail"].map(o=>`<option ${c.provider===o?"selected":""}>${o}</option>`).join("")}</select>
+              <select data-dcs="mode" style="flex:1;border:1px solid #ccd5e3;border-radius:8px;padding:8px">${["manual","draft","auto_send"].map(o=>`<option ${c.mode===o?"selected":""}>${o}</option>`).join("")}</select>
+              <input data-dcs="time" type="time" value="${eD(c.time)}" style="border:1px solid #ccd5e3;border-radius:8px;padding:8px">
+            </div></div>
+        </div>
+        <label style="font-size:12.5px;display:block;margin-top:8px"><input type="checkbox" id="dAllowCl" ${c.allowClient?"checked":""}> Allow client daily updates</label>
+        ${c.allowClient?`<label style="font-size:12.5px;display:block"><input type="checkbox" id="dConfCl" ${c.clientConfirmed?"checked":""}> Recipient list confirmed by PM (required before client is CC'd)</label>`:""}
+        ${c.mode==="auto_send"?'<div class="sc-warn" style="margin-top:8px">⚠ True background auto-send needs the mailbox connected on the backend (phase 2). Until then, auto_send behaves as scheduled draft with "PM review required".</div>':""}
+      </div>
+    </div>
+    <div class="sc-pane mob-on">
+      <div class="sc-card"><h3>Email preview</h3>
+        <div style="font-size:12px;color:#5a6675;margin-bottom:6px"><b>Subject:</b> ${eD(subjectLine())}<br>
+          <b>To:</b> ${eD(recipients().to.join(", ")||"— set recipients —")} ${recipients().cc.length?`· <b>CC:</b> ${eD(recipients().cc.join(", "))}`:""}</div>
+        <div id="dPrev" style="border:1px solid #e2e8f0;border-radius:8px;padding:12px;max-height:420px;overflow:auto;background:#fff">${bodyHTML(a)}</div>
+        <div style="display:flex;gap:6px;flex-wrap:wrap;margin-top:10px">
+          <button class="sc-btn pri" id="dDraft">✉ Create ${c.provider==="gmail"?"Gmail":"Outlook"} draft</button>
+          <button class="sc-btn" id="dCopy">Copy email body</button>
+          <button class="sc-btn" id="dPdf">Download PDF</button>
+          <button class="sc-btn" id="dStamp">Close out day (save baseline)</button>
+        </div>
+        <div style="font-size:11.5px;color:#5a6675;margin-top:6px">Draft opens in your ${c.provider} compose window pre-filled — review and press Send there. No passwords are stored.</div>
+      </div>
+      <div class="sc-card"><h3>Email history</h3>
+        ${elog().slice(0,10).map(x=>`<div class="qrow"><b>${x.status}</b> <span style="color:#5a6675">${new Date(x.ts).toLocaleString()} · ${eD(x.action)} · ${eD(x.recipients||"—")}</span></div>`).join("")||'<div style="font-size:12.5px;color:#5a6675">No emails generated yet.</div>'}
+      </div>
+    </div>
+  </div>`;
+  el.querySelectorAll("[data-dn]").forEach(i=>i.addEventListener("input",()=>{ notes()[i.dataset.dn]=i.value; sv(); }));
+  el.querySelectorAll("[data-dc]").forEach(i=>i.addEventListener("input",()=>{ cfg()[i.dataset.dc]=i.value; sv(); }));
+  el.querySelectorAll("[data-dcs]").forEach(i=>i.addEventListener("change",()=>{ cfg()[i.dataset.dcs]=i.value; sv(); renderDaily(); }));
+  const ac=el.querySelector("#dAllowCl"); if (ac) ac.addEventListener("change",()=>{ cfg().allowClient=ac.checked; if(!ac.checked) cfg().clientConfirmed=false; sv(); renderDaily(); });
+  const cc2=el.querySelector("#dConfCl"); if (cc2) cc2.addEventListener("change",()=>{ cfg().clientConfirmed=cc2.checked; sv(); });
+  el.querySelector("#dDraft").addEventListener("click",()=>{
+    if (!recipients().to.length){ alert("Set at least the Project Manager email first."); return; }
+    window.open(composeURL(cfg().provider), "_blank");
+    logEmail("draft_opened","DRAFT_CREATED"); renderDaily(); });
+  el.querySelector("#dCopy").addEventListener("click",async()=>{
+    try{ await navigator.clipboard.writeText("Subject: "+subjectLine()+"\n\n"+bodyText(aggregate())); alert("Email body copied."); }
+    catch(e){ alert("Copy failed: "+e.message); } });
+  el.querySelector("#dPdf").addEventListener("click",()=>{
+    try{ const {jsPDF}=window.jspdf; const doc=new jsPDF();
+      const lines=doc.splitTextToSize(subjectLine()+"\n\n"+bodyText(aggregate()), 180);
+      let y=15; doc.setFontSize(9);
+      for (const ln of lines){ if (y>282){ doc.addPage(); y=15; } doc.text(ln,14,y); y+=4.2; }
+      doc.save((S.project?.projectNumber||"daily").replace(/[^\w-]/g,"_")+"_daily_"+today()+".pdf");
+    }catch(e){ alert("PDF generation failed: "+e.message); } });
+  el.querySelector("#dStamp").addEventListener("click",()=>{ stampToday(); alert("Baseline saved — tomorrow's report will show deltas from now."); renderDaily(); });
+};
+/* ---------- scheduler: while the app is open ---------- */
+function schedTick(){
+  const c=cfg(); if (c.mode==="manual") return;
+  const now=new Date(); const hm=String(now.getHours()).padStart(2,"0")+":"+String(now.getMinutes()).padStart(2,"0");
+  if (hm < (c.time||"16:30")) return;
+  const already=elog().some(x=>x.ts.slice(0,10)===today() && ["DRAFT_CREATED","PENDING_REVIEW","SKIPPED_NO_ACTIVITY"].includes(x.status));
+  if (already) return;
+  const a=aggregate();
+  if (!a.active){ logEmail("scheduled_check","SKIPPED_NO_ACTIVITY"); return; }
+  logEmail("scheduled_draft", c.mode==="auto_send"? "PENDING_REVIEW":"DRAFT_CREATED");
+  try{ if (typeof pjLog==="function") pjLog("Daily progress email: draft ready — pending PM review"); }catch(e){}
+  if (document.getElementById("page-daily")?.classList.contains("show")) renderDaily();
+}
+setInterval(schedTick, 5*60*1000); setTimeout(schedTick, 20000);
 })();
 </script>
 </body>
