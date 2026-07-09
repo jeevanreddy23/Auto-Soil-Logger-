@@ -4282,7 +4282,9 @@ if (typeof pjOpen==="function"){
   const _pjOpen14=pjOpen;
   pjOpen=function(pid){
     _pjOpen14(pid);
-    const fresh = (!S.boreholes || S.boreholes.length===0) && !(S.scope && (S.scope.items.length || S.scope.docs.length));
+    /* "fresh job" = nothing logged yet and no scope started (default BH01 seed doesn't count) */
+    const rec = Object.values(S.logs||{}).reduce((a,l)=>a+((l&&l.soil)||[]).length+((l&&l.rock)||[]).length+((l&&l.spt)||[]).length+((l&&l.samples)||[]).length,0);
+    const fresh = rec===0 && !(S.scope && (S.scope.items.length || S.scope.docs.length || S.scope.plan));
     if (fresh) showTab("scope");   /* first operational step after creating a job */
   };
 }
