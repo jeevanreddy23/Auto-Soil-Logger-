@@ -4472,6 +4472,7 @@ function readiness(){
 /* ---------- global header ---------- */
 const tb=document.querySelector(".topbar");
 const gh=document.createElement("div"); gh.id="gh"; tb.appendChild(gh);
+const syncEl=document.getElementById("syncStatus");   /* keep a live reference — innerHTML rebuilds must not orphan it */
 function buildHeader(){
   const pj=pjMeta(); const num=pj?.number||S.project?.projectNumber||""; const name=pj?.name||S.project?.projectName||S.project?.clientName||"";
   const r=readiness();
@@ -4483,8 +4484,7 @@ function buildHeader(){
     <span id="ghSync"></span>
     <span class="av16" id="ghAv">${e16((S.project?.loggedBy||"·").split(/[\/,\s]+/)[0].slice(0,2).toUpperCase()||"·")}</span>
     <button class="cbtn" id="ghSet" title="Settings">⚙</button>`;
-  const sync=document.getElementById("syncStatus");
-  if (sync && sync.parentElement!==gh.querySelector("#ghSync")) gh.querySelector("#ghSync").appendChild(sync);
+  if (syncEl) gh.querySelector("#ghSync").appendChild(syncEl);
   gh.querySelector("#coHome").addEventListener("click",()=>showTab("projects"));
   gh.querySelector("#pipeSel").addEventListener("change",e=>{ S.pipeline=e.target.value;
     try{ save(); }catch(x){ localStorage.setItem("autosoil-logger", JSON.stringify(S)); } });
