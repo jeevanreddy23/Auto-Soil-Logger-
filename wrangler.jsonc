@@ -2,7 +2,9 @@
   "$schema": "node_modules/wrangler/config-schema.json",
   "name": "autosoillogger",
   "compatibility_date": "2026-07-08",
+  "main": "worker.js",
   "assets": {
-    "directory": "geologger"
+    "directory": "geologger",
+    "binding": "ASSETS"
   }
 }
