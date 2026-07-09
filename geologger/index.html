@@ -3613,6 +3613,58 @@ const RULES = [
   { cat:"missing", name:"Unclear locations", re:/selected\s+locations|locations?\s+to\s+be\s+(?:confirmed|advised)|TBC\b/gi,
     make:m=>({ name:"Unclear locations", details:`Proposal says "${m[0]}" — quantity/positions unclear`, qty:null, unit:"", conf:0.35 }) }
 ];
+/* ---------- proposal metadata extraction (extract once, reuse everywhere) ---------- */
+function extractMetaFromDocs(){
+  const sc=SC(); const meta=sc.meta||{};
+  const txt=sc.docs.map(d=>d.pages.slice(0,3).map(p=>p.text).join("\n")).join("\n").slice(0,20000);
+  const pick=(re,i=1)=>{ const m=re.exec(txt); return m? m[i].trim().replace(/\s+/g," ").slice(0,90):""; };
+  const sug={};
+  sug.projectNumber = pick(/(?:project|job)\s*(?:no\.?|number|ref(?:erence)?)[:\s]+([A-Z0-9][\w\/\-\.]{3,20})/i) || pick(/\b(\d{5}\/\d{3,5}[A-Z]?(?:-[A-Z])?)\b/);
+  sug.jobNumber = pick(/STS\s*(?:job|ref)\s*(?:no\.?)?[:\s]+([\w\/-]{3,20})/i);
+  sug.proposalNumber = pick(/proposal\s*(?:no\.?|number|ref(?:erence)?)[:\s]+([\w\/\-\.]{3,25})/i) || pick(/\b(P\d{4,6}(?:\.\d+)?[A-Z]?)\b/);
+  sug.proposalDate = pick(/dated?[:\s]+(\d{1,2}[\s\/\-][A-Za-z0-9]+[\s\/\-]\d{2,4})/i);
+  sug.client = pick(/(?:prepared\s+for|client)[:\s]+([A-Z][\w\s&\.\(\)]{3,60}?(?:Pty\s*Ltd|Ltd|Limited|Council|Group|Trust|Corporation))/i)
+            || pick(/(?:prepared\s+for|client)[:\s]+([A-Z][^\n,;]{3,50})/i);
+  sug.clientContact = pick(/(?:attention|attn\.?)[:\s]+([A-Z][\w\s\.\-']{2,40})/i);
+  sug.clientEmail = pick(/([\w.\-+]+@[\w\-]+\.[\w.\-]+)/);
+  sug.site = pick(/(?:site|property|located\s+at|address)[:\s]+(.{6,80}?(?:NSW|VIC|QLD|ACT|SA|WA|NT|TAS)[\s,]*\d{0,4})/i);
+  sug.pm = pick(/project\s+manager[:\s]+([A-Z][\w\s\.\-']{2,40})/i);
+  sug.projectName = pick(/(?:re|project)[:\s]+([A-Z][^\n]{8,70}?(?:investigation|assessment|development|works|report))/i);
+  let n=0;
+  for (const k in sug) if (sug[k] && !meta[k]) { meta[k]=sug[k]; n++; }
+  sc.meta=meta; return n;
+}
+/* ---------- master project record: apply approved proposal details everywhere ---------- */
+function applyMaster(){
+  const m=SC().meta||{};
+  const map={ projectNumber:m.projectNumber, jobNumber:m.jobNumber, projectName:m.projectName,
+    clientName:m.client, clientContact:m.clientContact, clientEmail:m.clientEmail, siteAddress:m.site,
+    proposalNumber:m.proposalNumber, proposalDate:m.proposalDate, projectManager:m.pm,
+    loggedBy:m.loggedBy, dueDate:m.dueDate };
+  const diffs=[];
+  for (const k in map){ const nv=String(map[k]||"").trim(); if (!nv) continue;
+    const ov=String(S.project[k]||""); if (ov!==nv) diffs.push({k,ov,nv}); }
+  if (diffs.length){
+    const msg="Apply approved proposal details to the MASTER PROJECT RECORD?\n\n"+
+      diffs.map(d=>`• ${d.k}: "${d.ov||"—"}" → "${d.nv}"`).join("\n")+
+      "\n\nEvery module (logs, PDF, daily report, exports, Control Tower) reads from this record.";
+    if (!confirm(msg)) return false;
+    if (!S.masterAudit) S.masterAudit=[];
+    for (const d of diffs){ S.project[d.k]=d.nv;
+      S.masterAudit.unshift({field:d.k, old:d.ov, new:d.nv, reason:"Proposal scope approval", user:S.project.loggedBy||"", ts:new Date().toISOString()}); }
+  }
+  try{ const pj=pjActive(); if (pj){
+    if (map.projectNumber) pj.number=map.projectNumber;
+    if (map.projectName) pj.name=map.projectName;
+    if (map.clientName) pj.client=map.clientName;
+    if (map.siteAddress) pj.address=map.siteAddress; pjSave(); } }catch(e){}
+  S.masterLock={ locked:true, at:new Date().toISOString(), by:S.project.loggedBy||"" };
+  if (!S.scopeVersions) S.scopeVersions=[];
+  S.scopeVersions.unshift({ v:S.scopeVersions.length+1, ts:new Date().toISOString(),
+    accepted:SC().items.filter(i=>i.status==="acc").length, meta:JSON.parse(JSON.stringify(SC().meta)) });
+  if (S.scopeVersions.length>10) S.scopeVersions.length=10;
+  scSave(); return true;
+}
 function sentenceAround(text, idx){
   /* sentence boundaries: a "." that is NOT between two digits (so 8.0 m doesn't split the sentence) */
   const isEnd = i => text[i]==="." && !(/\d/.test(text[i-1]||"") && /\d/.test(text[i+1]||""));
@@ -3708,8 +3760,10 @@ function renderScUpload(el){
       <button class="sc-btn" id="scPasteAdd" style="margin-top:6px">Add pasted text</button></details>
   </div>
   <div class="sc-card"><h3>Project details</h3><div class="sc-grid2">
-    ${[["projectNumber","Project number"],["jobNumber","STS job number"],["client","Client"],["site","Site address"],
-       ["proposalDate","Proposal date"],["pm","Project manager"],["loggedBy","Logged by"],["dueDate","Due date"],["notes","Notes"]]
+    ${[["projectNumber","Project number"],["jobNumber","STS job number"],["projectName","Project name"],["client","Client"],
+       ["clientContact","Client contact"],["clientEmail","Client email"],["site","Site address"],
+       ["proposalNumber","Proposal number"],["proposalDate","Proposal date"],["pm","Project manager"],
+       ["loggedBy","Logged by"],["dueDate","Due date"],["notes","Notes"]]
       .map(([k,l])=>`<div><label>${l}</label><input data-scm="${k}" ${/date/i.test(k)?'type="date"':""} value="${scEsc(sc.meta[k])}"></div>`).join("")}
   </div></div>
   <div style="display:flex;gap:8px;flex-wrap:wrap">
@@ -3738,10 +3792,11 @@ function renderScExtract(el){
       ${sc.items.length?`<button class="sc-btn" id="scKeep">Keep existing ${sc.items.length} items →</button>`:""}
     </div><div id="scExOut" style="margin-top:10px"></div></div>`;
   $id("scRunEx").addEventListener("click",()=>{
+    const mN=extractMetaFromDocs();
     sc.items = extractScope(); scSave();
     const byCat={}; sc.items.forEach(i=>byCat[i.cat]=(byCat[i.cat]||0)+1);
     $id("scExOut").innerHTML = sc.items.length?
-      `<div class="sc-ok">✓ ${sc.items.length} scope items extracted</div>`+
+      `<div class="sc-ok">✓ ${sc.items.length} scope items extracted${mN?` · ${mN} project detail(s) auto-filled from the proposal (review on step 1)`:""}</div>`+
       Object.entries(byCat).map(([c,n])=>`<span style="font-size:12px;margin-right:12px"><i class="sc-cat" style="background:${CATS[c].col}"></i>${CATS[c].label}: <b>${n}</b></span>`).join("")+
       `<div style="margin-top:12px"><button class="sc-btn pri" id="scToRev">Review & Confirm →</button></div>`
       : `<div class="sc-warn">No scope items found — the document may be scanned (no text). Paste the text on step 1 or add items manually in Review.</div>
@@ -3882,7 +3937,12 @@ function wireScReview(el){
     scSave(); renderScope(); });
   const rex=el.querySelector("#scReEx"); if (rex) rex.addEventListener("click",()=>{ sc.step=2; scSave(); renderScope(); });
   const aa=el.querySelector("#scAccAll"); if (aa) aa.addEventListener("click",()=>{ sc.items.forEach(i=>{ if (i.conf>=0.8 && i.status==="rev") i.status="acc"; }); scSave(); renderScope(); });
-  const ap=el.querySelector("#scApprove"); if (ap) ap.addEventListener("click",()=>{ sc.step=4; scSave(); renderScope(); });
+  const ap=el.querySelector("#scApprove"); if (ap) ap.addEventListener("click",()=>{
+    if (applyMaster()===false) return;   /* master-record diff declined → stay on review */
+    sc.step=4; scSave(); renderScope();
+    try{ if (typeof buildSide==="function") buildSide(); }catch(e){}
+    if (window.v16After) window.v16After("scope");
+  });
   const ex=el.querySelector("#scExport"); if (ex) ex.addEventListener("click",exportScopeSummary);
   const sel=el.querySelector("#scPvSel"); if (sel) sel.addEventListener("change",()=>{ scPvDoc=+sel.value; scPvPage=1; renderScPreview(); });
   const pp=el.querySelector("#pvPrev"); if (pp) pp.addEventListener("click",()=>{ scPvPage=Math.max(1,scPvPage-1); renderScPreview(); });
@@ -4422,7 +4482,8 @@ function buildBar(tab){
   const pj=pjMeta(); const num=pj?.number||S.project?.projectNumber||"";
   const isLog=LOGTABS.includes(tab);
   bar.style.display = tab==="projects"? "none":"flex";
-  bar.innerHTML=`<span class="bc">${e16(SECTION[tab]||"")} / <b>${e16(num||"—")}</b></span>
+  const mCl=S.project?.clientName||"", mSt=S.project?.siteAddress||"";
+  bar.innerHTML=`<span class="bc">${e16(SECTION[tab]||"")} / <b>${e16(num||"—")}</b>${mCl?` <span style="color:#94a3b8">· ${e16(mCl.slice(0,26))}${mSt?" · "+e16(mSt.slice(0,32)):""}</span>`:""}</span>
     ${isLog?`<select class="bhsw" id="bhSw">${S.boreholes.map(b=>`<option ${b.id===S.activeBh?"selected":""}>${e16(b.id)}</option>`).join("")}</select>
       <button class="cbtn" id="cbAddBh">＋ Borehole</button>`:""}
     ${tab==="dashboard"?`<button class="cbtn" id="cbProp">⛭ Upload Proposal</button>
@@ -4521,6 +4582,54 @@ window.v16After=function(tab){
 buildHeader();
 if (!applyHashRoute()) buildBar(S.activeTab||"projects");
 window.addEventListener("hashchange",applyHashRoute);
+})();
+</script>
+<script id="v17-master">
+"use strict";
+/* ============ Master record locking + audit trail ============ */
+(function(){
+const e17=s=>String(s??"").replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/"/g,"&quot;");
+const LOCKED=["projectNumber","clientName","siteAddress"];
+function lockFields(){
+  if (!S.masterLock || !S.masterLock.locked) return;
+  for (const k of LOCKED){
+    const el=document.querySelector(`#page-project [data-p="${k}"]`);
+    if (!el || el.dataset.locked) continue;
+    el.dataset.locked="1"; el.readOnly=true; el.style.background="#f1f5f9"; el.title="Locked by approved scope baseline";
+    const btn=document.createElement("button"); btn.type="button"; btn.textContent="🔒";
+    btn.title="Locked by the approved scope baseline. Click to edit — a reason is required and the change is audited.";
+    btn.style.cssText="margin-left:6px;border:none;background:none;cursor:pointer;font-size:13px";
+    el.after(btn);
+    btn.addEventListener("click",()=>{
+      const reason=prompt(`"${k}" is locked (approved scope baseline, ${new Date(S.masterLock.at).toLocaleDateString()}).\nEnter the reason for this change (recorded in the audit trail):`);
+      if (!reason) return;
+      const old=el.value;
+      el.readOnly=false; el.style.background="#fff7ed"; el.focus(); btn.textContent="🔓";
+      el.addEventListener("change",()=>{
+        (S.masterAudit=S.masterAudit||[]).unshift({field:k, old, new:el.value, reason,
+          user:S.project.loggedBy||"", ts:new Date().toISOString()});
+        try{ save(); }catch(e){ localStorage.setItem("autosoil-logger", JSON.stringify(S)); }
+      },{once:true});
+    });
+  }
+}
+const _st17=showTab;
+showTab=function(tab){ _st17(tab); if (tab==="project") setTimeout(lockFields,30); };
+/* extend Project History with master-record audit + scope baseline versions */
+const _rh17=window.renderHistory;
+window.renderHistory=function(){
+  if (_rh17) _rh17();
+  const el=document.getElementById("page-history"); if (!el) return;
+  const aud=S.masterAudit||[]; const ver=S.scopeVersions||[];
+  el.insertAdjacentHTML("beforeend",
+    `<div class="sc-card"><h3>Master record audit trail ${S.masterLock?.locked?'<span class="tag">LOCKED BASELINE</span>':""}</h3>
+      ${aud.map(a=>`<div class="qrow"><span style="color:#64748b;white-space:nowrap">${new Date(a.ts).toLocaleString()}</span>
+        <b>${e17(a.field)}</b> "${e17(a.old||"—")}" → "${e17(a.new)}" <span style="color:#64748b">· ${e17(a.reason)} · ${e17(a.user||"")}</span></div>`).join("")
+        ||'<div style="font-size:12.5px;color:#64748b">No master-record edits yet.</div>'}</div>
+    <div class="sc-card"><h3>Scope baseline versions</h3>
+      ${ver.map(v=>`<div class="qrow"><b>v${v.v}</b> <span style="color:#64748b">${new Date(v.ts).toLocaleString()} · ${v.accepted} accepted item(s) · ${e17(v.meta?.projectNumber||"")}</span></div>`).join("")
+        ||'<div style="font-size:12.5px;color:#64748b">No approved baselines yet — approve a scope to create v1.</div>'}</div>`);
+};
 })();
 </script>
 <script id="v15-daily">
