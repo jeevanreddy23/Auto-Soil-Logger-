@@ -4648,6 +4648,59 @@ window.renderHistory=function(){
 };
 })();
 </script>
+<script id="v18-field-import">
+"use strict";
+/* ============ Import field-created projects into the web portfolio ============ */
+(function(){
+const e18=s=>String(s??"").replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/"/g,"&quot;");
+function knownKeys(){
+  const ks=new Set();
+  try{ for (const p of PJ.projects){ ks.add(p.syncKey||("__project_"+p.pid+"__")); } }catch(e){}
+  ks.add("__autosoil_project__");
+  return ks;
+}
+async function fieldProjects(){
+  try{
+    const res=await fetch(SYNC_URL, { headers: (typeof syncHeaders==="function"? syncHeaders():{}) });
+    if (!res.ok) return [];
+    const data=await res.json(); const all=data.boreholes||{}; const known=knownKeys();
+    return Object.entries(all)
+      .filter(([k,v])=>k.startsWith("__project_") && !known.has(k) && v?.rows?.[0]?.project?.projectNumber)
+      .map(([k,v])=>{ const r=v.rows[0];
+        return { key:k, number:r.project.projectNumber, name:r.project.projectName||"", client:r.project.clientName||"",
+          address:r.project.siteAddress||"", bh:(r.boreholes||[]).length, row:r }; });
+  }catch(e){ return []; }
+}
+function importField(fp){
+  const pid="p_"+Math.random().toString(36).slice(2,8);
+  PJ.projects.unshift({ pid, number:fp.number, name:fp.name||fp.client||"Field project", client:fp.client,
+    address:fp.address, pm:"", status:"active", types:[], scope:"", team:"", dates:"", syncKey:fp.key,
+    updated:new Date().toISOString(), activity:[{ts:new Date().toISOString(), msg:"Imported from field app"}] });
+  const st=fp.row;
+  st.activeTab=st.activeTab||"dashboard"; st.logs=st.logs||{}; st.boreholes=st.boreholes||[];
+  localStorage.setItem("autosoil-prj-"+pid, JSON.stringify(st));
+  pjSave();
+  pjOpen(pid);
+}
+const _rp18=renderProjects;
+renderProjects=function(){
+  _rp18();
+  fieldProjects().then(list=>{
+    if (!list.length) return;
+    const page=document.getElementById("page-projects"); if (!page || !page.classList.contains("show")) return;
+    if (page.querySelector("#fldImp")) return;
+    const dv=document.createElement("div"); dv.id="fldImp";
+    dv.innerHTML=`<div class="sc-card" style="max-width:860px;margin:12px auto"><h3>📱 From the field — not yet in this portfolio</h3>
+      ${list.map((f,i)=>`<div class="qrow"><b>${e18(f.number)}</b> <span style="color:#64748b">${e18(f.name||f.client)} · ${f.bh} BH · ${e18(f.address.slice(0,40))}</span>
+        <button class="sc-btn pri" data-fimp="${i}" style="margin-left:auto">Import →</button></div>`).join("")}
+      <div style="font-size:11.5px;color:#64748b;margin-top:6px">Created on the STS GeoFlow field app. Importing keeps the same sync key — phone and web stay linked.</div></div>`;
+    page.appendChild(dv);
+    dv.querySelectorAll("[data-fimp]").forEach(b=>b.addEventListener("click",()=>importField(list[+b.dataset.fimp])));
+  });
+};
+if (S.activeTab==="projects") renderProjects();
+})();
+</script>
 <script id="v15-daily">
 "use strict";
 /* ============ MODULE: Daily Site Progress Email ============ */

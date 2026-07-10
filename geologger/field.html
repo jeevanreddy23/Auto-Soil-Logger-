@@ -212,7 +212,7 @@ async function doSync(manual){
       const all = data.boreholes||{};
       /* refresh remote project directory for the picker */
       PROJECTS_CACHE = Object.entries(all)
-        .filter(([k])=>k==="__autosoil_project__"||k.startsWith("__project_"))
+        .filter(([k,v])=>(k==="__autosoil_project__"||k.startsWith("__project_")) && v?.rows?.[0]?.project?.projectNumber)
         .map(([k,v])=>{ const p=v?.rows?.[0]?.project||{};
           return { key:k, number:p.projectNumber||"(no number)", name:p.projectName||"", client:p.clientName||"", address:p.siteAddress||"" }; });
       localStorage.setItem("geoflow-remote-projects", JSON.stringify(PROJECTS_CACHE));
