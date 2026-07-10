@@ -1229,7 +1229,7 @@ pullSync();
 "use strict";
 /* ================= COREBOX v2 — row-calibrated AS 1726 defect logging ================= */
 const CB_GROUPS = {
-  joint: { label:"Discontinuities", color:"#e6194b", codes:{BP:"Bedding parting",JT:"Joint"} },
+  joint: { label:"Discontinuities", color:"#e6194b", codes:{BP:"Bedding parting","BP-M":"Multiple bedding partings",JT:"Joint",MJ:"Multiple joints",JS:"Joint set"} },
   seam:  { label:"Seams", color:"#f58231", codes:{CS:"Clay seam",QS:"Quartz seam",FS:"Fissure seam",IS:"Infilled seam"} },
   zone:  { label:"Zones", color:"#911eb4", codes:{SZ:"Sheared zone",FZ:"Fracture zone",CZ:"Crushed zone",BZ:"Breccia zone",XWZ:"Extremely weathered zone",HWZ:"Highly weathered zone",MWZ:"Moderately weathered zone"} },
   brk:   { label:"Breaks", color:"#4363d8", codes:{NB:"Natural break",MB:"Mechanical break",DB:"Drilling break",CL:"Core loss",V:"Void"} },
@@ -1296,6 +1296,8 @@ function coreMetrics() {
   const len = list => list.reduce((s,[a,b])=>s+(b-a),0);
   const loss = merge([...iv("CL"),...iv("VD"),...iv("V")]);
   const crushed = merge(["SZ","FZ","CZ","BZ"].flatMap(iv));
+  /* grouped closely-spaced defects: recovered core, but pieces <100 mm → excluded from RQD sound length */
+  const fractured = merge(["MJ","JS","BP-M"].flatMap(iv));
   const lossLen = len(loss), crushLen = len(crushed);
   // breaks that split core: joints, seams, NB (+MB/DB only if enabled)
   const breakCodes = ["BP","PL","CU","IR","CS","QS","FS","IS","NB", ...(cb().includeMB?["MB","DB"]:[])];
@@ -1308,8 +1310,12 @@ function coreMetrics() {
     if (loss.some(([x,y])=>mid>=x&&mid<=y)) continue; // core loss not a piece
     pieces++;
     const inCrush = crushed.some(([x,y])=>mid>=x&&mid<=y);
-    if (!inCrush && (b-a)>0.1) sound += (b-a);
+    const inFrac = fractured.some(([x,y])=>mid>=x&&mid<=y);
+    if (!inCrush && !inFrac && (b-a)>0.1) sound += (b-a);
   }
+  /* grouped defects contribute their joint count to fracture frequency */
+  for (const d of D) if (["MJ","JS","BP-M"].includes(d.code) && d.countRqd!==false)
+    natCount += Math.max(1, (parseInt(d.count)||2) - 1);
   return { from:rg.from, to:rg.to, pieces,
     tcr: Math.max(0,Math.min(100,Math.round((runLen-lossLen)/runLen*100))),
     scr: Math.max(0,Math.min(100,Math.round((runLen-lossLen-crushLen)/runLen*100))),
@@ -2262,7 +2268,7 @@ function renderCorebox() {
   const nDef = c.defects.filter(d=>CODE_INFO[d.code]?.group!=="zone"&&!["CL","VD"].includes(d.code)).length;
   const nZone = c.defects.filter(d=>CODE_INFO[d.code]?.group==="zone").length;
   const nSeam = c.defects.filter(d=>CODE_INFO[d.code]?.group==="seam").length;
-  const TOOLS = [["V","Select","select"],["B","BP","BP"],["J","JT","JT"],
+  const TOOLS = [["V","Select","select"],["B","BP","BP"],["J","JT","JT"],["D","Multi▾","menu:joint"],
     ["S","Seam ▾","menu:seam"],["Z","Zone ▾","menu:zone"],["K","Break ▾","menu:brk"]];
   page.innerHTML = `
   <div class="cb3-head">
@@ -2393,7 +2399,11 @@ function renderCorebox() {
     const info=CODE_INFO[d.code]||{}, g=info.group;
     const thk=num(d.to)!=null?Math.max(0,num(d.to)-num(d.from)):0;
     let core="";
-    if (g==="joint") core = fld("Orientation °","orientation",ORIENT2,d)+fld("Shape","shape",SHAPE2,d)+fld("Persistence","persistence",PERSIST2,d)+fld("Aperture","apertureThk",APER_THK,d)+fld("Roughness","roughness",ROUGH2,d)+fld("Infill","infill",INFILL2,d);
+    if (g==="joint") { core = fld("Orientation °","orientation",ORIENT2,d)+fld("Shape","shape",SHAPE2,d)+fld("Persistence","persistence",PERSIST2,d)+fld("Aperture","apertureThk",APER_THK,d)+fld("Roughness","roughness",ROUGH2,d)+fld("Infill","infill",INFILL2,d);
+      if (["MJ","JS","BP-M"].includes(d.code)) core =
+        `<div class="fld2"><label>No. of ${d.code==="BP-M"?"partings":"joints"}</label><input data-ek="count" type="number" min="2" step="1" value="${esc(d.count||"")}"></div>
+         <div class="fld2"><label>Spacing (e.g. 40–60 mm)</label><input data-ek="spacing" value="${esc(d.spacing||"")}"></div>` + core;
+    }
     else if (g==="seam") core = `<div class="fld2"><label>Thickness</label><b>${Math.round(thk*1000)} mm</b>${thk>0.10?` <a id="cvtZone" style="color:var(--og-warn);cursor:pointer;font-size:11px">— exceeds 100 mm. Convert to zone?</a>`:""}</div>`+fld("Infill","infill",INFILL2,d)+fld("Infill hardness","infillHard",INFILL_HARD,d);
     else if (g==="zone") core = `<div class="fld2"><label>Thickness</label><b>${thk.toFixed(2)} m</b></div>`+fld("Weathering","weatherZone",WEATHERING,d)+fld("Strength","strengthZone",STRENGTH,d)+fld("Infill","infill",INFILL2,d);
     else core = fld("Comments","comments",null,d);
@@ -2757,7 +2767,7 @@ function syncCoreboxMetrics(silent) {
       if (unit._cbunit) { unit.from=m.from; unit.to=m.to; }
       unit.tcr=m.tcr; unit.scr=m.scr; unit.rqd=m.rqd;
     }
-    const typeMap = {BP:"Bedding parting",JT:"Joint",PL:"Joint",CU:"Joint",IR:"Joint",CS:"Clay seam",QS:"Infilled seam",FS:"Infilled seam",IS:"Infilled seam",
+    const typeMap = {BP:"Bedding parting","BP-M":"Bedding parting",JT:"Joint",MJ:"Joint",JS:"Joint",PL:"Joint",CU:"Joint",IR:"Joint",CS:"Clay seam",QS:"Infilled seam",FS:"Infilled seam",IS:"Infilled seam",
       SZ:"Sheared seam",FZ:"Fracture zone",CZ:"Crushed seam",BZ:"Crushed seam",XWZ:"Fracture zone",HWZ:"Fracture zone",MWZ:"Fracture zone",SWZ:"Fracture zone",
       NB:"Natural break",MB:"Mechanical break",DB:"Drilling break",CL:"Core loss",VD:"Void",V:"Void"};
     for (const d of D) {
@@ -2767,7 +2777,7 @@ function syncCoreboxMetrics(silent) {
       let row = L.rock.find(r=>r._cbid===d.id);
       if (!row) { row = blankRock(); row._cbid = d.id; L.rock.push(row); }
       row.from = Math.round(f*100)/100;
-      row.to = (info.group==="zone"||["CL","VD","V"].includes(d.code)) ? Math.round(t*100)/100 : Math.round(f*100)/100;
+      row.to = (info.group==="zone"||["CL","VD","V","MJ","JS","BP-M"].includes(d.code)) ? Math.round(t*100)/100 : Math.round(f*100)/100;
       row.rockType = row.rockType || (unit? unit.rockType : "");
       row.defectType = typeMap[d.code]||"Joint";
       row.defectAngle = d.orientation||"";
@@ -2775,6 +2785,19 @@ function syncCoreboxMetrics(silent) {
       row.defectInfill = d.infill && d.infill!=="None" ? d.infill.toLowerCase() : "";
       row.defectAperture = (d.apertureThk||"").split(" — ")[1]||"";
       row.defectPersist = (d.persistence||"").split(" — ")[0]||"";
+      if (["MJ","JS","BP-M"].includes(d.code)) {
+        /* grouped-defect wording: "MJ: 5 joints over 0.30 m, spacing 40–60 mm, 0–10°, PL–RO, CL" */
+        const span = t>f ? (t-f) : 0;
+        const noun = d.code==="BP-M" ? "bedding partings" : (d.code==="JS" ? "joints (set)" : "joints");
+        row.remarks = `${d.code}: ${d.count||"multiple"} ${noun}`
+          + (span? ` over ${span.toFixed(2)} m` : "")
+          + (d.spacing? `, spacing ${d.spacing}` : "")
+          + (d.orientation? `, ${d.orientation}°` : "")
+          + (d.shape? `, ${String(d.shape).split(" — ")[0]}` : "")
+          + ((d.roughness||"").split(" — ")[0]? `–${String(d.roughness).split(" — ")[0]}` : "")
+          + (d.infill && d.infill!=="None"? `, ${d.infill}` : "")
+          + (d.comments? ` — ${d.comments}` : "") + " (corebox)";
+      } else
       row.remarks = `${d.code}${d.shape?" "+String(d.shape).split(" — ")[0]:""}${d.comments?" — "+d.comments:""} (corebox)`;
     }
     L.rock.sort((a,b)=>(num(a.from)??999)-(num(b.from)??999));
