@@ -2268,6 +2268,7 @@ function renderCorebox() {
   const nDef = c.defects.filter(d=>CODE_INFO[d.code]?.group!=="zone"&&!["CL","VD"].includes(d.code)).length;
   const nZone = c.defects.filter(d=>CODE_INFO[d.code]?.group==="zone").length;
   const nSeam = c.defects.filter(d=>CODE_INFO[d.code]?.group==="seam").length;
+  if (typeof cb2Code!=="undefined" && ["PL","CU","IR"].includes(cb2Code)) cb2Code="JT";  /* legacy shape-codes retired in v6 */
   const TOOLS = [["V","Select","select"],["B","BP","BP"],["J","JT","JT"],["D","Multi▾","menu:joint"],
     ["S","Seam ▾","menu:seam"],["Z","Zone ▾","menu:zone"],["K","Break ▾","menu:brk"]];
   page.innerHTML = `
@@ -2287,7 +2288,7 @@ function renderCorebox() {
         if (act.startsWith("menu:")) { const g=act.slice(5), G=CB_GROUPS[g];
           const on = CODE_INFO[cb2Code]?.group===g && !["BP","JT"].includes(cb2Code);
           return `<div class="cb3-tool"><button class="${on?"on":""}" style="${on?`background:${G.color}`:""}" title="${G.label} (${key})">${on?cb2Code+" ▾":label}</button>
-            <div class="cb3-menu">${Object.entries(G.codes).map(([cd,nm])=>`<div data-pick="${cd}"><b style="color:${CODE_INFO[cd].color}">${cd}</b> — ${nm}</div>`).join("")}</div></div>`; }
+            <div class="cb3-menu">${Object.entries(G.codes).filter(([cd])=>g!=="joint"||["MJ","JS","BP-M"].includes(cd)).map(([cd,nm])=>`<div data-pick="${cd}"><b style="color:${CODE_INFO[cd].color}">${cd}</b> — ${nm}</div>`).join("")}</div></div>`; }
         const on = act==="select"? cb2Mode==="pan" : cb2Code===act && cb2Mode==="mark";
         return `<div class="cb3-tool"><button data-act="${act}" class="${on?"on":""}" style="${on&&act!=="select"?`background:${CODE_INFO[act]?.color}`:on?"background:var(--og-blue)":""}" title="${act==="select"?"Select / pan (V)":CODE_INFO[act]?.name+" ("+key+")"}">${label}</button></div>`;
       }).join("")}
