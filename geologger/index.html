@@ -2928,7 +2928,7 @@ function sptLine2(t2){
   const refused = t2.refusal || String(t2.n).toUpperCase()==="R";
   const pen = (String(t2.remarks||"").match(/\d+\s*\/\s*\d+\s*mm/)||[])[0];
   let blows = parts.join(",");
-  if (refused && pen) blows = (parts.length>1? parts.slice(0,-1).join(",")+"," : "") + pen.replace(/\s*\/\s*/, "/").replace(/mm$/,"") + " mm";
+  if (refused && pen) blows = (parts.length>1? parts.slice(0,-1).join(",")+"," : "") + pen.replace(/\s*\/\s*/, "/").replace(/\s*mm$/,"") + " mm";
   return `${blows}${blows&&hb?" HB":hb?"HB":""} ${refused?"N=R":`N=${t2.n||calcN(t2)||"-"}`}`.trim();
 }
 
