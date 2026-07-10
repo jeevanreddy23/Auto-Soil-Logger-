@@ -4728,6 +4728,165 @@ window.renderHistory=function(){
 };
 })();
 </script>
+<script id="v19-quickentry">
+"use strict";
+/* ============ Prompt 22 Part BB — Quick Entry shorthand parser ============ */
+(function(){
+const eQ=s=>String(s??"").replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/"/g,"&quot;");
+const uidQ=()=>Math.random().toString(36).slice(2,9);
+const USCS=["CL","CI","CH","ML","MI","MH","SP","SW","SM","SC","GP","GW","GM","GC","OL","OH","PT"];
+const MATS=[["silty clay","Silty CLAY"],["sandy clay","Sandy CLAY"],["gravelly clay","Gravelly CLAY"],
+  ["clayey sand","Clayey SAND"],["silty sand","Silty SAND"],["gravelly sand","Gravelly SAND"],
+  ["clayey gravel","Clayey GRAVEL"],["sandy gravel","Sandy GRAVEL"],["silty gravel","Silty GRAVEL"],
+  ["clayey silt","Clayey SILT"],["sandy silt","Sandy SILT"],
+  ["clay","CLAY"],["silt","SILT"],["sand","SAND"],["gravel","GRAVEL"],["topsoil","TOPSOIL"],["fill","FILL"]];
+const CONS_W=["very soft","soft","firm","stiff","very stiff","hard","very loose","loose","medium dense","dense","very dense"];
+const PLAST_W=["non-plastic","low to medium","medium to high","low","medium","high"];
+const COLW=["pale","dark","light","mottled","and","brown","grey","gray","orange","red","yellow","black","white","cream","red-brown","orange-brown","grey-brown","pale-grey","dark-grey","blue"];
+const DCODES={BPM:"BP-M","BP-M":"BP-M",MJ:"MJ",JS:"JS",BP:"BP",JT:"JT",J:"JT",SZ:"SZ",SS:"SZ",FZ:"FZ",CZ:"CZ",BZ:"BZ",DZ:"DZ",
+  XWZ:"XWZ",HWZ:"HWZ",MWZ:"MWZ",CS:"CS",QS:"QS",FS:"FS",IS:"IS",NB:"NB",MB:"MB",HB:"HB",DB:"DB",CL:"CL",V:"V"};
+const SHAPES={PR:"PL",PL:"PL",CU:"CU",ST:"ST",UN:"UN",IR:"IR"};
+const ROUGH={RO:"RO",SM:"SM",VR:"VR",SL:"SL",PO:"PO"};
+const INFILL=["CN","FE","CLAY","CAL","QTZ","SN","VN","SI","SA","CARB"];
+
+function qeParse(input){
+  const txt=String(input||"").trim().replace(/[–—]/g,"-");
+  if (!txt) return null;
+  const un=[];   /* unrecognised tokens → uncertainty highlights */
+
+  /* --- core run: "Run 2 8.10-10.00 rec 1.90 rqd 1.71 water 95%" --- */
+  let m=/^run\s*(\d+)?\s+(\d+(?:\.\d+)?)\s*-\s*(\d+(?:\.\d+)?)(.*)$/i.exec(txt);
+  if (m){
+    const from=+m[2], to=+m[3], rest=m[4]||"";
+    const rec=(/rec(?:overed)?\s*(\d+(?:\.\d+)?)/i.exec(rest)||[])[1];
+    const rqdL=(/rqd\s*(\d+(?:\.\d+)?)/i.exec(rest)||[])[1];
+    const fl=(/(?:water|flush)\s*(\d+)\s*%?/i.exec(rest)||[])[1];
+    const len=to-from;
+    return { kind:"run", run:m[1]?+m[1]:null, from, to,
+      rec:rec?+rec:null, rqdLen:rqdL?+rqdL:null, flush:fl?+fl:null,
+      tcr: rec&&len>0? Math.round(+rec/len*100):null,
+      rqd: rqdL&&len>0? Math.round(+rqdL/len*100):null, un };
+  }
+  /* --- defect: "8.26 BP 0 PR RO CN" · "8.20-8.85 BPM 20-60mm 0-5 PR RO CN" · "7.67-7.80 SZ" --- */
+  m=/^(\d+(?:\.\d+)?)(?:\s*-\s*(\d+(?:\.\d+)?))?\s+([A-Za-z-]{1,4})\b(.*)$/.exec(txt);
+  if (m && DCODES[m[3].toUpperCase()]){
+    const code=DCODES[m[3].toUpperCase()];
+    const d={ kind:"defect", code, from:+m[1], to:m[2]?+m[2]:null,
+      spacing:"", orientation:"", shape:"", roughness:"", infill:"", count:null, un };
+    for (const tk of (m[4]||"").trim().split(/[\s,]+/).filter(Boolean)){
+      const T=tk.toUpperCase();
+      if (/^\d+(-\d+)?MM$/.test(T)) d.spacing=T.replace("MM"," mm").toLowerCase().replace(/^/,"").replace("-","–");
+      else if (/^\d+(-\d+)?°?$/.test(T)) d.orientation=T.replace("°","");
+      else if (/^X?\d+$/.test(T)&&!d.count&&["BP-M","MJ","JS"].includes(code)) d.count=parseInt(T.replace("X",""));
+      else if (SHAPES[T]) d.shape=SHAPES[T];
+      else if (ROUGH[T]) d.roughness=T;
+      else if (INFILL.includes(T)) d.infill=(d.infill?d.infill+" ":"")+(T==="FE"?"Fe":T==="CN"?"CN":T.charAt(0)+T.slice(1).toLowerCase());
+      else un.push(tk);
+    }
+    return d;
+  }
+  /* --- soil interval: "0.00-0.30 TOPSOIL silty clay low plasticity dark brown trace rootlets" --- */
+  m=/^(\d+(?:\.\d+)?)\s*-\s*(\d+(?:\.\d+)?)\s+(.*)$/.exec(txt);
+  if (m){
+    const s={ kind:"soil", from:+m[1], to:+m[2], origin:"", material:"", uscs:"", plasticity:"",
+      consistency:"", moisture:"", colour:"", extras:[], un };
+    let rest=" "+m[3].toLowerCase()+" ";
+    const take=(re)=>{ const mm=re.exec(rest); if (mm){ rest=rest.replace(mm[0]," "); return mm[1]??mm[0]; } return ""; };
+    if (take(/\btopsoil\b/)) s.origin="TOPSOIL";
+    if (take(/\bfill\b/)) s.origin=s.origin||"FILL";
+    for (const [k,v] of MATS){ if (k==="topsoil"||k==="fill") continue;
+      if (rest.includes(" "+k+" ")){ s.material=v; rest=rest.replace(" "+k+" "," "); break; } }
+    const cls=(m[3].match(/\b(CL-CI|CI-CH|[A-Z]{2})\b/)||[])[1];
+    if (cls && (USCS.includes(cls)||/^(CL-CI|CI-CH)$/.test(cls))){ s.uscs=cls; rest=rest.replace(cls.toLowerCase()," "); }
+    for (const p of PLAST_W){ const re=new RegExp("\\b"+p+"(\\s+plasticity)?\\b");
+      if (re.test(rest)){ s.plasticity=p+(p==="non-plastic"?"":" plasticity"); rest=rest.replace(re," "); break; } }
+    for (const c of CONS_W){ if (rest.includes(" "+c+" ")){ s.consistency=c; rest=rest.replace(" "+c+" "," "); break; } }
+    const mo=/\b(m\s*[<>≈~]\s*pl|w\s*>\s*pl|dry|moist|wet|saturated)\b/.exec(rest);
+    if (mo){ s.moisture=mo[1].replace(/\s+/g,"").toUpperCase().replace("~","≈"); if (["DRY","MOIST","WET","SATURATED"].includes(s.moisture)) s.moisture=s.moisture.toLowerCase(); rest=rest.replace(mo[0]," "); }
+    /* trace / with clauses */
+    let tm; const tRe=/\b(trace|with)\s+([a-z\- ]+?)(?=\s+(?:trace|with)\b|\s*$)/g;
+    while ((tm=tRe.exec(rest))) s.extras.push(tm[1]+" "+tm[2].trim());
+    rest=rest.replace(/\b(trace|with)\s+([a-z\- ]+?)(?=\s+(?:trace|with)\b|\s*$)/g," ");
+    /* colours from what remains */
+    const colToks=rest.split(/\s+/).filter(Boolean);
+    const cols=[], leftover=[];
+    for (const tk of colToks) (COLW.includes(tk)? cols:leftover).push(tk);
+    s.colour=cols.join(" ").replace(/\bgray\b/,"grey");
+    for (const lf of leftover) un.push(lf);
+    return s;
+  }
+  return { kind:"unknown", un:[txt] };
+}
+function qeDesc(s){
+  const parts=[];
+  if (s.plasticity) parts.push(s.plasticity);
+  if (s.colour) parts.push(s.colour);
+  let out=(s.origin?s.origin+": ":"")+(s.material||"?")+": "+parts.join(", ");
+  if (s.extras.length) out+=(parts.length?", ":"")+s.extras.join(", ");
+  return out;
+}
+function qeSave(p){
+  const bh=S.activeBh; if (!bh){ alert("Select a borehole first."); return; }
+  const L=S.logs[bh];
+  if (p.kind==="soil"){
+    L.soil.push({ from:p.from, to:p.to, material:p.material||"", secondary:"", colour:p.colour, moisture:p.moisture,
+      consistency:p.consistency, plasticity:p.plasticity.replace(" plasticity",""), structure:"", origin:p.origin.toLowerCase(),
+      inclusions:p.extras.join(", "), fillNatural:p.origin==="FILL"?"FILL":(p.origin==="TOPSOIL"?"":"NATURAL"),
+      uscs:p.uscs, description:qeDesc(p), descTouched:true, samples:"", sptN:"", dcp:"", envNotes:"",
+      remarks:p.un.length?("unparsed: "+p.un.join(" ")):"" });
+    L.soil.sort((a,b)=>(num(a.from)??999)-(num(b.from)??999));
+  } else if (p.kind==="defect"){
+    if (!L.corebox) L.corebox={img:null,rows:[],defects:[]};
+    (L.corebox.defects=L.corebox.defects||[]).push({ id:uidQ(), code:p.code, from:p.from,
+      to:p.to??p.from, orientation:p.orientation, shape:p.shape, roughness:p.roughness, infill:p.infill,
+      spacing:p.spacing, count:p.count, comments:p.un.join(" "), countRqd:!["MB","DB","HB"].includes(p.code), confirmed:true });
+    try{ syncCoreboxMetrics(true); }catch(e){}
+  } else if (p.kind==="run"){
+    const row=blankRock();
+    row.from=p.from; row.to=p.to; row.tcr=p.tcr??""; row.rqd=p.rqd??"";
+    row.remarks=`Run${p.run?" "+p.run:""}${p.rec!=null?`, rec ${p.rec} m`:""}${p.flush!=null?`, ${p.flush}% water return`:""}`;
+    L.rock.push(row); L.rock.sort((a,b)=>(num(a.from)??999)-(num(b.from)??999));
+  }
+  save(); try{ renderAll(); }catch(e){}
+}
+function qeConfirm(p, done){
+  const rows=Object.entries(p).filter(([k,v])=>!["kind","un"].includes(k)&&v!==null&&v!==""&&!(Array.isArray(v)&&!v.length))
+    .map(([k,v])=>`<div class="qrow"><b style="min-width:90px">${eQ(k)}</b> ${eQ(Array.isArray(v)?v.join(" · "):v)}</div>`).join("");
+  const bg=document.createElement("div");
+  bg.style.cssText="position:fixed;inset:0;background:rgba(10,16,26,.45);z-index:120;display:flex;align-items:center;justify-content:center";
+  bg.innerHTML=`<div class="sc-card" style="width:min(480px,92vw);max-height:80vh;overflow:auto">
+    <h3>Confirm parsed entry — ${eQ(p.kind).toUpperCase()}${p.kind==="soil"?` → “${eQ(qeDesc(p))}”`:""}</h3>
+    ${rows||'<div class="qrow">Nothing recognised.</div>'}
+    ${p.un&&p.un.length?`<div class="sc-warn">⚠ Not understood (saved to remarks): ${eQ(p.un.join(" "))}</div>`:""}
+    <div style="display:flex;gap:8px;margin-top:10px">
+      <button class="sc-btn pri" id="qeOk" ${p.kind==="unknown"?"disabled":""}>Confirm & save</button>
+      <button class="sc-btn" id="qeNo">Cancel</button></div></div>`;
+  document.body.appendChild(bg);
+  bg.addEventListener("click",e=>{ if (e.target===bg) bg.remove(); });
+  bg.querySelector("#qeNo").addEventListener("click",()=>bg.remove());
+  bg.querySelector("#qeOk").addEventListener("click",()=>{ bg.remove(); done(p); });
+}
+function injectBar(tab){
+  if (!["soil","rock"].includes(tab)) return;
+  const page=document.getElementById("page-"+tab); if (!page || page.querySelector(".qeBar")) return;
+  const bar=document.createElement("div"); bar.className="qeBar";
+  bar.style.cssText="display:flex;gap:6px;align-items:center;background:#fff;border:1px solid #e2e8f0;border-radius:10px;padding:7px 10px;margin:0 0 10px";
+  bar.innerHTML=`<span style="font-size:11px;font-weight:700;color:#64748b;white-space:nowrap">⚡ QUICK ENTRY</span>
+    <input class="qeIn" placeholder='e.g. "0.30-2.00 CI silty clay stiff M<PL pale brown grey" · "8.26 BP 0 PR RO CN" · "Run 2 8.10-10.00 rec 1.90 rqd 1.71 water 95%"'
+      style="flex:1;border:1px solid #e2e8f0;border-radius:7px;padding:6px 10px;font-size:12.5px">
+    <button class="cbtn pri qeGo">Parse ⏎</button>`;
+  page.prepend(bar);
+  const inp=bar.querySelector(".qeIn");
+  const go=()=>{ const p=qeParse(inp.value); if (!p) return;
+    qeConfirm(p, pp=>{ qeSave(pp); inp.value=""; setTimeout(()=>injectBar(tab),50); }); };
+  bar.querySelector(".qeGo").addEventListener("click",go);
+  inp.addEventListener("keydown",e=>{ if (e.key==="Enter") go(); });
+}
+window.qeParse=qeParse;   /* exposed for tests */
+const _stQE=showTab;
+showTab=function(tab){ _stQE(tab); setTimeout(()=>injectBar(tab),80); };
+})();
+</script>
 <script id="v18-field-import">
 "use strict";
 /* ============ Import field-created projects into the web portfolio ============ */
