@@ -163,7 +163,7 @@ const ORIGIN = ["","fill","topsoil","alluvium","colluvium","residual","aeolian",
 const FILLNAT = ["","FILL","NATURAL"];
 const USCS = ["","GW","GP","GM","GC","SW","SP","SM","SC","ML","CL","CI","CH","MH","OL","OH","Pt"];
 const ROCK_TYPES = ["SANDSTONE","SHALE","SILTSTONE","MUDSTONE","LAMINITE","CONGLOMERATE","IRONSTONE","BASALT","TUFF","Ashfield Shale","Hawkesbury Sandstone","Bringelly Shale","Mittagong Formation"];
-const WEATHERING = ["","RS","XW","HW","MW","SW","FR"];
+const WEATHERING = ["","RS","XW","HW","DW","MW","SW","FR"];
 const STRENGTH = ["","VL","L","M","H","VH","EH"];
 const DEFECT_TYPES = ["","Joint","Bedding parting","Sheared seam","Clay seam","Crushed seam","Infilled seam","Fracture zone","Crushed zone","Drilling break","Natural break","Mechanical break","Core loss","Void"];
 const ROUGHNESS = ["","polished","slickensided","smooth","rough","very rough"];
@@ -1170,7 +1170,7 @@ function renderExport() {
     </div>
     <p class="hint" style="margin-top:12px">PDF follows Bentley OpenGround log layout: header block, depth scale, graphic log, AS 1726 descriptions, samples, SPT, TCR/SCR/RQD, defects, groundwater, legend and sheet numbers. Core photo appended when 'Corebox photos' is ticked for the borehole.</p>
   </div></div>`;
-  const dl = id => { const doc = buildPdf(id); doc.save(`${S.project.projectNumber||"AutoSoil"}_${id}_borehole_log.pdf`); };
+  const dl = id => { const doc = buildPdf(id); doc.save(`log-${id}.pdf`); };   /* issued naming: log-{HoleID}.pdf */
   if (!errs.length) {
     document.getElementById("expPdf").onclick = ()=>dl(S.activeBh);
     document.getElementById("expPdfAll").onclick = ()=>S.boreholes.forEach(b=>dl(b.id));
@@ -1231,8 +1231,8 @@ pullSync();
 const CB_GROUPS = {
   joint: { label:"Discontinuities", color:"#e6194b", codes:{BP:"Bedding parting","BP-M":"Multiple bedding partings",JT:"Joint",MJ:"Multiple joints",JS:"Joint set"} },
   seam:  { label:"Seams", color:"#f58231", codes:{CS:"Clay seam",QS:"Quartz seam",FS:"Fissure seam",IS:"Infilled seam"} },
-  zone:  { label:"Zones", color:"#911eb4", codes:{SZ:"Sheared zone",FZ:"Fracture zone",CZ:"Crushed zone",BZ:"Breccia zone",XWZ:"Extremely weathered zone",HWZ:"Highly weathered zone",MWZ:"Moderately weathered zone"} },
-  brk:   { label:"Breaks", color:"#4363d8", codes:{NB:"Natural break",MB:"Mechanical break",DB:"Drilling break",CL:"Core loss",V:"Void"} },
+  zone:  { label:"Zones", color:"#911eb4", codes:{SZ:"Sheared zone",FZ:"Fracture zone",CZ:"Crushed zone",BZ:"Breccia zone",DZ:"Defect zone",XWZ:"Extremely weathered zone",HWZ:"Highly weathered zone",MWZ:"Moderately weathered zone"} },
+  brk:   { label:"Breaks", color:"#4363d8", codes:{NB:"Natural break",MB:"Mechanical break",HB:"Handling break",DB:"Drilling break",CL:"Core loss",V:"Void"} },
 };
 const CODE_INFO = {};
 for (const g in CB_GROUPS) for (const c in CB_GROUPS[g].codes) CODE_INFO[c] = { group:g, name:CB_GROUPS[g].codes[c], color:CB_GROUPS[g].color };
@@ -1300,7 +1300,7 @@ function coreMetrics() {
   const fractured = merge(["MJ","JS","BP-M"].flatMap(iv));
   const lossLen = len(loss), crushLen = len(crushed);
   // breaks that split core: joints, seams, NB (+MB/DB only if enabled)
-  const breakCodes = ["BP","PL","CU","IR","CS","QS","FS","IS","NB", ...(cb().includeMB?["MB","DB"]:[])];
+  const breakCodes = ["BP","PL","CU","IR","CS","QS","FS","IS","NB", ...(cb().includeMB?["MB","DB","HB"]:[])];
   const breaks = D.filter(d=>breakCodes.includes(d.code)&&d.countRqd!==false&&num(d.from)!=null).map(d=>num(d.from)).sort((a,b)=>a-b);
   const pts = [rg.from, ...breaks.filter(d=>d>rg.from&&d<rg.to), ...loss.flat().filter(d=>d>rg.from&&d<rg.to), rg.to].sort((a,b)=>a-b);
   let sound=0, pieces=0, natCount=breaks.length;
@@ -1641,7 +1641,7 @@ function renderCorebox() {
     const d = { id: Math.random().toString(36).slice(2,9), code: cb2Code,
       from: Math.round(from*100)/100, to: isInterval? Math.round(to*100)/100 : Math.round(from*100)/100,
       orientation:"", persistence:"", aperture:"", apertureThk:"", roughness:"", shape:"", infill:"", infillHard:"",
-      weatherZone:"", strengthZone:"", comments:"", countRqd: !["MB","DB"].includes(cb2Code), confirmed:false };
+      weatherZone:"", strengthZone:"", comments:"", countRqd: !["MB","DB","HB"].includes(cb2Code), confirmed:false };
     if (info.group==="zone" && d.to-d.from<0.005) { setStatus(`${cb2Code} is a zone — drag across the interval`); cb2Drag=null; return; }
     c.defects.push(d); cb2Sel = d.id;
     save(); drawOverlays();
@@ -2770,7 +2770,7 @@ function syncCoreboxMetrics(silent) {
     }
     const typeMap = {BP:"Bedding parting","BP-M":"Bedding parting",JT:"Joint",MJ:"Joint",JS:"Joint",PL:"Joint",CU:"Joint",IR:"Joint",CS:"Clay seam",QS:"Infilled seam",FS:"Infilled seam",IS:"Infilled seam",
       SZ:"Sheared seam",FZ:"Fracture zone",CZ:"Crushed seam",BZ:"Crushed seam",XWZ:"Fracture zone",HWZ:"Fracture zone",MWZ:"Fracture zone",SWZ:"Fracture zone",
-      NB:"Natural break",MB:"Mechanical break",DB:"Drilling break",CL:"Core loss",VD:"Void",V:"Void"};
+      NB:"Natural break",MB:"Mechanical break",HB:"Mechanical break",DB:"Drilling break",DZ:"Fracture zone",CL:"Core loss",VD:"Void",V:"Void"};
     for (const d of D) {
       const f = num(d.from); if (f==null) continue;
       const info = CODE_INFO[d.code]||{group:"brk"};
@@ -2921,6 +2921,16 @@ function pdfHatch(doc, x, w, y1, y2, m) { /* B/W lithology patterns */
   }
 }
 function gwDepth(P,B){ const src=(B&&B.gwDepth)||P.groundwater||""; const m2=String(src).match(/(\d+(?:\.\d+)?)\s*m/); return m2? parseFloat(m2[1]) : null; }
+/* SPT second line per issued-log grammar: "2,3,4 N=7" · "35/150 mm HB N=R" · "20,31,17 HB N=48" */
+function sptLine2(t2){
+  const parts=[t2.b1,t2.b2,t2.b3].filter(v=>v!==""&&v!=null);
+  const hb = t2.hb || /\bHB\b/i.test(t2.remarks||"");
+  const refused = t2.refusal || String(t2.n).toUpperCase()==="R";
+  const pen = (String(t2.remarks||"").match(/\d+\s*\/\s*\d+\s*mm/)||[])[0];
+  let blows = parts.join(",");
+  if (refused && pen) blows = (parts.length>1? parts.slice(0,-1).join(",")+"," : "") + pen.replace(/\s*\/\s*/, "/").replace(/mm$/,"") + " mm";
+  return `${blows}${blows&&hb?" HB":hb?"HB":""} ${refused?"N=R":`N=${t2.n||calcN(t2)||"-"}`}`.trim();
+}
 
 function buildPdf(bhId) {
   const { jsPDF } = window.jspdf;
@@ -2945,11 +2955,21 @@ function buildPdf(bhId) {
   /* Calibri-equivalent face for title + header block (reference logs use Calibri/Calibri Light) */
   const CF = registerCarlito(doc) ? "carlito" : "helvetica";
   const APPROX = CF==="carlito" ? "≈" : "~";   /* real ≈ glyph once a unicode font is embedded */
+  /* T3 test-pit template: same visual language, pit terminology */
+  const isTP = /^(TP|PIT)/i.test(bhId) || B.holeType==="TP" || B.holeType==="Test pit";
+  const TITLE = isTP ? "TEST PIT LOG" : "BOREHOLE LOG";
+  const IDLBL = isTP ? "PIT ID:" : "BH ID:";
+  const isDraft = !(P.reviewBy || P.checkedBy);   /* DRAFT until Review By recorded */
 
   function vtext(t,x,y,fs){ doc.setFontSize(fs||T.colHead); doc.text(String(t), x, y, {angle:90}); }
   function header() {
     sheet++;
     doc.setTextColor(0); doc.setDrawColor(0);
+    if (isDraft) { /* watermark under all content */
+      doc.setTextColor(228); doc.setFont("helvetica","bold"); doc.setFontSize(96);
+      doc.text("DRAFT", 105, 185, { angle:45, align:"center" });
+      doc.setTextColor(0);
+    }
     doc.setLineWidth(LW.frame); doc.rect(MX, HY, RX-MX, bodyB-HY);   // outer frame full page block
     doc.setLineWidth(LW.section); doc.rect(MX, HY, RX-MX, HH);
     doc.rect(MX, HY, 44, 20);
@@ -2969,10 +2989,10 @@ function buildPdf(bhId) {
     doc.setTextColor(0);
     /* title cell 61–150 mm, BH ID cell 150–196 mm — fitted, never crossing */
     doc.setFont(CF,"normal");
-    doc.setFontSize(fitSize(doc, "BOREHOLE LOG", 86, T.title, 14));
-    doc.text("BOREHOLE LOG", 106, HY+13.5, {align:"center"});
+    doc.setFontSize(fitSize(doc, TITLE, 86, T.title, 14));
+    doc.text(TITLE, 106, HY+13.5, {align:"center"});
     doc.setFontSize(10);
-    doc.text("BH ID:", RX-1.5, HY+8, {align:"right"});
+    doc.text(IDLBL, RX-1.5, HY+8, {align:"right"});
     doc.setFontSize(fitSize(doc, bhId, 43, T.bhid, 10));
     doc.text(trimToW(doc, bhId, 43), RX-1.5, HY+16.5, {align:"right"});
     doc.setFont("helvetica","normal");
@@ -2982,7 +3002,7 @@ function buildPdf(bhId) {
       [["Client",P.clientName,MX+0.5,12,110],["Date",P.dateInvestigation||P.dateLogged,131.5,16,30]],
       [["Job No.",P.projectNumber,MX+0.5,12,110],["Logged By",P.loggedBy,131.5,16,16],["Review By",P.reviewBy||P.checkedBy,166,15,13]],
       [["Address",[P.siteAddress,P.suburb].filter(Boolean).join(", "),MX+0.5,12,110],["Location #",P.locationNo||P.lga,131.5,16,30]],
-      [["Drilling Contractor",P.drillingContractor,MX+0.5,27,52],["Surface RL",(B.rl||P.groundRL)?`${APPROX}${B.rl||P.groundRL} m (${P.datum||"AHD"})`:"—",100,16,32],["Drill Bit",P.drillBit,152,12,30]],
+      [[isTP?"Excavation Contractor":"Drilling Contractor",P.drillingContractor,MX+0.5,27,52],["Surface RL",(B.rl||P.groundRL)?`${APPROX}${B.rl||P.groundRL} m (${P.datum||"AHD"})`:"-",100,16,32],[isTP?"Pit Dimensions":"Drill Bit",isTP?(B.pitDims||P.pitDims||"-"):P.drillBit,152,12,30]],
       [["Plant",P.drillRig,MX+0.5,27,52],["Inclination",P.inclination?P.inclination+"°":"90°",100,16,32],["Hole Ø (mm)",P.holeDia,152,16,26]],
     ];
     let y=HY+24.3;
@@ -2990,7 +3010,7 @@ function buildPdf(bhId) {
       for (const [l,v,x,lw2,vw] of row) {
         doc.setFont(CF,"normal"); doc.text(l, x, y);          /* labels: Calibri Light in reference */
         doc.setFont(CF,"bold");                                 /* values: Calibri Bold in reference */
-        doc.text(trimToW(doc, String(v||"—"), vw||40), x+lw2, y);
+        doc.text(trimToW(doc, String(v||"-"), vw||40), x+lw2, y);   /* "-" for missing, per issued logs */
         doc.setFont("helvetica","normal");
       }
       y+=4.3;
@@ -3079,7 +3099,7 @@ function buildPdf(bhId) {
     doc.setFontSize(T.defect);
     let lastY=-99;
     const marks=[...L.samples.filter(s2=>num(s2.from)!=null).map(s2=>({d:num(s2.from),lines:[`${s2.sid||""}`]})),
-                 ...L.spt.filter(t2=>num(t2.depth)!=null).map(t2=>({d:num(t2.depth),lines:[`SPT ${num(t2.depth).toFixed(2)}${t2.recovery?"-"+(num(t2.depth)+num(t2.recovery)/1000).toFixed(2):""}`,`${[t2.b1,t2.b2,t2.b3].filter(v=>v!=="").join(",")} N=${t2.n||calcN(t2)}`]}))]
+                 ...L.spt.filter(t2=>num(t2.depth)!=null).map(t2=>({d:num(t2.depth),lines:[`SPT ${num(t2.depth).toFixed(2)}${t2.recovery?"-"+(num(t2.depth)+num(t2.recovery)/1000).toFixed(2):""}`, sptLine2(t2)]}))]
       .filter(m2=>m2.d>=d0&&m2.d<d0+10).sort((a,b)=>a.d-b.d);
     for (const m2 of marks) {
       const y=yOf(m2.d);
