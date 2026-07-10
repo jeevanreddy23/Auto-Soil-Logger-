@@ -6,5 +6,8 @@
   "assets": {
     "directory": "geologger",
     "binding": "ASSETS"
-  }
+  },
+  "kv_namespaces": [
+    { "binding": "GEOFLOW", "id": "f9c604a7cd24492fb826a45f7ed1c28a" }
+  ]
 }
