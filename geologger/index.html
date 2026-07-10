@@ -2819,6 +2819,37 @@ save = function() {
 const T = { title:22, bhid:24, metaL:8, metaV:8, colHead:5.6, desc:6.2, code:6, defect:5.8, depth:6, foot:6, sheet:9 };
 /* line-weight tokens */
 const LW = { frame:0.6, section:0.4, col:0.25, interval:0.18, tick:0.1 };
+/* ---- reference-font engine: Carlito is metric-compatible with Calibri (OFL licence).
+   Loaded once from CDN, cached, registered per-document. Falls back to helvetica. ---- */
+let _carlito = null;
+async function ensureCarlito(){
+  if (_carlito !== null) return _carlito;
+  async function get(url, key){
+    const c = localStorage.getItem(key); if (c) return c;
+    const buf = await fetch(url).then(r=>{ if (!r.ok) throw 0; return r.arrayBuffer(); });
+    let s=""; const a=new Uint8Array(buf);
+    for (let i=0;i<a.length;i+=8192) s+=String.fromCharCode.apply(null, a.subarray(i,i+8192));
+    const b64=btoa(s); try{ localStorage.setItem(key,b64); }catch(e){}
+    return b64;
+  }
+  try{
+    const [r,b] = await Promise.all([
+      get("https://cdn.jsdelivr.net/gh/google/fonts@main/ofl/carlito/Carlito-Regular.ttf","pdf-carlito-r"),
+      get("https://cdn.jsdelivr.net/gh/google/fonts@main/ofl/carlito/Carlito-Bold.ttf","pdf-carlito-b")
+    ]);
+    _carlito = { r, b };
+  }catch(e){ _carlito = false; }
+  return _carlito;
+}
+ensureCarlito();   /* warm the cache at load so the first export already has it */
+function registerCarlito(doc){
+  if (!_carlito) return false;
+  try{
+    doc.addFileToVFS("Carlito-Regular.ttf", _carlito.r); doc.addFont("Carlito-Regular.ttf","carlito","normal");
+    doc.addFileToVFS("Carlito-Bold.ttf", _carlito.b); doc.addFont("Carlito-Bold.ttf","carlito","bold");
+    return true;
+  }catch(e){ return false; }
+}
 /* ---- typography fitting engine: measure first, fit second, draw third ---- */
 function fitSize(doc, text, maxW, pref, min) {
   doc.setFontSize(pref);
@@ -2887,6 +2918,9 @@ function buildPdf(bhId) {
   const HY=17, HH=42, bandY=59, bandH=18, bodyY=77, bodyB=271, SC=1000/52;
   const GW = gwDepth(P,B);
   let sheet = 0, qaLogo = false;
+  /* Calibri-equivalent face for title + header block (reference logs use Calibri/Calibri Light) */
+  const CF = registerCarlito(doc) ? "carlito" : "helvetica";
+  const APPROX = CF==="carlito" ? "≈" : "~";   /* real ≈ glyph once a unicode font is embedded */
 
   function vtext(t,x,y,fs){ doc.setFontSize(fs||T.colHead); doc.text(String(t), x, y, {angle:90}); }
   function header() {
@@ -2910,28 +2944,30 @@ function buildPdf(bhId) {
     }
     doc.setTextColor(0);
     /* title cell 61–150 mm, BH ID cell 150–196 mm — fitted, never crossing */
-    doc.setFont("helvetica","normal");
+    doc.setFont(CF,"normal");
     doc.setFontSize(fitSize(doc, "BOREHOLE LOG", 86, T.title, 14));
     doc.text("BOREHOLE LOG", 106, HY+13.5, {align:"center"});
     doc.setFontSize(10);
     doc.text("BH ID:", RX-1.5, HY+8, {align:"right"});
     doc.setFontSize(fitSize(doc, bhId, 43, T.bhid, 10));
     doc.text(trimToW(doc, bhId, 43), RX-1.5, HY+16.5, {align:"right"});
+    doc.setFont("helvetica","normal");
     doc.setLineWidth(LW.section); doc.line(MX, HY+20, RX, HY+20);
     doc.setFontSize(T.metaL);
     const rows = [
       [["Client",P.clientName,MX+0.5,12,110],["Date",P.dateInvestigation||P.dateLogged,131.5,16,30]],
       [["Job No.",P.projectNumber,MX+0.5,12,110],["Logged By",P.loggedBy,131.5,16,16],["Review By",P.reviewBy||P.checkedBy,166,15,13]],
       [["Address",[P.siteAddress,P.suburb].filter(Boolean).join(", "),MX+0.5,12,110],["Location #",P.locationNo||P.lga,131.5,16,30]],
-      [["Drilling Contractor",P.drillingContractor,MX+0.5,27,52],["Surface RL",(B.rl||P.groundRL)?`~${B.rl||P.groundRL} m (${P.datum||"AHD"})`:"—",100,16,32],["Drill Bit",P.drillBit,152,12,30]],
+      [["Drilling Contractor",P.drillingContractor,MX+0.5,27,52],["Surface RL",(B.rl||P.groundRL)?`${APPROX}${B.rl||P.groundRL} m (${P.datum||"AHD"})`:"—",100,16,32],["Drill Bit",P.drillBit,152,12,30]],
       [["Plant",P.drillRig,MX+0.5,27,52],["Inclination",P.inclination?P.inclination+"°":"90°",100,16,32],["Hole Ø (mm)",P.holeDia,152,16,26]],
     ];
     let y=HY+24.3;
     for (const row of rows) {
       for (const [l,v,x,lw2,vw] of row) {
-        doc.setFont("helvetica","bold"); doc.text(l, x, y);
-        doc.setFont("helvetica","normal");
+        doc.setFont(CF,"normal"); doc.text(l, x, y);          /* labels: Calibri Light in reference */
+        doc.setFont(CF,"bold");                                 /* values: Calibri Bold in reference */
         doc.text(trimToW(doc, String(v||"—"), vw||40), x+lw2, y);
+        doc.setFont("helvetica","normal");
       }
       y+=4.3;
     }
