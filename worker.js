@@ -78,11 +78,54 @@ async function handleLogs(request, env) {
   return json({ error: "method not allowed" }, 405);
 }
 
+/* ---- file store: all project documents live in Cloudflare KV ----
+   POST /api/v1/files              {project, id?, name, kind, data(dataURL)} → {ok,id}
+   GET  /api/v1/files?project=X    → {files:[{id,name,kind,ts,size}]}  (metadata only)
+   GET  /api/v1/files?project=X&id=Y → {id,name,kind,ts,data}                     */
+const FPREFIX = "file:";
+async function handleFiles(request, env) {
+  if (!authorised(request, env)) return json({ error: "invalid api key" }, 401);
+  const url = new URL(request.url);
+  if (request.method === "GET") {
+    const project = url.searchParams.get("project") || "";
+    if (!project) return json({ error: "project required" }, 400);
+    const id = url.searchParams.get("id");
+    if (id) {
+      const raw = await env.GEOFLOW.get(FPREFIX + project + ":" + id);
+      return raw ? json(JSON.parse(raw)) : json({ error: "not found" }, 404);
+    }
+    const out = []; let cursor;
+    do {
+      const page = await env.GEOFLOW.list({ prefix: FPREFIX + project + ":", cursor });
+      for (const k of page.keys) {
+        const raw = await env.GEOFLOW.get(k.name);
+        if (raw) { try { const f = JSON.parse(raw);
+          out.push({ id: f.id, name: f.name, kind: f.kind, ts: f.ts, size: (f.data||"").length }); } catch (e) {} }
+      }
+      cursor = page.list_complete ? null : page.cursor;
+    } while (cursor);
+    return json({ files: out });
+  }
+  if (request.method === "POST") {
+    let body; try { body = await request.json(); } catch (e) { return json({ error: "invalid json" }, 400); }
+    const project = body && body.project, data = body && body.data;
+    if (!project || typeof project !== "string") return json({ error: "project required" }, 400);
+    if (!data || typeof data !== "string" || data.length > 20_000_000) return json({ error: "data missing or >20MB" }, 400);
+    const id = (body.id && String(body.id).slice(0, 80)) || crypto.randomUUID();
+    await env.GEOFLOW.put(FPREFIX + project + ":" + id,
+      JSON.stringify({ id, name: String(body.name||id).slice(0,180), kind: String(body.kind||"file").slice(0,40),
+        ts: new Date().toISOString(), data }));
+    return json({ ok: true, id });
+  }
+  return json({ error: "method not allowed" }, 405);
+}
+
 export default {
   async fetch(request, env) {
     const url = new URL(request.url);
 
     if (url.pathname === "/api/v1/geologger/logs") return handleLogs(request, env);
+    if (url.pathname === "/api/v1/files") return handleFiles(request, env);
 
     /* any other legacy /api path still proxies to the old backend (vision pipeline etc.) */
     if (url.pathname.startsWith("/api/")) {
