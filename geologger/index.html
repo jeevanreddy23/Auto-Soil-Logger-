@@ -1148,12 +1148,23 @@ function buildPdf(bhId) {
 /* ============ preview + export tabs ============ */
 function renderPreview() {
   const page = document.getElementById("page-preview");
-  page.innerHTML = `<div class="panel"><div class="panel-header"><span>Borehole log preview — ${esc(S.activeBh)}</span></div>
-    <div class="toolbar"><span class="hint">Live preview updates when you reopen this tab. Export tab has the final PDF.</span></div>
+  page.innerHTML = `<div class="panel"><div class="panel-header"><span>Report assembly</span></div>
+    <div class="toolbar" style="gap:8px;flex-wrap:wrap">
+      <button class="btn primary" id="blankSoilPdf">Download blank soil log</button>
+      <button class="btn primary" id="blankRockPdf">Download blank rock core log</button>
+      <button class="btn" id="blankSoilPreview">Preview soil template</button>
+      <button class="btn" id="blankRockPreview">Preview rock template</button>
+      <span class="hint">Blank forms use the issued STS/OpenGround layout without any other job's data.</span>
+    </div>
     <iframe id="previewFrame"></iframe></div>`;
+  const frame = document.getElementById("previewFrame");
+  const preview = kind => { try { frame.src = buildPdf("BH___", kind).output("bloburl"); } catch(e) { page.querySelector(".toolbar").innerHTML += `<span class="vwarn">Preview error: ${esc(e.message)}</span>`; } };
+  document.getElementById("blankSoilPdf").onclick = ()=>buildPdf("BH___", "soil").save("blank-soil-log.pdf");
+  document.getElementById("blankRockPdf").onclick = ()=>buildPdf("BH___", "rock").save("blank-rock-core-log.pdf");
+  document.getElementById("blankSoilPreview").onclick = ()=>preview("soil");
+  document.getElementById("blankRockPreview").onclick = ()=>preview("rock");
   try {
-    const doc = buildPdf(S.activeBh);
-    document.getElementById("previewFrame").src = doc.output("bloburl");
+    preview("soil");
   } catch(e) { page.querySelector(".toolbar").innerHTML = `<span class="vwarn">Preview error: ${esc(e.message)}</span>`; }
 }
 function renderExport() {
@@ -2932,10 +2943,15 @@ function sptLine2(t2){
   return `${blows}${blows&&hb?" HB":hb?"HB":""} ${refused?"N=R":`N=${t2.n||calcN(t2)||"-"}`}`.trim();
 }
 
-function buildPdf(bhId) {
+function buildPdf(bhId, templateKind) {
   const { jsPDF } = window.jspdf;
   const doc = new jsPDF({ unit:"mm", format:"a4" });
-  const B = S.boreholes.find(x=>x.id===bhId), L = S.logs[bhId], P = S.project;
+  /* Template mode starts clean: it is a reusable form, never copied field data. */
+  const blankTemplate = templateKind === "soil" || templateKind === "rock";
+  const B = blankTemplate ? blankBh("BH___") : S.boreholes.find(x=>x.id===bhId);
+  const L = blankTemplate ? blankLogs() : S.logs[bhId];
+  const P = blankTemplate ? { companyName:S.project.companyName || "STS GEOTECHNICS PTY LTD" } : S.project;
+  const displayId = blankTemplate ? "BH___" : bhId;
   const W=210, MX=17, RX=196;
   const soil = L.soil.filter(r=>num(r.from)!=null&&num(r.to)!=null&&num(r.to)>num(r.from)).sort((a,b)=>num(a.from)-num(b.from));
   const rockU = L.rock.filter(r=>num(r.from)!=null&&num(r.to)!=null&&num(r.to)>num(r.from)&&!r.defectType).sort((a,b)=>num(a.from)-num(b.from));
@@ -2943,10 +2959,11 @@ function buildPdf(bhId) {
   const termD = num(B.termDepth);
   const maxD = Math.max(termD||0, ...soil.map(r=>num(r.to)), ...rockU.map(r=>num(r.to)), 1);
   const soilEnd = soil.length? Math.max(...soil.map(r=>num(r.to))) : 0;
-  const coreStart = rockU.length? Math.min(...rockU.map(r=>num(r.from))) : null;
+  const coreStart = blankTemplate && templateKind === "rock" ? 0 : (rockU.length? Math.min(...rockU.map(r=>num(r.from))) : null);
   const soilPages = soil.length? Math.max(1, Math.ceil(Math.min(soilEnd+0.001, maxD)/10)) : 0;
   const rockWins = [];
-  if (coreStart!=null) { const w0=Math.floor(coreStart/10)*10; for (let d=w0; d<maxD-0.001; d+=10) rockWins.push(d); }
+  if (blankTemplate && templateKind === "rock") rockWins.push(0);
+  else if (coreStart!=null) { const w0=Math.floor(coreStart/10)*10; for (let d=w0; d<maxD-0.001; d+=10) rockWins.push(d); }
   const totalSheets = (soil.length? soilPages:0) + rockWins.length || 1;
   const RL0 = num(B.rl)??num(P.groundRL);
   const HY=17, HH=42, bandY=59, bandH=18, bodyY=77, bodyB=271, SC=1000/52;
@@ -2956,10 +2973,10 @@ function buildPdf(bhId) {
   const CF = registerCarlito(doc) ? "carlito" : "helvetica";
   const APPROX = CF==="carlito" ? "≈" : "~";   /* real ≈ glyph once a unicode font is embedded */
   /* T3 test-pit template: same visual language, pit terminology */
-  const isTP = /^(TP|PIT)/i.test(bhId) || B.holeType==="TP" || B.holeType==="Test pit";
+  const isTP = /^(TP|PIT)/i.test(displayId) || B.holeType==="TP" || B.holeType==="Test pit";
   const TITLE = isTP ? "TEST PIT LOG" : "BOREHOLE LOG";
   const IDLBL = isTP ? "PIT ID:" : "BH ID:";
-  const isDraft = !(P.reviewBy || P.checkedBy);   /* DRAFT until Review By recorded */
+  const isDraft = !blankTemplate && !(P.reviewBy || P.checkedBy);   /* DRAFT until Review By recorded */
 
   function vtext(t,x,y,fs){ doc.setFontSize(fs||T.colHead); doc.text(String(t), x, y, {angle:90}); }
   function header() {
@@ -2993,8 +3010,8 @@ function buildPdf(bhId) {
     doc.text(TITLE, 106, HY+13.5, {align:"center"});
     doc.setFontSize(10);
     doc.text(IDLBL, RX-1.5, HY+8, {align:"right"});
-    doc.setFontSize(fitSize(doc, bhId, 43, T.bhid, 10));
-    doc.text(trimToW(doc, bhId, 43), RX-1.5, HY+16.5, {align:"right"});
+    doc.setFontSize(fitSize(doc, displayId, 43, T.bhid, 10));
+    doc.text(trimToW(doc, displayId, 43), RX-1.5, HY+16.5, {align:"right"});
     doc.setFont("helvetica","normal");
     doc.setLineWidth(LW.section); doc.line(MX, HY+20, RX, HY+20);
     doc.setFontSize(T.metaL);
@@ -3005,7 +3022,8 @@ function buildPdf(bhId) {
       [[isTP?"Excavation Contractor":"Drilling Contractor",P.drillingContractor,MX+0.5,27,52],["Surface RL",(B.rl||P.groundRL)?`${APPROX}${B.rl||P.groundRL} m (${P.datum||"AHD"})`:"-",100,16,32],[isTP?"Pit Dimensions":"Drill Bit",isTP?(B.pitDims||P.pitDims||"-"):P.drillBit,152,12,30]],
       [["Plant",P.drillRig,MX+0.5,27,52],["Inclination",P.inclination?P.inclination+"°":"90°",100,16,32],["Hole Ø (mm)",P.holeDia,152,16,26]],
     ];
-    let y=HY+24.3;
+    if (blankTemplate) rows[4][1][1] = "-";
+    let y=HY+23.4;
     for (const row of rows) {
       for (const [l,v,x,lw2,vw] of row) {
         doc.setFont(CF,"normal"); doc.text(l, x, y);          /* labels: Calibri Light in reference */
@@ -3157,8 +3175,10 @@ function buildPdf(bhId) {
       vtext(s2, x+0.9, bandY+bandH-1, 3.3);
       doc.setLineWidth(LW.tick); doc.line(x, bandY+7.5, x, bodyB); });
     depthCol(C[4].x, C[4].w, d0, 1.0);
-    vtext(/cor|NMLC|HQ|PQ/i.test(P.drillingMethod||"")? (P.drillingMethod||"NMLC").split(" ")[0] : "NMLC", C[0].x+C[0].w/2+1, bodyY+56, T.depth);
-    vtext(P.flushReturn||"100% Water", C[1].x+C[1].w/2+1, bodyY+58, T.defect);
+    if (!blankTemplate) {
+      vtext(/cor|NMLC|HQ|PQ/i.test(P.drillingMethod||"")? (P.drillingMethod||"NMLC").split(" ")[0] : "NMLC", C[0].x+C[0].w/2+1, bodyY+56, T.depth);
+      vtext(P.flushReturn||"100% Water", C[1].x+C[1].w/2+1, bodyY+58, T.defect);
+    }
     let lastTcr=null, lastRqd=null;
     for (const r of rockU) {
       const f=Math.max(num(r.from),d0), t=Math.min(num(r.to),d0+10);
