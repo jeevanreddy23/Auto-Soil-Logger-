@@ -556,6 +556,22 @@ function scrBh(){
 }
 
 /* ---------- SOIL LOG ---------- */
+/* recent full descriptions across the whole project — one tap reapplies all descriptors */
+let __recCache=[];
+function recentDescs(kind){
+  const out=[]; const seen=new Set();
+  const bhs=[F.activeBh, ...F.boreholes.map(b=>b.id).filter(id=>id!==F.activeBh)];
+  for (const id of bhs){ const l=F.logs[id]; if (!l) continue;
+    const rows = kind==="rock" ? [...(l.rock||[])].reverse() : [...(l.soil||[])].reverse();
+    for (const r of rows){
+      const key = kind==="rock" ? (r.desc||rockDesc(r)||r.rockType) : (r.desc||soilDesc(r));
+      if (!key || seen.has(key)) continue; seen.add(key);
+      out.push({ kind, r, label:key });
+      if (out.length>=4) return out;
+    }
+  }
+  return out;
+}
 function rockDesc(d){
   if (!d.rockType) return "";
   const w=(WEATH_F.find(x=>x[0]===d.weathering)||[])[1]||"";
@@ -580,7 +596,10 @@ function scrLog(){
       <div><label class="f">To (m)</label><input class="f" type="number" step="0.01" id="dTo" value="${esc(d.to)}"></div>
     </div>
     <div class="depthbtns">${[0.1,0.2,0.5,1.0].map(v=>`<button class="chip" data-plus="${v}">+${v}</button>`).join("")}</div>`;
-  const soilForm = `
+  __recCache = recentDescs(isRock? "rock":"soil");
+  const recRow = __recCache.length? `<label class="f">Recent — tap to reuse</label><div class="chips">${
+    __recCache.map((x,i)=>`<button class="chip" data-rd="${i}" style="max-width:100%;white-space:normal;text-align:left;font-size:12px">↩ ${esc(x.label.slice(0,52))}${x.label.length>52?"…":""}</button>`).join("")}</div>` : "";
+  const soilForm = recRow + `
     <label class="f">Material</label><div class="chips">${mats.slice(0,12).map(v=>chip("material",v)).join("")}
       <select class="f" id="dMatSel" style="min-height:40px;width:auto"><option value="">more…</option>${mats.slice(12).map(v=>`<option>${v}</option>`).join("")}</select></div>
     ${d.kind==="other"?`<input class="f" id="dMatFree" placeholder="Type material name…" value="${esc(d.material)}" style="margin:4px 0">`:""}
@@ -590,7 +609,7 @@ function scrLog(){
     ${isGran?"":`<label class="f">Plasticity</label><div class="chips">${PLAST.map(v=>chip("plasticity",v)).join("")}</div>`}
     <label class="f">Constituents</label><div class="chips">${EXTRAS.map(v=>`<button class="chip ${(d.extras||[]).includes(v)?"on":""}" data-ex="${esc(v)}">${esc(v)}</button>`).join("")}</div>
     <div class="prev" id="descPrev">${esc(soilDesc(d)||"— build the description with the chips above —")}</div>`;
-  const rockForm = `
+  const rockForm = recRow + `
     <label class="f">Rock type</label><div class="chips">${rocks.map(v=>chip("rockType",v)).join("")}</div>
     <label class="f">Colour</label><div class="chips">${COLOURS.slice(0,7).map(v=>chip("colour",v)).join("")}</div>
     <label class="f">Weathering</label><div class="chips">${WEATH_F.map(([c,w])=>chip("weathering",c,c+" "+w)).join("")}</div>
@@ -607,8 +626,10 @@ function scrLog(){
     ${isRock? rockForm : soilForm}
     <label class="f">Remarks</label><input class="f" id="dRem" value="${esc(d.remarks)}">
     <div class="row2">
-      <button class="btn" id="dupLayer">⧉ Duplicate last</button>
-      <button class="btn" id="smpFromIv">＋ Sample here</button>
+      <button class="btn" id="dupLayer">⧉ Duplicate</button>
+      <button class="btn" id="smpFromIv">＋ Sample</button>
+      <button class="btn" id="sptFromIv">＋ SPT</button>
+      <button class="btn" id="gwFromIv">💧 Water</button>
     </div>
     <button class="btn primary block" id="saveIv">Save interval ✓</button>
   </div>
@@ -872,6 +893,11 @@ function wire(m, s){
       const k=c.dataset.ck;
       if (k==="fill") d.fill=!d.fill; else d[k] = d[k]===c.dataset.cv? "" : c.dataset.cv;
       render(); }));
+    m.querySelectorAll("[data-rd]").forEach(c=>c.addEventListener("click",()=>{
+      const x=__recCache[+c.dataset.rd]; if (!x) return; const r=x.r;
+      if (x.kind==="rock") Object.assign(d,{ kind:"rock", rockType:r.rockType, colour:r.colour, weathering:r.weathering, strength:r.strength, defSpacing:r.defSpacing||"", tcr:"", rqd:"" });
+      else Object.assign(d,{ kind:r.fill?"fill":"soil", material:r.material, colour:r.colour, moisture:r.moisture, consistency:r.consistency, plasticity:r.plasticity, extras:(r.extras||[]).slice(), fill:!!r.fill });
+      render(); toast("Description applied — adjust if strata differs"); }));
     const dup=m.querySelector("#dupLayer");
     if (dup) dup.addEventListener("click",()=>{
       const l2=L(); const last = d.kind==="rock"? (l2.rock||[]).at(-1) : l2.soil.at(-1);
@@ -892,6 +918,34 @@ function wire(m, s){
         bg.querySelector("#qsSave").addEventListener("click",()=>{
           L().samples.push({ sid:autoSid(ty), from:f??0, to:t??f??0, type:ty, container:"", tests:ts.slice(), remarks:"" });
           save(); close(); toast("Sample "+autoSid(ty).replace(/\d+$/,x=>String(+x-1).padStart(2,"0"))+" saved"); render(); }); }); });
+    /* SPT without leaving the log screen — depth prefilled from the current interval */
+    const spi=m.querySelector("#sptFromIv");
+    if (spi) spi.addEventListener("click",()=>{
+      const dpt0=num(document.getElementById("dFrom").value)??"";
+      sheet(`<h3>SPT — ${esc(F.activeBh)}</h3>
+        <div class="row2"><div><label class="f">Depth (m)</label><input class="f" type="number" step="0.01" id="qsD" value="${dpt0}"></div>
+        <div><label class="f">Seating</label><input class="f" type="number" id="qsSeat"></div></div>
+        <div class="row2">
+          <div><label class="f">1st 150</label><input class="f" type="number" id="qsB1"></div>
+          <div><label class="f">2nd 150</label><input class="f" type="number" id="qsB2"></div>
+          <div><label class="f">3rd 150</label><input class="f" type="number" id="qsB3"></div></div>
+        <div class="row2"><button class="chip" id="qsRef" style="flex:1;display:flex;justify-content:center;align-items:center">Refusal / HB</button>
+          <div class="prev" style="flex:1;margin:6px 0 0;text-align:center" id="qsN">N = —</div></div>
+        <button class="btn primary block" id="qsSptSave">Save SPT ✓</button>`,
+      (bg,close)=>{ let refusal=false;
+        const calc=()=>{ const b2=num(bg.querySelector("#qsB2").value), b3=num(bg.querySelector("#qsB3").value);
+          bg.querySelector("#qsN").textContent = refusal? "N = R" : (b2!=null&&b3!=null? "N = "+(b2+b3):"N = —"); };
+        ["qsB1","qsB2","qsB3"].forEach(id=>bg.querySelector("#"+id).addEventListener("input",calc));
+        bg.querySelector("#qsRef").addEventListener("click",e=>{ refusal=!refusal; e.target.classList.toggle("on"); calc(); });
+        bg.querySelector("#qsSptSave").addEventListener("click",()=>{
+          const dpt=num(bg.querySelector("#qsD").value); if (dpt==null) return alert("Enter depth");
+          if (L().spt.some(t=>num(t.depth)===dpt)) return alert("SPT already exists at this depth");
+          const b2=num(bg.querySelector("#qsB2").value), b3=num(bg.querySelector("#qsB3").value);
+          L().spt.push({ depth:dpt, seat:bg.querySelector("#qsSeat").value, b1:bg.querySelector("#qsB1").value,
+            b2:bg.querySelector("#qsB2").value, b3:bg.querySelector("#qsB3").value,
+            n: refusal? "R":(b2!=null&&b3!=null? String(b2+b3):""), refusal, recovery:"", remarks:"" });
+          save(); close(); toast("SPT saved"); }); }); });
+    const gwi=m.querySelector("#gwFromIv"); if (gwi) gwi.addEventListener("click",()=>qaWater());
     m.querySelectorAll("[data-dri]").forEach(b=>b.addEventListener("click",()=>{ (L().rock||[]).splice(+b.dataset.dri,1); save(); render(); }));
     const mf=m.querySelector("#dMatFree"); if (mf) mf.addEventListener("input",()=>{ d.material=mf.value; upd(); });
     ["dDefSp","dTcr","dRqd"].forEach(id=>{ const el=m.querySelector("#"+id); if (el) el.addEventListener("input",()=>{

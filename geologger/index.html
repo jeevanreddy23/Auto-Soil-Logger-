@@ -2840,9 +2840,9 @@ save = function() {
 "use strict";
 /* ============ PDF v3 — black & white engineering log, STS reference geometry ============ */
 /* typography tokens */
-const T = { title:22, bhid:24, metaL:8, metaV:8, colHead:5.6, desc:6.2, code:6, defect:5.8, depth:6, foot:6, sheet:9 };
-/* line-weight tokens */
-const LW = { frame:0.6, section:0.4, col:0.25, interval:0.18, tick:0.1 };
+const T = { title:22, bhid:24, metaL:8, metaV:8, colHead:5.0, desc:6.0, code:5, defect:6.0, depth:6, foot:8, sheet:11 };
+/* line-weight tokens — measured from issued STS logs: columns 0.13 mm, majors 0.26 mm */
+const LW = { frame:0.26, section:0.26, col:0.132, interval:0.132, tick:0.09 };
 /* ---- reference-font engine: Carlito is metric-compatible with Calibri (OFL licence).
    Loaded once from CDN, cached, registered per-document. Falls back to helvetica. ---- */
 let _carlito = null;
@@ -3015,23 +3015,31 @@ function buildPdf(bhId) {
       }
       y+=4.3;
     }
-    // footer
-    doc.setLineWidth(LW.section); doc.line(MX, 274, RX, 274);
-    doc.setLineWidth(LW.frame); doc.rect(MX, 274, RX-MX, 14.5);
-    doc.setFontSize(T.foot); doc.setFont("helvetica","normal");
-    doc.text("Notes: See explanation sheets for meaning of all descriptive terms and symbols", W/2, 277.6, {align:"center"});
-    doc.setLineWidth(LW.col); doc.line(MX, 279.2, RX, 279.2);
-    doc.text("D - disturbed sample", MX+2, 282.6); doc.text("S - jar sample", 72, 282.6); doc.text("WT - level of water table or free water", 118, 282.6);
-    doc.text("U - undisturbed tube sample", MX+2, 286.6); doc.text("B - bulk sample", 72, 286.6); doc.text("N - Standard Penetration Test (SPT)", 118, 286.6);
-    doc.setLineWidth(LW.col); doc.line(168, 274, 168, 288.5);
-    doc.setFontSize(T.sheet); doc.text(`Sheet ${sheet} of ${totalSheets}`, (168+RX)/2, 283, {align:"center"});
+    // header meta divider (reference: full grid line at 49 mm)
+    doc.setLineWidth(LW.col); doc.line(MX, HY+32, RX, HY+32);
+    // footer — measured reference geometry: notes row 271–274, legend row 274–280, nothing below 280
+    doc.setLineWidth(LW.col); doc.line(MX, 274, RX, 274);
+    doc.setLineWidth(LW.section); doc.line(MX, 280, RX, 280);
+    doc.line(MX, bodyB, MX, 280); doc.line(RX, bodyB, RX, 280);   /* frame sides continue to footer bottom */
+    doc.setLineWidth(LW.col);
+    for (const xx of [64,111,157]) doc.line(xx, 274, xx, 280);
+    doc.setFont(CF,"normal");
+    doc.setFontSize(fitSize(doc,"Notes: See explanation sheets for meaning of all descriptive terms and symbols",RX-MX-4,T.foot,6));
+    doc.text("Notes: See explanation sheets for meaning of all descriptive terms and symbols", MX+1.5, 273.4);
+    const leg=(t,x,y,wcell)=>{ doc.setFontSize(fitSize(doc,t,wcell-3,T.foot,6)); doc.text(t,x,y); };
+    leg("D - disturbed sample", MX+1.5, 276.7, 47); leg("U - undisturbed tube sample", MX+1.5, 279.3, 47);
+    leg("S - jar sample", 65.5, 276.7, 47); leg("B - bulk sample", 65.5, 279.3, 47);
+    leg("WT - level of water table or free water", 112.5, 276.7, 46); leg("N - Standard Penetration Test (SPT)", 112.5, 279.3, 46);
+    doc.setFontSize(T.sheet); doc.text(`Sheet ${sheet} of ${totalSheets}`, (157+RX)/2, 278.3, {align:"center"});
+    doc.setFont("helvetica","normal");
   }
-  function band(cols) {
-    doc.setDrawColor(0); doc.setLineWidth(LW.section);
-    doc.rect(MX, bandY, RX-MX, bandH);
+  function band(cols, segs) {
+    doc.setDrawColor(0); doc.setLineWidth(LW.col);
+    if (segs) { for (const [a,b] of segs) { doc.line(a, bandY, b, bandY); doc.line(a, bandY+bandH, b, bandY+bandH); } }
+    else doc.rect(MX, bandY, RX-MX, bandH);
     doc.setFont("helvetica","bold"); doc.setTextColor(0);
     for (const c of cols) {
-      if (c.rot) vtextFit(doc, c.label, c.x+c.w/2+1.2, bandY+bandH-1.2, bandH-2, c.w>=7?5.6:4.8, 3.8);
+      if (c.rot) vtextFit(doc, c.label, c.x+c.w/2+1.2, bandY+bandH-1.2, bandH-2, c.w>=7?T.colHead:4.6, 3.6);
       else { doc.setFontSize(c.fs||T.colHead);
         const lines = doc.splitTextToSize(c.label, c.w-2).slice(0, 3);
         doc.text(lines, c.x+c.w/2, bandY+(c.mid?bandH/2:4), {align:"center"}); }
@@ -3064,7 +3072,7 @@ function buildPdf(bhId) {
       {x:MX+7,w:26,label:"SAMPLES &\nFIELD TESTS",fs:6,mid:1},
       {x:MX+33,w:12,label:"DEPTH (m)",rot:1},
       {x:MX+45,w:9,label:"GRAPHIC LOG",rot:1},
-      {x:MX+54,w:86,label:"MATERIAL DESCRIPTION",fs:7.4,mid:1},
+      {x:MX+54,w:86,label:"MATERIAL DESCRIPTION",fs:8,mid:1},
       {x:MX+140,w:7,label:"CLASSIFICATION SYMBOL",rot:1},
       {x:MX+147,w:20,label:"CONSISTENCY / REL. DENSITY",rot:1},
       {x:MX+167,w:RX-(MX+167),label:"MOISTURE CONDITION",rot:1} ];
@@ -3130,31 +3138,35 @@ function buildPdf(bhId) {
       {x:MX+24,w:6,label:"DEPTH (m)",rot:1},
       {x:MX+30,w:7,label:"GRAPHIC LOG",rot:1},
       {x:MX+37,w:6,label:"RL (m AHD)",rot:1},
-      {x:MX+43,w:58,label:"MATERIAL DESCRIPTION",fs:7,mid:1},
+      {x:MX+43,w:58,label:"MATERIAL DESCRIPTION",fs:8,mid:1},
       {x:MX+101,w:6,label:"WEATHERING",rot:1},
       {x:MX+107,w:15,label:"",fs:5},
-      {x:MX+122,w:42,label:"DISCONTINUITIES\n& ADDITIONAL DATA",fs:5.6,mid:1},
+      {x:MX+122,w:42,label:"DISCONTINUITIES\n& ADDITIONAL DATA",fs:6,mid:1},
       {x:MX+164,w:RX-(MX+164),label:"FRACTURE SPACING",rot:1} ];
-    header(); band(C); grid(C);
+    header(); band(C, [[MX+43,MX+101],[MX+107,RX]]); grid(C);
     doc.setFontSize(4.6); doc.setFont("helvetica","bold");
     doc.text("ESTIMATED", C[9].x+C[9].w/2, bandY+2.4, {align:"center"});
     doc.text("STRENGTH Is(50)", C[9].x+C[9].w/2, bandY+4.6, {align:"center"});
     doc.setFontSize(3.9); doc.setFont("helvetica","normal");
     doc.text("▼ - Axial   ▽ - Diametral", C[9].x+C[9].w/2, bandY+6.6, {align:"center"});
     doc.setFont("helvetica","normal");
-    STR_ORDER.forEach((s2,i)=>{ const sw=C[9].w/6; vtext(s2, C[9].x+i*sw+sw/2+1, bandY+bandH-1, 4.6);
+    STR_ORDER.forEach((s2,i)=>{ const sw=C[9].w/6; vtext(s2, C[9].x+i*sw+sw/2+1, bandY+bandH-1, 4.3);
       doc.setLineWidth(LW.tick); doc.line(C[9].x+i*sw, bandY+7.5, C[9].x+i*sw, bodyB); });
-    ["30","100","300","1000","3000"].forEach((s2,i)=>{ const sw=C[11].w/5; vtext(s2, C[11].x+i*sw+sw/2+1, bandY+bandH-1, 4.6);
-      doc.setLineWidth(LW.tick); doc.line(C[11].x+i*sw, bandY+7.5, C[11].x+i*sw, bodyB); });
+    /* fracture axis — reference: 6 bands of 2.5 mm, labels on the inner lines */
+    ["30","100","300","1000","3000"].forEach((s2,i)=>{ const x=C[11].x+2.5*(i+1);
+      vtext(s2, x+0.9, bandY+bandH-1, 3.3);
+      doc.setLineWidth(LW.tick); doc.line(x, bandY+7.5, x, bodyB); });
     depthCol(C[4].x, C[4].w, d0, 1.0);
     vtext(/cor|NMLC|HQ|PQ/i.test(P.drillingMethod||"")? (P.drillingMethod||"NMLC").split(" ")[0] : "NMLC", C[0].x+C[0].w/2+1, bodyY+56, T.depth);
     vtext(P.flushReturn||"100% Water", C[1].x+C[1].w/2+1, bodyY+58, T.defect);
+    let lastTcr=null, lastRqd=null;
     for (const r of rockU) {
       const f=Math.max(num(r.from),d0), t=Math.min(num(r.to),d0+10);
       if (t<=d0||f>=d0+10) continue;
       const y1=yOf(f), y2=yOf(t);
       pdfHatch(doc, C[5].x, C[5].w, y1, y2, r.rockType||"SILTSTONE");
-      doc.setDrawColor(0); doc.setLineWidth(LW.interval); doc.line(C[2].x, y1, RX, y1);
+      /* unit boundary spans graphic log + description only (measured: 60–118 mm) */
+      doc.setDrawColor(0); doc.setLineWidth(LW.interval); doc.line(C[5].x, y1, C[7].x+C[7].w, y1);
       doc.setFontSize(T.depth); doc.setTextColor(0);
       if (num(r.from)>=d0) {
         doc.text(num(r.from).toFixed(2), C[4].x+1, y1+2.2);
@@ -3165,15 +3177,16 @@ function buildPdf(bhId) {
       }
       const cy=(y1+y2)/2;
       doc.setFontSize(T.code);
-      if (r.tcr!==""&&r.tcr!=null) vtext(r.tcr, C[2].x+C[2].w/2+1, cy+3, T.code);
-      if (r.rqd!==""&&r.rqd!=null) vtext(r.rqd, C[3].x+C[3].w/2+1, cy+3, T.code);
+      /* TCR/RQD: horizontal, once per value change (reference prints per run, not per lithology row) */
+      if (r.tcr!==""&&r.tcr!=null&&String(r.tcr)!==lastTcr){ doc.text(String(r.tcr), C[2].x+C[2].w/2, y1+2.4, {align:"center"}); lastTcr=String(r.tcr); }
+      if (r.rqd!==""&&r.rqd!=null&&String(r.rqd)!==lastRqd){ doc.text(String(r.rqd), C[3].x+C[3].w/2, y1+2.4, {align:"center"}); lastRqd=String(r.rqd); }
+      doc.setFontSize(T.depth);
       doc.text(r.weathering||"-", C[8].x+C[8].w/2, cy, {align:"center"});
       const si=STR_ORDER.indexOf(r.strength);
       if (si>=0) { const sw=C[9].w/6;
-        doc.setFillColor(215,215,215); doc.rect(C[9].x+si*sw+0.4, y1, sw-0.8, y2-y1, "F");
         doc.setTextColor(0); doc.setFontSize(5.5);
         doc.text("▼", C[9].x+si*sw+sw/2, cy, {align:"center"});
-        if (r.is50!==""&&r.is50!=null) doc.text("▽", C[9].x+si*sw+sw/2-2, cy, {align:"center"}); }
+        if (r.is50!==""&&r.is50!=null) doc.text("▽", C[9].x+si*sw+sw/2, cy+3, {align:"center"}); }
     }
     doc.setFontSize(T.defect); doc.setTextColor(0);
     let lastY=-99;
@@ -3186,16 +3199,21 @@ function buildPdf(bhId) {
       if (ty>y+2) doc.line(C[10].x+2.2, y, C[10].x+2.8, ty-0.8);
       doc.text(trimToW(doc, `${d.from.toFixed(2)}${d.to?("-"+d.to.toFixed(2)):""}: ${d.code}`, C[10].w-4), C[10].x+3, ty);
     }
-    // fracture spacing — grey interval bars on log scale
+    // fracture spacing — stepped polyline on the log axis (reference style; no filled bars)
     const bps=defs.filter(d=>!d.to).map(d=>d.from).filter(d=>d>=d0&&d<d0+10).sort((a,b)=>a-b);
     const lo=Math.max(d0, coreStart??d0), hi=Math.min(d0+10, termD??maxD);
-    const pts=[lo,...bps,hi]; doc.setFillColor(200,200,200);
+    const pts=[lo,...bps,hi];
+    doc.setDrawColor(0); doc.setLineWidth(LW.interval);
+    let prevX=null;
     for (let i=1;i<pts.length;i++) { const a=pts[i-1], b=pts[i]; if (b-a<0.002) continue;
       const mm=(b-a)*1000, fr=Math.max(0,Math.min(1,(Math.log10(mm)-Math.log10(30))/(Math.log10(3000)-Math.log10(30))));
-      doc.rect(C[11].x, yOf(a), C[11].w*fr, yOf(b)-yOf(a), "F");
-      doc.setDrawColor(0); doc.setLineWidth(LW.tick); doc.rect(C[11].x, yOf(a), C[11].w*fr, yOf(b)-yOf(a)); }
+      const x=C[11].x+2.5+fr*10;   /* axis: 30 mm at +2.5, 3000 mm at +12.5 */
+      doc.line(x, yOf(a), x, yOf(b));
+      if (prevX!=null) doc.line(prevX, yOf(a), x, yOf(a));
+      prevX=x; }
     if (termD!=null && termD>=d0 && termD<d0+10) {
-      const y=yOf(termD); doc.setDrawColor(0); doc.setLineWidth(LW.section); doc.line(MX,y,RX,y);
+      const y=yOf(termD); doc.setDrawColor(0); doc.setLineWidth(LW.interval);
+      doc.line(C[5].x, y, C[7].x+C[7].w, y);   /* termination rule spans graphic+description, per reference */
       doc.setFontSize(T.desc);
       doc.text(trimToW(doc, `Terminated at ${termD.toFixed(2)}m. ${B.termReason||"Target Depth Reached."}`, C[7].w-3), C[7].x+1.5, y+3.4);
     }
@@ -4643,14 +4661,20 @@ window.renderQA=function(){
   const labP=S.scope?.plan? Math.max(0,(S.scope.plan.totals.labs||0)-Object.values(S.labStatus||{}).filter(x=>x!=="Pending").length):0;
   const noGw=S.boreholes.filter(b=>{ const g=S.logs?.[b.id]?.gw; return !(g&&g.state); }).map(b=>b.id);
   const rows=[
-    ...qa.map(q=>({sev:"warning", src:"Scope", msg:q})),
-    ...(labP?[{sev:"warning", src:"Laboratory", msg:labP+" lab test(s) not yet submitted"}]:[]),
-    ...(noGw.length?[{sev:"warning", src:"Groundwater", msg:"No groundwater status recorded: "+noGw.join(", ")}]:[]),
+    ...qa.map(q=>({sev:"warning", src:"Scope", msg:q, nav:"scope"})),
+    ...(labP?[{sev:"warning", src:"Laboratory", msg:labP+" lab test(s) not yet submitted", nav:"laboratory"}]:[]),
+    ...(noGw.length?[{sev:"warning", src:"Groundwater", msg:"No groundwater status recorded: "+noGw.join(", "), nav:"soil", bh:noGw[0]}]:[]),
   ];
   el.innerHTML=`<h2 style="font-size:19px;margin:6px 0 12px">QA Alerts <span class="tag">${rows.length}</span></h2>
-  ${rows.length? rows.map(r=>`<div class="sc-warn">⚠ <b>${e16(r.src)}:</b> ${e16(r.msg)}</div>`).join("")
+  ${rows.length? rows.map((r,i)=>`<div class="sc-warn" data-qnav="${r.nav}" ${r.bh?`data-qbh="${e16(r.bh)}"`:""} style="cursor:pointer" title="Open the affected record">⚠ <b>${e16(r.src)}:</b> ${e16(r.msg)} <span style="float:right;color:#1d4ed8;font-weight:600">Open →</span></div>`).join("")
     : '<div class="sc-ok">✓ No open QA alerts for this project.</div>'}
   <div class="sc-card" style="margin-top:10px"><div style="font-size:12.5px;color:#64748b">Validation issues inside individual logs appear on the Data Export page badge. Scope QA re-evaluates when the field plan is regenerated.</div></div>`;
+  /* one click opens the affected record (Scenario-3 requirement) */
+  el.querySelectorAll("[data-qnav]").forEach(rw=>rw.addEventListener("click",()=>{
+    if (rw.dataset.qbh){ S.activeBh=rw.dataset.qbh; try{ save(); }catch(e){} }
+    if (rw.dataset.qnav==="scope" && S.scope){ S.scope.step=4; }
+    showTab(rw.dataset.qnav);
+  }));
 };
 window.renderHistory=function(){
   const el=document.getElementById("page-history"); if (!el) return;

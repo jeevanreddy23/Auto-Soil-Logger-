@@ -1,0 +1,234 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>STS GeoFlow — Borehole Log Generator (JSON → A4)</title>
+<script src="https://cdn.tailwindcss.com"></script>
+<style>
+  /* ============ EXACT SHEET GEOMETRY (measured from issued STS logs, 0.1 mm) ============
+     Frame 17→196 mm · header 17–59 · band 59–77 · body 77–271 (19.2308 mm per metre)
+     footer notes 271–274, legend 274–280 · strokes: columns 0.13 mm, majors 0.26 mm   */
+  .sheet { width:210mm; height:297mm; position:relative; background:#fff; color:#000;
+    font-family:Arial, Helvetica, sans-serif; margin:0 auto 10mm; box-shadow:0 2px 14px rgba(15,23,42,.18); overflow:hidden; }
+  .sheet * { position:absolute; box-sizing:border-box; margin:0; line-height:1.18; }
+  .ln  { background:#000; }
+  .b13 { border:0.13mm solid #000; }
+  .b26 { border:0.26mm solid #000; }
+  .vt  { transform:rotate(-90deg); transform-origin:left bottom; white-space:nowrap; }
+  @media print {
+    @page { size:A4 portrait; margin:0; }
+    body { background:#fff !important; }
+    .ui, .no-print { display:none !important; }
+    .sheet { box-shadow:none; margin:0; page-break-after:always; }
+    .sheet:last-child { page-break-after:auto; }
+  }
+</style>
+</head>
+<body class="bg-slate-100">
+<!-- ============ UI CHROME (hidden on print) ============ -->
+<div class="ui sticky top-0 z-40 bg-slate-950 text-white px-4 py-2 flex items-center gap-3 flex-wrap">
+  <b class="tracking-wide">STS GEOTECHNICS</b><span class="text-slate-400 text-sm">Borehole Log Generator — paste JSON, print exact A4</span>
+  <span class="flex-1"></span>
+  <button id="btnSample" class="bg-slate-700 hover:bg-slate-600 rounded px-3 py-1.5 text-sm font-semibold">Load Sample Log Data</button>
+  <button id="btnPanel"  class="bg-slate-700 hover:bg-slate-600 rounded px-3 py-1.5 text-sm font-semibold">⌘ Data panel</button>
+  <button id="btnPrint"  class="bg-blue-600 hover:bg-blue-500 rounded px-3 py-1.5 text-sm font-bold">🖨 Print Log / Export PDF</button>
+</div>
+<div class="ui max-w-[1400px] mx-auto p-4 flex gap-4 items-start">
+  <div id="panel" class="w-[430px] shrink-0 bg-white rounded-xl border border-slate-200 p-3 sticky top-14">
+    <div class="flex items-center justify-between mb-1">
+      <b class="text-slate-800 text-sm">Log data (JSON)</b>
+      <span id="jsonStatus" class="text-xs font-bold text-emerald-600">valid ✓</span>
+    </div>
+    <textarea id="jsonIn" spellcheck="false"
+      class="w-full h-[70vh] font-mono text-[11px] leading-4 border border-slate-200 rounded-lg p-2 focus:outline-blue-500"></textarea>
+    <p class="text-[11px] text-slate-500 mt-1">Edits re-render instantly. Print tip: destination “Save as PDF”, margins <b>None</b>, scale <b>100</b>.</p>
+  </div>
+  <div id="out" class="flex-1 min-w-0"></div>
+</div>
+
+<script>
+"use strict";
+/* ================= measured template tokens ================= */
+const MX=17, RX=196, HY=17, BAND_Y=59, BAND_B=77, BODY_B=271, SC=1000/52;   /* mm; SC = mm per metre */
+const COLS = [                                    /* soil sheet columns — measured x positions */
+  { x:17,  w:7,  vlab:"GROUND WATER LEVELS" },
+  { x:24,  w:26, lab:"SAMPLES &\nFIELD TESTS", fs:6 },
+  { x:50,  w:12, vlab:"DEPTH (m)" },
+  { x:62,  w:9,  vlab:"GRAPHIC LOG" },
+  { x:71,  w:86, lab:"MATERIAL DESCRIPTION", fs:8 },
+  { x:157, w:7,  vlab:"CLASSIFICATION SYMBOL" },
+  { x:164, w:20, vlab:"CONSISTENCY / REL. DENSITY" },
+  { x:184, w:12, vlab:"MOISTURE CONDITION" } ];
+const PAGE_M = 10;                                /* metres per sheet */
+const yOf = (d, d0) => BAND_B + (d - d0) * SC;    /* single shared depth→Y engine */
+
+/* ================= graphic-log hatch library (canvas → repeating background) ================= */
+const hatchCache = {};
+function hatch(kind){
+  if (hatchCache[kind]) return hatchCache[kind];
+  const c=document.createElement("canvas"); c.width=c.height=24;
+  const g=c.getContext("2d"); g.fillStyle="#fff"; g.fillRect(0,0,24,24);
+  g.strokeStyle="#333"; g.fillStyle="#333"; g.lineWidth=1;
+  const line=(a,b,c2,d)=>{ g.beginPath(); g.moveTo(a,b); g.lineTo(c2,d); g.stroke(); };
+  if (kind==="clay"){ line(2,6,22,6); line(2,14,22,14); line(2,22,22,22); }
+  else if (kind==="silt"){ line(2,7,9,7); line(14,7,21,7); line(7,16,14,16); line(18,16,24,16); line(0,16,3,16); }
+  else if (kind==="sand"){ [[4,4],[14,7],[8,13],[19,16],[4,20],[14,22]].forEach(([x,y])=>{ g.beginPath(); g.arc(x,y,1.1,0,7); g.fill(); }); }
+  else if (kind==="gravel"){ [[6,6],[17,10],[8,18]].forEach(([x,y])=>{ g.beginPath(); g.arc(x,y,2.6,0,7); g.stroke(); }); }
+  else if (kind==="fill"){ line(0,24,24,0); line(-8,24,16,0); line(8,24,32,0); }
+  else if (kind==="topsoil"){ [[4,8],[14,16],[18,6]].forEach(([x,y])=>{ line(x,y,x+3,y-3); line(x+3,y-3,x+6,y); }); }
+  else if (kind==="rock"){ line(5,0,5,24); line(12,0,12,24); line(19,0,19,24); }
+  else if (kind==="nocore"){ line(0,0,24,24); line(24,0,0,24); }
+  else { line(0,24,24,0); }
+  return hatchCache[kind]=`url(${c.toDataURL()})`;
+}
+function hatchFor(s){
+  const t=((s.symbol||"")+" "+(s.description||"")).toUpperCase();
+  if (/NO CORE/.test(t)) return hatch("nocore");
+  if (/TOPSOIL/.test(t)) return hatch("topsoil");
+  if (/FILL/.test(t)) return hatch("fill");
+  if (/STONE|SHALE|ROCK|XW/.test(t)) return hatch("rock");
+  if (/\bG[PWMC]\b|GRAVEL/.test(t)) return hatch("gravel");
+  if (/\bS[PWMC]\b|SAND/.test(t)) return hatch("sand");
+  if (/\bM[LIH]\b|SILT/.test(t)) return hatch("silt");
+  if (/\bC[LIH]\b|CLAY|OL|OH/.test(t)) return hatch("clay");
+  return hatch("other");
+}
+
+/* ================= render ================= */
+const el=(cls,style,html)=>`<div class="${cls||""}" style="${style}">${html??""}</div>`;
+const esc=s=>String(s??"").replace(/&/g,"&amp;").replace(/</g,"&lt;");
+const hline=(y,x0,x1,w)=>el("ln",`left:${x0}mm;top:${y}mm;width:${x1-x0}mm;height:${w||0.13}mm`);
+const vline=(x,y0,y1,w)=>el("ln",`left:${x}mm;top:${y0}mm;width:${w||0.13}mm;height:${y1-y0}mm`);
+const txt=(x,y,size,html,extra)=>el("",`left:${x}mm;top:${y}mm;font-size:${size}pt;${extra||""}`,html);
+const vtxt=(x,y,size,t)=>el("vt",`left:${x}mm;top:${y}mm;font-size:${size}pt`,esc(t));
+
+function renderSheet(data, pg, pages){
+  const H=data.header||{}, d0=pg*PAGE_M, dEnd=d0+PAGE_M;
+  const strata=(data.strata||[]).filter(s=>s.depth_end>d0 && s.depth_start<dEnd);
+  const term=+data.termination_depth||0;
+  let out=`<div class="sheet">`;
+  /* ---- frame ---- */
+  out+=el("b26",`left:${MX}mm;top:${HY}mm;width:${RX-MX}mm;height:${263}mm`);          /* 17→280 */
+  out+=hline(BODY_B,MX,RX,0.26)+hline(274,MX,RX)+hline(59,MX,RX,0.13)+hline(77,MX,RX,0.13);
+  out+=hline(37,MX,RX)+hline(49,MX,RX);
+  /* ---- header ---- */
+  out+=el("b13",`left:${MX}mm;top:${HY}mm;width:44mm;height:20mm`);
+  out+=txt(MX+5,HY+3.5,20,`<span style="color:#136a45;font-weight:800;font-style:italic;letter-spacing:1px">STS</span>`);
+  out+=txt(MX+3,HY+12.6,6.2,`<b>${esc(H.company||"STS GEOTECHNICS PTY LTD")}</b>`);
+  out+=txt(MX+3,HY+15.8,4.4,`CONSULTING GEOTECHNICAL ENGINEERS`,`color:#555`);
+  out+=txt(61,HY+5.5,22,`<span style="font-family:'Calibri Light',Calibri,Carlito,Arial">${esc(data.log_title||"BOREHOLE LOG")}</span>`,`width:89mm;text-align:center`);
+  out+=txt(150,HY+3,10,`BH ID:`,`width:44mm;text-align:right`);
+  out+=txt(150,HY+7.5,24,`<b style="font-family:'Calibri Light',Calibri,Carlito,Arial">${esc(H.bh_id||"-")}</b>`,`width:44mm;text-align:right`);
+  const meta=[
+    [["Client",H.client,18,30,110],["Date",H.date,148.5,16,30]],
+    [["Job No.",H.job_no,18,30,110],["Logged By",H.logged_by,148.5,16,14],["Review By",H.reviewed_by,166.5,15,13]],
+    [["Address",H.address,18,30,110],["Location #",H.location_no,148.5,16,30]],
+    [["Drilling Contractor",H.drilling_contractor,18,30,50],["Surface RL",H.surface_rl?("≈"+H.surface_rl+" m (AHD)"):null,117,16,30],["Drill Bit",H.drill_bit,169,12,15]],
+    [["Plant",H.plant,18,30,50],["Inclination",(H.inclination||"90")+"°",117,16,30],["Hole Ø (mm)",H.hole_diameter_mm,169,16,10]]];
+  let my=HY+23.2;
+  for (const row of meta){ for (const [l,v,x,lw,vw] of row){
+      out+=txt(x,my,8,`<span style="font-family:'Calibri Light',Calibri,Carlito,Arial">${esc(l)}</span>`);
+      out+=txt(x+lw*0.42+ (l.length>12?12:l.length*1.55) ,my,8,`<b style="font-family:Calibri,Carlito,Arial">${esc(v??"-")}</b>`,`max-width:${vw}mm;overflow:hidden;white-space:nowrap`);
+    } my+=4.3; }
+  /* ---- band + column verticals ---- */
+  for (const c of COLS) out+=vline(c.x,BAND_Y,BODY_B);
+  out+=vline(RX-0.13,BAND_Y,BODY_B);
+  for (const c of COLS){
+    if (c.vlab) out+=vtxt(c.x+c.w/2-0.8,BAND_B-1.4,5,c.vlab);
+    else out+=txt(c.x+1,BAND_Y+ (c.fs===8?7.2:5.5),c.fs, `<b style="white-space:pre-line;display:block;width:${c.w-2}mm;text-align:center">${esc(c.lab)}</b>`);
+  }
+  /* ---- depth ruler (0.5 m labels, 0.1 m ticks) ---- */
+  const DC=COLS[2];
+  for (let d=0; d<=PAGE_M+1e-9; d+=0.1){
+    const y=yOf(d0+d,d0), major=Math.round(d*10)%5===0;
+    out+=hline(y,DC.x+DC.w-(major?4:2),DC.x+DC.w,major?0.13:0.09);
+    if (major && d>0.01 && d<PAGE_M-0.01)
+      out+=txt(DC.x,y-1.35,6,`<span style="display:block;width:${DC.w-5}mm;text-align:right">${(d0+d).toFixed(1)}</span>`);
+  }
+  /* ---- groundwater ---- */
+  const gw=data.groundwater;
+  if (gw && gw.depth!=null && gw.depth>=d0 && gw.depth<dEnd){
+    const y=yOf(gw.depth,d0);
+    out+=txt(COLS[0].x+1.2,y-1.6,6,"▼")+txt(COLS[0].x+0.6,y+1.6,5,"WT");
+    if (gw.when) out+=vtxt(COLS[0].x+5.6,y+14,4.3,gw.when);
+  } else if (!gw || gw.state==="GWNE") out+=vtxt(COLS[0].x+4.2,yOf(Math.min(d0+6,dEnd-1),d0),6,"GWNE");
+  /* ---- samples & field tests ---- */
+  let lastTy=-99;
+  for (const t of (data.tests||[])){
+    if (t.depth<d0||t.depth>=dEnd) continue;
+    const y=Math.max(yOf(t.depth,d0), lastTy+7); lastTy=y;
+    out+=txt(COLS[1].x+1,y,6,esc(t.line1||("SPT "+t.depth.toFixed(2))))+txt(COLS[1].x+1,y+2.7,6,`<b>${esc(t.line2||"")}</b>`);
+  }
+  /* ---- strata (single depth engine drives every column) ---- */
+  for (const s of strata){
+    const a=Math.max(s.depth_start,d0), b=Math.min(s.depth_end,dEnd,term||dEnd);
+    if (b<=a) continue;
+    const y1=yOf(a,d0), y2=yOf(b,d0), gh=y2-y1;
+    out+=el("",`left:${COLS[3].x+0.4}mm;top:${y1}mm;width:${COLS[3].w-0.8}mm;height:${gh}mm;background-image:${hatchFor(s)};background-size:4.2mm 4.2mm;border-top:0.13mm solid #000`);
+    out+=hline(y1,COLS[2].x,COLS[7].x+COLS[7].w);                       /* boundary: depth→moisture, per reference */
+    if (s.depth_start>=d0) out+=txt(COLS[2].x+1,y1+0.4,6,s.depth_start.toFixed(2));
+    out+=txt(COLS[4].x+1.5,y1+0.7,6,`<span style="display:block;width:${COLS[4].w-3}mm;max-height:${Math.max(2.6,gh-1.2)}mm;overflow:hidden">${esc(s.description)}</span>`);
+    const mid=y1+gh/2-1.6;
+    out+=txt(COLS[5].x,mid,6,`<span style="display:block;width:${COLS[5].w}mm;text-align:center">${esc(s.symbol||"-")}</span>`);
+    out+=txt(COLS[6].x,mid,6,`<span style="display:block;width:${COLS[6].w}mm;text-align:center">${esc(s.consistency||"-")}</span>`);
+    out+=txt(COLS[7].x,mid,6,`<span style="display:block;width:${COLS[7].w}mm;text-align:center">${esc(s.moisture||"-")}</span>`);
+  }
+  /* ---- termination at exact depth; blank framework preserved below ---- */
+  if (term>d0 && term<=dEnd+1e-9){
+    const y=yOf(term,d0);
+    out+=hline(y,COLS[2].x,COLS[7].x+COLS[7].w,0.13);
+    out+=txt(COLS[4].x+1.5,y+1,6,`${esc(data.termination_text||("Terminated at "+term.toFixed(2)+"m. Target depth reached."))}`);
+  }
+  if (pg>0) out+=txt(COLS[4].x,BAND_B+1,6,`<i style="display:block;width:${COLS[4].w}mm;text-align:center">Log continued from previous page.</i>`);
+  if (pages>pg+1) out+=txt(COLS[4].x,BODY_B-4,6,`<i style="display:block;width:${COLS[4].w}mm;text-align:center">Log continued on next page.</i>`);
+  /* ---- footer: notes 271–274, legend 274–280 (measured cells at 64/111/157) ---- */
+  for (const x of [64,111,157]) out+=vline(x,274,280);
+  out+=txt(MX+1.5,271.4,8,`<span style="font-family:'Calibri Light',Calibri,Carlito,Arial">Notes: See explanation sheets for meaning of all descriptive terms and symbols</span>`);
+  const leg=(x,l1,l2)=>txt(x,274.6,8,`<span style="font-family:'Calibri Light',Calibri,Carlito,Arial">${esc(l1)}<br>${esc(l2)}</span>`);
+  out+=leg(MX+1.5,"D - disturbed sample","U - undisturbed tube sample");
+  out+=leg(65.5,"S - jar sample","B - bulk sample");
+  out+=leg(112.5,"WT - level of water table or free water","N - Standard Penetration Test (SPT)");
+  out+=txt(157,275.6,11,`<span style="display:block;width:${RX-157}mm;text-align:center;font-family:'Calibri Light',Calibri,Carlito,Arial">Sheet ${pg+1} of ${pages}</span>`);
+  return out+`</div>`;
+}
+function renderAll(){
+  const st=document.getElementById("jsonStatus");
+  let data;
+  try { data=JSON.parse(document.getElementById("jsonIn").value); st.textContent="valid ✓"; st.className="text-xs font-bold text-emerald-600"; }
+  catch(e){ st.textContent="invalid JSON — "+e.message.slice(0,40); st.className="text-xs font-bold text-red-600"; return; }
+  const term=+data.termination_depth || Math.max(0,...(data.strata||[]).map(s=>+s.depth_end||0),1);
+  data.termination_depth=term;
+  const pages=Math.max(1,Math.ceil((term-1e-9)/PAGE_M));
+  let html=""; for (let p=0;p<pages;p++) html+=renderSheet(data,p,pages);
+  document.getElementById("out").innerHTML=html;
+}
+/* ================= sample payload ================= */
+const SAMPLE={
+  header:{ company:"STS GEOTECHNICS PTY LTD", client:"CDC Data Centres Pty Ltd", job_no:"32917/9295D-G",
+    address:"Lot 37 South Street, Marsden Park", bh_id:"BH204", date:"13 November 2024",
+    logged_by:"LL", reviewed_by:"MT", location_no:"24/3577", drilling_contractor:"Geosense Drilling",
+    surface_rl:"41.10", plant:"Comacchio Geo 205", inclination:"90", hole_diameter_mm:100, drill_bit:"AD/T" },
+  groundwater:{ state:"GWNE" },
+  tests:[ { depth:0.5, line1:"SPT 0.50-0.95", line2:"2,3,4 N=7" },
+          { depth:1.5, line1:"SPT 1.50-1.95", line2:"9,12,18 N=30" },
+          { depth:3.0, line1:"SPT 3.00-3.30", line2:"20,37/150 mm HB N=R" },
+          { depth:3.2, line1:"BH204-B-01", line2:"" } ],
+  strata:[
+    { depth_start:0.0, depth_end:0.3, description:"TOPSOIL: Silty CLAY: low plasticity, dark brown, trace rootlets", symbol:"-", consistency:"-", moisture:"M" },
+    { depth_start:0.3, depth_end:2.0, description:"Silty CLAY: medium to high plasticity, grey mottled orange, trace fine to medium ironstone gravels", symbol:"CI-CH", consistency:"St", moisture:"M<PL" },
+    { depth_start:2.0, depth_end:4.5, description:"Sandy CLAY: low plasticity, pale brown and grey, trace fine to coarse sub-angular to angular gravel", symbol:"CL", consistency:"VSt", moisture:"M<PL" },
+    { depth_start:4.5, depth_end:8.2, description:"Clayey SAND: fine to medium grained, orange-brown, with low plasticity clay", symbol:"SC", consistency:"D", moisture:"M" } ],
+  termination_depth:8.2,
+  termination_text:"Terminated at 8.20m. Target depth reached." };
+/* ================= wiring ================= */
+const ta=document.getElementById("jsonIn");
+ta.value=JSON.stringify(SAMPLE,null,2);
+ta.addEventListener("input",renderAll);
+document.getElementById("btnSample").addEventListener("click",()=>{ ta.value=JSON.stringify(SAMPLE,null,2); renderAll(); });
+document.getElementById("btnPrint").addEventListener("click",()=>window.print());
+document.getElementById("btnPanel").addEventListener("click",()=>{ const p=document.getElementById("panel"); p.style.display=p.style.display==="none"?"":"none"; });
+renderAll();
+</script>
+</body>
+</html>
