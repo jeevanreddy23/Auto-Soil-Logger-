@@ -3676,6 +3676,21 @@ function loadScript(src){ return new Promise((res,rej)=>{ if (document.querySele
 async function pdfjs(){ await loadScript("https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js");
   window.pdfjsLib.GlobalWorkerOptions.workerSrc="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js"; return window.pdfjsLib; }
 async function mammothLib(){ await loadScript("https://cdnjs.cloudflare.com/ajax/libs/mammoth/1.6.0/mammoth.browser.min.js"); return window.mammoth; }
+/* proposal binaries persist in the Cloudflare file store — previews survive reloads and devices */
+function abToDataUrl(ab, mime){ let s=""; const a=new Uint8Array(ab);
+  for (let i=0;i<a.length;i+=8192) s+=String.fromCharCode.apply(null, a.subarray(i,i+8192));
+  return "data:"+mime+";base64,"+btoa(s); }
+function scPKey(){ return (typeof pjSyncKey==="function"? pjSyncKey() : "__autosoil_project__"); }
+function scHdrs(){ return (typeof syncHeaders==="function"? syncHeaders() : {"Content-Type":"application/json"}); }
+async function scCloudPut(id, name, kind, dataUrl){
+  try{ await fetch("/api/v1/files",{method:"POST",headers:scHdrs(),
+    body:JSON.stringify({project:scPKey(), id:"prop-"+id, name, kind, data:dataUrl})}); }catch(e){}
+}
+async function scCloudGet(id){
+  try{ const r=await fetch("/api/v1/files?project="+encodeURIComponent(scPKey())+"&id=prop-"+encodeURIComponent(id),{headers:scHdrs()});
+    if (r.ok){ const f=await r.json(); return f.data||null; } }catch(e){}
+  return null;
+}
 
 /* ---------- extraction rules ---------- */
 const NUMW={one:1,two:2,three:3,four:4,five:5,six:6,seven:7,eight:8,nine:9,ten:10,eleven:11,twelve:12};
@@ -3816,6 +3831,7 @@ async function handleScopeFiles(files){
     if (/\.pdf$/i.test(f.name)){
       const lib=await pdfjs();
       const buf=await f.arrayBuffer();
+      scCloudPut(id, f.name, "proposal", abToDataUrl(buf.slice(0), "application/pdf"));   /* Cloudflare copy */
       const pdf=await lib.getDocument({data:buf}).promise;
       window._scopeMem[id]=pdf;
       const pages=[];
@@ -3832,6 +3848,7 @@ async function handleScopeFiles(files){
       sc.docs.push({ id, name:f.name, kind:"docx", pages:[{n:1, text:r.value}] });
     } else if (/\.(png|jpe?g|webp|heic)$/i.test(f.name)){
       const url=await new Promise(res=>{ const rd=new FileReader(); rd.onload=()=>res(rd.result); rd.readAsDataURL(f); });
+      scCloudPut(id, f.name, "proposal-image", url);
       window._scopeMem[id]=url;
       sc.docs.push({ id, name:f.name, kind:"image", pages:[{n:1, text:""}] });
       alert(f.name+": scanned image stored for preview. Text can't be read from images — paste the proposal text or add items manually.");
@@ -4079,6 +4096,18 @@ async function renderScPreview(find){
     highlightText(out, doc, find); return;
   }
   if (doc.kind==="image" && mem){ out.innerHTML=`<img src="${mem}" style="max-width:100%;transform:scale(${scPvZoom});transform-origin:top left">`; return; }
+  /* not in memory (reload / other device): recover the binary from the Cloudflare file store */
+  if ((doc.kind==="pdf"||doc.kind==="image") && !mem && !doc._cloudTried){
+    doc._cloudTried=true;
+    const data=await scCloudGet(doc.id);
+    if (data){
+      if (doc.kind==="image"){ window._scopeMem[doc.id]=data; }
+      else { try{ const lib=await pdfjs(); const bin=atob(data.split(",")[1]);
+        const arr=new Uint8Array(bin.length); for (let i=0;i<bin.length;i++) arr[i]=bin.charCodeAt(i);
+        window._scopeMem[doc.id]=await lib.getDocument({data:arr}).promise; }catch(e){} }
+      if (window._scopeMem[doc.id]) return renderScPreview(find);
+    }
+  }
   /* text preview with category highlights */
   highlightText(out, doc, find, true);
 }
@@ -4702,6 +4731,40 @@ window.v16After=function(tab){
 buildHeader();
 if (!applyHashRoute()) buildBar(S.activeTab||"projects");
 window.addEventListener("hashchange",applyHashRoute);
+})();
+</script>
+<script id="v20-cloudfiles">
+"use strict";
+/* ============ Cloudflare file store: corebox photos travel between devices ============ */
+(function(){
+const pKey=()=> (typeof pjSyncKey==="function"? pjSyncKey() : "__autosoil_project__");
+const hdrs=()=> (typeof syncHeaders==="function"? syncHeaders() : {"Content-Type":"application/json"});
+async function cbCloudPush(){
+  const c=S.logs[S.activeBh]?.corebox; if (!c||!c.img) return;
+  if (c._cloudLen===c.img.length) return;                       /* unchanged since last push */
+  try{
+    const r=await fetch("/api/v1/files",{method:"POST",headers:hdrs(),
+      body:JSON.stringify({project:pKey(), id:"corebox-"+S.activeBh, name:S.activeBh+" corebox photo", kind:"corebox", data:c.img})});
+    if (r.ok){ c._cloudLen=c.img.length; localStorage.setItem("autosoil-logger", JSON.stringify(S)); }
+  }catch(e){}
+}
+async function cbCloudPull(){
+  const c=S.logs[S.activeBh]?.corebox; if (!c||c.img) return;
+  try{
+    const r=await fetch("/api/v1/files?project="+encodeURIComponent(pKey())+"&id=corebox-"+encodeURIComponent(S.activeBh),{headers:hdrs()});
+    if (!r.ok) return;
+    const f=await r.json();
+    if (f.data){ c.img=f.data; c._cloudLen=f.data.length;
+      localStorage.setItem("autosoil-logger", JSON.stringify(S));
+      try{ showTab("corebox"); }catch(e){} }                     /* re-render with the fetched photo */
+  }catch(e){}
+}
+const _st20=showTab;
+showTab=function(tab){
+  _st20(tab);
+  if (tab==="corebox") setTimeout(()=>{ cbCloudPull(); cbCloudPush(); }, 500);
+};
+window.__cbCloud={ push:cbCloudPush, pull:cbCloudPull };        /* exposed for tests */
 })();
 </script>
 <script id="v17-master">
