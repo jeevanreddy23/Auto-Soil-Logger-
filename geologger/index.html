@@ -920,7 +920,7 @@ function renderSamples() {
 /* ============ validation engine ============ */
 function validate() {
   const errs = [], warns = [];
-  for (const [key,label,req] of PROJECT_FIELDS) if (req && !S.project[key]) errs.push(`Project: ${label} is required`);
+  for (const [key,label,req] of PROJECT_FIELDS) if (req && !S.project[key]) warns.push(`Project: ${label} is missing - PDF will use '-'`);
   for (const b of S.boreholes) {
     const L = S.logs[b.id]; if (!L) continue;
     const isPointDefect = r => r.defectType && (num(r.to)==null || num(r.to)===num(r.from));
@@ -4662,13 +4662,61 @@ function setHash(tab){
   const h = tab==="projects"? "#/projects" : (pid&&SLUG[tab]? `#/projects/${pid}/${SLUG[tab]}` : "");
   if (h) history.replaceState(null,"",h);
 }
+async function ensureRouteProject(pid){
+  if (typeof PJ==="undefined" || !pid) return false;
+  if (PJ.projects.some(p=>p.pid===pid)) {
+    if (PJ.activePid!==pid) pjOpen(pid);
+    return true;
+  }
+  try{
+    setStatus("Loading linked project from KV...");
+    const res=await fetch(SYNC_URL, { headers: (typeof syncHeaders==="function"? syncHeaders():{}) });
+    if (!res.ok) throw new Error("sync fetch failed");
+    const all=(await res.json()).boreholes||{};
+    const candidates=[`__project_${pid}__`, pid, `project:${pid}`];
+    let key=candidates.find(k=>all[k]?.rows?.[0]);
+    if (!key) key=Object.keys(all).find(k=>{
+      const r=all[k]?.rows?.[0];
+      return r && (r.pid===pid || r.project?.pid===pid || r.project?.projectId===pid);
+    });
+    const row=key && all[key]?.rows?.[0];
+    if (!row) { setStatus("Linked project not found in KV"); return false; }
+    const p=row.project||{};
+    PJ.projects.unshift({
+      pid,
+      number:p.projectNumber || p.number || pid,
+      name:p.projectName || p.name || "Geotechnical Investigation",
+      client:p.clientName || p.client || "",
+      address:[p.siteAddress,p.suburb].filter(Boolean).join(", "),
+      pm:p.loggedBy || "",
+      status:"LOGGING",
+      types:["Geotechnical Investigation"],
+      scope:{}, team:{}, dates:{}, docs:[], archived:false,
+      syncKey:key,
+      created:new Date().toISOString(),
+      updated:new Date().toISOString(),
+      activity:[{ t:new Date().toISOString(), m:"Project opened from KV deep link" }]
+    });
+    localStorage.setItem("autosoil-prj-"+pid, JSON.stringify(row));
+    pjSave();
+    pjOpen(pid);
+    setStatus("Linked project loaded from KV");
+    return true;
+  }catch(e){
+    setStatus("Unable to load linked project from KV");
+    return false;
+  }
+}
 function applyHashRoute(){
   const m=/^#\/projects\/([^/]+)\/([\w-]+)/.exec(location.hash);
   if (!m) return false;
   const [,pid,slug]=m; const tab=UNSLUG[slug];
   if (!tab) return false;
-  try{ if (typeof PJ!=="undefined" && PJ.projects.some(p=>p.pid===pid) && PJ.activePid!==pid) pjOpen(pid); }catch(e){}
-  showTab(tab); return true;
+  (async()=>{
+    try{ await ensureRouteProject(pid); }catch(e){}
+    showTab(tab);
+  })();
+  return true;
 }
 /* ---------- new light pages ---------- */
 window.renderPhotos=function(){
