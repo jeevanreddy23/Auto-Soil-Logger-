@@ -1171,13 +1171,51 @@ function buildPdf(bhId) {
 /* ============ preview + export tabs ============ */
 function renderPreview() {
   const page = document.getElementById("page-preview");
-  page.innerHTML = `<div class="panel"><div class="panel-header"><span>Borehole log preview — ${esc(S.activeBh)}</span></div>
-    <div class="toolbar"><span class="hint">Live preview updates when you reopen this tab. Export tab has the final PDF.</span></div>
+  const holes = S.boreholes || [];
+  if (!holes.some(b=>b.id===S.activeBh) && holes.length) S.activeBh = holes[0].id;
+  page.innerHTML = `<div class="panel"><div class="panel-header"><span>OpenGround log preview</span></div>
+    <div class="toolbar" style="gap:8px;flex-wrap:wrap;align-items:center">
+      <label class="hint" for="reportBh">Borehole</label>
+      <select id="reportBh" style="height:30px;border:1px solid #cbd5e1;border-radius:4px;padding:0 28px 0 8px;background:#fff">${holes.map(b=>`<option value="${esc(b.id)}" ${b.id===S.activeBh?"selected":""}>${esc(b.id)}</option>`).join("")}</select>
+      <button class="btn primary" id="currentPdf">Download current log PDF</button>
+      <button class="btn" id="saveCloudPdf">Save PDF to Cloudflare</button>
+      <button class="btn" id="currentPreview">Refresh preview</button>
+      <button class="btn" id="allLogPdfs">Download all log PDFs</button>
+      <span class="hint" id="reportSummary"></span>
+    </div>
     <iframe id="previewFrame"></iframe></div>`;
-  try {
-    const doc = buildPdf(S.activeBh);
-    document.getElementById("previewFrame").src = doc.output("bloburl");
-  } catch(e) { page.querySelector(".toolbar").innerHTML = `<span class="vwarn">Preview error: ${esc(e.message)}</span>`; }
+  const frame = document.getElementById("previewFrame");
+  const previewCurrent = () => {
+    try {
+      const doc = buildPdf(S.activeBh);
+      frame.src = doc.output("bloburl");
+      const L=S.logs[S.activeBh]||blankLogs();
+      document.getElementById("reportSummary").textContent = `${(L.soil||[]).length} soil · ${(L.rock||[]).length} rock · ${doc.__qa?.sheets||doc.getNumberOfPages()} sheet(s)`;
+    } catch(e) { document.getElementById("reportSummary").innerHTML = `<span class="vwarn">Preview error: ${esc(e.message)}</span>`; }
+  };
+  document.getElementById("reportBh").onchange = e=>{
+    S.activeBh=e.target.value;
+    localStorage.setItem("autosoil-logger", JSON.stringify(S));
+    previewCurrent(); refreshLeftPanel();
+  };
+  document.getElementById("currentPdf").onclick = ()=>buildPdf(S.activeBh).save(`log-${S.activeBh}.pdf`);
+  document.getElementById("saveCloudPdf").onclick = async e=>{
+    const btn=e.currentTarget, id=S.activeBh;
+    btn.disabled=true; btn.textContent="Saving PDF...";
+    try {
+      const data=buildPdf(id).output("datauristring");
+      const project=typeof pjSyncKey==="function"?pjSyncKey():"__autosoil_project__";
+      const res=await fetch("/api/v1/files", { method:"POST", headers:syncHeaders(),
+        body:JSON.stringify({ project, id:`report-${id}`, name:`log-${id}.pdf`, kind:"report-pdf", data }) });
+      if (!res.ok) throw new Error("Cloudflare save failed");
+      btn.textContent="Saved to Cloudflare"; setStatus(`Report log-${id}.pdf saved to Cloudflare`);
+    } catch(err) {
+      btn.disabled=false; btn.textContent="Save PDF to Cloudflare"; setStatus(err.message||"Unable to save report");
+    }
+  };
+  document.getElementById("currentPreview").onclick = previewCurrent;
+  document.getElementById("allLogPdfs").onclick = ()=>holes.forEach(b=>buildPdf(b.id).save(`log-${b.id}.pdf`));
+  previewCurrent();
 }
 function renderExport() {
   const { errs } = validate();
@@ -2993,17 +3031,17 @@ function buildPdf(bhId) {
   const isTP = /^(TP|PIT)/i.test(bhId) || B.holeType==="TP" || B.holeType==="Test pit";
   const TITLE = isTP ? "TEST PIT LOG" : "BOREHOLE LOG";
   const IDLBL = isTP ? "PIT ID:" : "BH ID:";
-  const isDraft = !(P.reviewBy || P.checkedBy);   /* DRAFT until Review By recorded */
+  const isDraft = !(P.reviewBy || P.checkedBy);
 
   function vtext(t,x,y,fs){ doc.setFontSize(fs||T.colHead); doc.text(String(t), x, y, {angle:90}); }
+  function pdfTri(x,y,filled,size=1.25) {
+    const h=size*0.86;
+    doc.setDrawColor(0); doc.setFillColor(0);
+    doc.triangle(x-size/2,y-h/2,x+size/2,y-h/2,x,y+h/2,filled?"F":"S");
+  }
   function header() {
     sheet++;
     doc.setTextColor(0); doc.setDrawColor(0);
-    if (isDraft) { /* watermark under all content */
-      doc.setTextColor(228); doc.setFont("helvetica","bold"); doc.setFontSize(96);
-      doc.text("DRAFT", 105, 185, { angle:45, align:"center" });
-      doc.setTextColor(0);
-    }
     doc.setLineWidth(LW.frame); doc.rect(MX, HY, RX-MX, bodyB-HY);   // outer frame full page block
     doc.setLineWidth(LW.section); doc.rect(MX, HY, RX-MX, HH);
     doc.rect(MX, HY, 44, 20);
@@ -3039,11 +3077,11 @@ function buildPdf(bhId) {
       [[isTP?"Excavation Contractor":"Drilling Contractor",P.drillingContractor,MX+0.5,27,52],["Surface RL",(B.rl||P.groundRL)?`${APPROX}${B.rl||P.groundRL} m (${P.datum||"AHD"})`:"-",100,16,32],[isTP?"Pit Dimensions":"Drill Bit",isTP?(B.pitDims||P.pitDims||"-"):P.drillBit,152,12,30]],
       [["Plant",P.drillRig,MX+0.5,27,52],["Inclination",P.inclination?P.inclination+"°":"90°",100,16,32],["Hole Ø (mm)",P.holeDia,152,16,26]],
     ];
-    let y=HY+24.3;
+    let y=HY+23.4;
     for (const row of rows) {
       for (const [l,v,x,lw2,vw] of row) {
-        doc.setFont(CF,"normal"); doc.text(l, x, y);          /* labels: Calibri Light in reference */
-        doc.setFont(CF,"bold");                                 /* values: Calibri Bold in reference */
+        doc.setFont(CF,"bold"); doc.text(l, x, y);
+        doc.setFont(CF,"normal");
         doc.text(trimToW(doc, String(v||"-"), vw||40), x+lw2, y);   /* "-" for missing, per issued logs */
         doc.setFont("helvetica","normal");
       }
@@ -3065,6 +3103,11 @@ function buildPdf(bhId) {
     leg("S - jar sample", 65.5, 276.7, 47); leg("B - bulk sample", 65.5, 279.3, 47);
     leg("WT - level of water table or free water", 112.5, 276.7, 46); leg("N - Standard Penetration Test (SPT)", 112.5, 279.3, 46);
     doc.setFontSize(T.sheet); doc.text(`Sheet ${sheet} of ${totalSheets}`, (157+RX)/2, 278.3, {align:"center"});
+    if (isDraft) {
+      doc.setFont(CF,"bold"); doc.setFontSize(5.5); doc.setTextColor(90);
+      doc.text("DRAFT - UNREVIEWED", RX-1.5, 273.4, {align:"right"});
+      doc.setTextColor(0);
+    }
     doc.setFont("helvetica","normal");
   }
   function band(cols, segs) {
@@ -3116,7 +3159,7 @@ function buildPdf(bhId) {
     doc.setFontSize(T.depth);
     if (GW!=null && GW>=d0 && GW<d0+10) {
       const y=yOf(GW); doc.setLineWidth(LW.interval);
-      doc.text("▼", C[0].x+C[0].w/2, y+1, {align:"center"});
+      pdfTri(C[0].x+C[0].w/2, y+0.6, true, 1.5);
       doc.text("WT", C[0].x+C[0].w/2, y+4, {align:"center"});
     } else if (!GW && (!P.groundwater || /GWNE|not/i.test(P.groundwater))) vtext("GWNE", C[0].x+C[0].w/2+1, bodyY+58, T.depth);
     for (const r of soil) {
@@ -3182,7 +3225,8 @@ function buildPdf(bhId) {
     doc.text("ESTIMATED", C[9].x+C[9].w/2, bandY+2.4, {align:"center"});
     doc.text("STRENGTH Is(50)", C[9].x+C[9].w/2, bandY+4.6, {align:"center"});
     doc.setFontSize(3.9); doc.setFont("helvetica","normal");
-    doc.text("▼ - Axial   ▽ - Diametral", C[9].x+C[9].w/2, bandY+6.6, {align:"center"});
+    pdfTri(C[9].x+2.2, bandY+6.4, true, 1.05); doc.text("- Axial", C[9].x+3.1, bandY+6.8);
+    pdfTri(C[9].x+8.2, bandY+6.4, false, 1.05); doc.text("- Diametral", C[9].x+9.1, bandY+6.8);
     doc.setFont("helvetica","normal");
     STR_ORDER.forEach((s2,i)=>{ const sw=C[9].w/6; vtext(s2, C[9].x+i*sw+sw/2+1, bandY+bandH-1, 4.3);
       doc.setLineWidth(LW.tick); doc.line(C[9].x+i*sw, bandY+7.5, C[9].x+i*sw, bodyB); });
@@ -3218,9 +3262,9 @@ function buildPdf(bhId) {
       doc.text(r.weathering||"-", C[8].x+C[8].w/2, cy, {align:"center"});
       const si=STR_ORDER.indexOf(r.strength);
       if (si>=0) { const sw=C[9].w/6;
-        doc.setTextColor(0); doc.setFontSize(5.5);
-        doc.text("▼", C[9].x+si*sw+sw/2, cy, {align:"center"});
-        if (r.is50!==""&&r.is50!=null) doc.text("▽", C[9].x+si*sw+sw/2, cy+3, {align:"center"}); }
+        doc.setTextColor(0);
+        pdfTri(C[9].x+si*sw+sw/2, cy, true, 1.35);
+        if (r.is50!==""&&r.is50!=null) pdfTri(C[9].x+si*sw+sw/2, cy+3, false, 1.35); }
     }
     doc.setFontSize(T.defect); doc.setTextColor(0);
     let lastY=-99;
@@ -4696,13 +4740,64 @@ function setHash(tab){
   const h = tab==="projects"? "#/projects" : (pid&&SLUG[tab]? `#/projects/${pid}/${SLUG[tab]}` : "");
   if (h) history.replaceState(null,"",h);
 }
+async function ensureRouteProject(pid){
+  if (typeof PJ==="undefined" || !pid) return false;
+  if (PJ.projects.some(p=>p.pid===pid)) {
+    if (PJ.activePid!==pid) pjOpen(pid);
+    return true;
+  }
+  try{
+    setStatus("Loading linked project from KV...");
+    const res=await fetch(SYNC_URL, { headers: (typeof syncHeaders==="function"? syncHeaders():{}) });
+    if (!res.ok) throw new Error("sync fetch failed");
+    const all=(await res.json()).boreholes||{};
+    /* Stable report URL requested for the original field workspace. Both project
+       ids intentionally read and write the same live Cloudflare KV record. */
+    const reportAliases={ p_rwulad:"__autosoil_project__" };
+    const candidates=[reportAliases[pid], `__project_${pid}__`, pid, `project:${pid}`].filter(Boolean);
+    let key=candidates.find(k=>all[k]?.rows?.[0]);
+    if (!key) key=Object.keys(all).find(k=>{
+      const r=all[k]?.rows?.[0];
+      return r && (r.pid===pid || r.project?.pid===pid || r.project?.projectId===pid);
+    });
+    const row=key && all[key]?.rows?.[0];
+    if (!row) { setStatus("Linked project not found in KV"); return false; }
+    const p=row.project||{};
+    PJ.projects.unshift({
+      pid,
+      number:p.projectNumber || p.number || pid,
+      name:p.projectName || p.name || "Geotechnical Investigation",
+      client:p.clientName || p.client || "",
+      address:[p.siteAddress,p.suburb].filter(Boolean).join(", "),
+      pm:p.loggedBy || "",
+      status:"LOGGING",
+      types:["Geotechnical Investigation"],
+      scope:{}, team:{}, dates:{}, docs:[], archived:false,
+      syncKey:key,
+      created:new Date().toISOString(),
+      updated:new Date().toISOString(),
+      activity:[{ t:new Date().toISOString(), m:"Project opened from KV deep link" }]
+    });
+    localStorage.setItem("autosoil-prj-"+pid, JSON.stringify(row));
+    pjSave();
+    pjOpen(pid);
+    setStatus("Linked project loaded from KV");
+    return true;
+  }catch(e){
+    setStatus("Unable to load linked project from KV");
+    return false;
+  }
+}
 function applyHashRoute(){
   const m=/^#\/projects\/([^/]+)\/([\w-]+)/.exec(location.hash);
   if (!m) return false;
   const [,pid,slug]=m; const tab=UNSLUG[slug];
   if (!tab) return false;
-  try{ if (typeof PJ!=="undefined" && PJ.projects.some(p=>p.pid===pid) && PJ.activePid!==pid) pjOpen(pid); }catch(e){}
-  showTab(tab); return true;
+  (async()=>{
+    try{ await ensureRouteProject(pid); }catch(e){}
+    showTab(tab);
+  })();
+  return true;
 }
 /* ---------- new light pages ---------- */
 window.renderPhotos=function(){
