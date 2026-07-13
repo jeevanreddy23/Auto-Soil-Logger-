@@ -9,6 +9,7 @@
 <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf-autotable/3.8.2/jspdf.plugin.autotable.min.js"></script>
 <script src="geoflow-domain.js"></script>
 <script src="ags41-export.js"></script>
+<script src="geoflow-sync.js"></script>
 <style>
   :root {
     --og-blue: #137a45; --og-blue-dark: #0c5d34; --og-header: #30353a;
@@ -227,9 +228,29 @@ function setStatus(m) { document.getElementById("statusMsg").textContent = m; }
 
 /* ============ server sync (strips images) ============ */
 const SYNC_URL = "/api/v1/geologger/logs";
+const syncHydratedKeys = new Set();
+const syncPulls = new Map();
 function apiKey(){ return localStorage.getItem("geologger-api-key")||""; }
 function syncHeaders(){ const h={"Content-Type":"application/json"}; if(apiKey()) h["X-Autosoil-Api-Key"]=apiKey(); return h; }
 function setSync(state,msg){ const el=document.getElementById("syncStatus"); el.style.color={ok:"var(--og-ok)",off:"var(--og-muted)",err:"var(--og-warn)"}[state]; el.innerHTML="&#9679; "+msg; }
+function activeSyncKey(){
+  try { if (typeof pjSyncKey === "function") return pjSyncKey(); } catch(e) {}
+  return "__autosoil_project__";
+}
+function persistHydratedState(){
+  localStorage.setItem("autosoil-logger", JSON.stringify(S));
+  try {
+    const project = typeof pjActive === "function" ? pjActive() : null;
+    if (project?.pid) localStorage.setItem("autosoil-prj-"+project.pid, JSON.stringify(S));
+  } catch(e) {}
+}
+function applyServerState(server, key){
+  S = window.GeoFlowSync.hydrateProjectState(S, server, blankLogs);
+  try { if (typeof cb2Migrate === "function") cb2Migrate(); } catch(e) {}
+  persistHydratedState();
+  syncHydratedKeys.add(key);
+  renderAll();
+}
 async function pushSync() {
   try {
     const lean = JSON.parse(JSON.stringify(S));
@@ -240,19 +261,27 @@ async function pushSync() {
     setSync("ok","synced");
   } catch(e){ setSync("off","local only"); }
 }
-async function pullSync() {
-  try {
-    const res = await fetch(SYNC_URL, { headers: syncHeaders() });
-    if (!res.ok) throw 0;
-    const data = await res.json();
-    const entry = (data.boreholes||{})["__autosoil_project__"];
-    if (entry && entry.rows && entry.rows[0] && !localStorage.getItem("autosoil-logger")) {
-      S = entry.rows[0];
-      for (const b of S.boreholes) if (!S.logs[b.id]) S.logs[b.id] = blankLogs();
-      renderAll();
+async function pullSync(keyOverride) {
+  const key = keyOverride || activeSyncKey();
+  if (syncPulls.has(key)) return syncPulls.get(key);
+  const request = (async()=>{
+    try {
+      const res = await fetch(SYNC_URL, { headers: syncHeaders() });
+      if (!res.ok) throw 0;
+      const data = await res.json();
+      const server = (data.boreholes||{})[key]?.rows?.[0];
+      if (server) applyServerState(server, key);
+      else syncHydratedKeys.add(key);
+      setSync("ok","synced");
+      return true;
+    } catch(e){
+      setSync("off","local only");
+      return false;
     }
-    setSync("ok","synced");
-  } catch(e){ setSync("off","local only"); }
+  })();
+  syncPulls.set(key, request);
+  try { return await request; }
+  finally { if (syncPulls.get(key) === request) syncPulls.delete(key); }
 }
 document.getElementById("syncStatus").addEventListener("click", ()=>{
   const k = prompt("AutoSoil API key for server sync (empty to disable):", apiKey());
@@ -1272,7 +1301,7 @@ function renderAll() {
   refreshLeftPanel(); refreshValidation(); showTab(S.activeTab || "project");
 }
 renderAll();
-pullSync();
+setTimeout(()=>pullSync(),0);
 </script>
 <style>
   .cb2-wrap { display:flex; gap:10px; }
@@ -3469,6 +3498,7 @@ function pjSyncKey(){ return pjActive()?.syncKey || ("__project_" + (PJ.activePi
 const _push12 = pushSync;
 pushSync = async function(){
   const key = pjSyncKey();
+  if (!syncHydratedKeys.has(key) && !(await pullSync(key))) return;
   try {
     const h = syncHeaders();
     if (key === "__autosoil_project__") return _push12(); // default project keeps field-app merge path
@@ -4773,8 +4803,10 @@ function setHash(tab){
 }
 async function ensureRouteProject(pid){
   if (typeof PJ==="undefined" || !pid) return false;
-  if (PJ.projects.some(p=>p.pid===pid)) {
+  const existing = PJ.projects.find(p=>p.pid===pid);
+  if (existing) {
     if (PJ.activePid!==pid) pjOpen(pid);
+    await pullSync(existing.syncKey || (`__project_${pid}__`));
     return true;
   }
   try{
@@ -4812,6 +4844,7 @@ async function ensureRouteProject(pid){
     localStorage.setItem("autosoil-prj-"+pid, JSON.stringify(row));
     pjSave();
     pjOpen(pid);
+    syncHydratedKeys.add(key);
     setStatus("Linked project loaded from KV");
     return true;
   }catch(e){
