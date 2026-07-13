@@ -10,8 +10,35 @@
     "moisture", "structure", "inclusions", "origin", "fillNatural"
   ];
 
+  const SOIL_ROW_KEYS = [
+    "from", "to", "material", "secondary", "colour", "moisture", "consistency",
+    "plasticity", "structure", "origin", "inclusions", "fillNatural", "uscs",
+    "description", "samples", "sptN", "dcp", "envNotes", "remarks"
+  ];
+
+  const ROCK_ROW_KEYS = [
+    "from", "to", "rockType", "colour", "weathering", "strength", "defectType",
+    "defectAngle", "defectSpacing", "defectRough", "defectInfill", "defectAperture",
+    "defectPersist", "bedding", "tcr", "scr", "rqd", "is50", "rockClass",
+    "description", "remarks", "_cbunit"
+  ];
+
+  const ROCK_GEOLOGY_KEYS = ["rockType", "description"];
+
+  const CORE_RUN_KEYS = ["tcr", "scr", "rqd", "is50", "_cbunit"];
+
   function hasValue(value) {
     return value !== "" && value !== null && value !== undefined;
+  }
+
+  function isEntered(value) {
+    if (typeof value === "boolean") return value;
+    if (typeof value === "string") return value.trim() !== "";
+    return value !== null && value !== undefined;
+  }
+
+  function hasAnyEntered(row, keys) {
+    return keys.some(key => isEntered(row && row[key]));
   }
 
   function numberOrNull(value) {
@@ -35,14 +62,15 @@
       parts.push(String(row.consistency).trim());
     }
     if (row.colour) parts.push(String(row.colour).trim());
-    let output = `${material}: ${parts.join(", ")}`;
+    let output = material;
+    if (parts.length) output += `: ${parts.join(", ")}`;
     const segments = [row.secondary, row.inclusions]
       .filter(Boolean)
       .map(value => String(value).trim());
     const extras = segments.length === 2
       ? segments[0] + (/^(with|trace|and)\b/i.test(segments[1]) ? " " : " and ") + segments[1]
       : (segments[0] || "");
-    if (extras) output += (parts.length ? ", " : "") + extras;
+    if (extras) output += (parts.length ? ", " : ": ") + extras;
     if (row.fillNatural === "FILL" && !/^FILL/i.test(material)) output = "FILL: " + output;
     else if (row.origin && !["", "fill"].includes(String(row.origin).toLowerCase())) {
       output += ` (${row.origin})`;
@@ -57,6 +85,9 @@
   function soilDescriptionState(row) {
     const generated = soilDescription(row);
     const basis = soilDescriptionBasis(row);
+    if (classifySoilRow(row) === "empty") {
+      return { kind: "empty", label: "Not started", generated, basis };
+    }
     if (!row.descTouched) {
       return { kind: "structured", label: "Structured", generated, basis };
     }
@@ -64,6 +95,53 @@
       return { kind: "out-of-sync", label: "Manual, structured fields changed", generated, basis };
     }
     return { kind: "manual", label: "Manual", generated, basis };
+  }
+
+  function validInterval(row) {
+    const from = numberOrNull(row && row.from);
+    const to = numberOrNull(row && row.to);
+    return from !== null && to !== null && to > from;
+  }
+
+  function classifySoilRow(row = {}) {
+    if (!hasAnyEntered(row, SOIL_ROW_KEYS)) return "empty";
+    if (validInterval(row) && hasAnyEntered(row, ["material", "description"])) return "geology";
+    return "draft";
+  }
+
+  function classifyRockRow(row = {}) {
+    if (!hasAnyEntered(row, ROCK_ROW_KEYS)) return "empty";
+    if (isEntered(row.defectType) && numberOrNull(row.from) !== null) return "defect";
+    if (validInterval(row) && hasAnyEntered(row, ROCK_GEOLOGY_KEYS)) return "geology";
+    if (validInterval(row) && hasAnyEntered(row, CORE_RUN_KEYS)) return "core-run";
+    return "draft";
+  }
+
+  function reportCounts(log = {}) {
+    const soilKinds = (log.soil || []).map(classifySoilRow);
+    const rockRows = log.rock || [];
+    const rockKinds = rockRows.map(classifyRockRow);
+    return {
+      soil: soilKinds.filter(kind => kind === "geology").length,
+      rock: rockKinds.filter(kind => kind === "geology").length,
+      coreRuns: rockRows.filter((row, index) => rockKinds[index] !== "defect" && validInterval(row) && hasAnyEntered(row, CORE_RUN_KEYS)).length,
+      defects: rockKinds.filter(kind => kind === "defect").length,
+      drafts: soilKinds.filter(kind => kind === "draft").length + rockKinds.filter(kind => kind === "draft").length
+    };
+  }
+
+  function lithologyPattern(material) {
+    const value = String(material || "").trim().toUpperCase();
+    if (!value) return "blank";
+    if (/\b(?:FILL|TOPSOIL)\b/.test(value)) return "crosshatch";
+    if (/\bCLAYSTONE\b/.test(value)) return "claystone";
+    if (/\bSILTSTONE\b/.test(value)) return "siltstone";
+    if (/\bSANDSTONE\b/.test(value)) return "sandstone";
+    if (/\b(?:SHALE|LAMINITE)\b/.test(value)) return "shale";
+    if (/\b(?:GRAVEL|CONGLOMERATE)\b/.test(value)) return "gravel";
+    if (/\bSAND\b/.test(value)) return "sand";
+    if (/\b(?:CLAY|SILT)\b/.test(value)) return "cohesive";
+    return "blank";
   }
 
   function penetration(value, blows) {
@@ -136,7 +214,7 @@
       return pen !== null && pen < 150 ? `${blow}/${pen}` : String(blow);
     }).filter(Boolean);
     const suffix = row.hb ? " HB" : "";
-    const nText = result.n ? `N=${result.n}` : "N=-";
+    const nText = result.n ? `N=${result.n}` : "";
     return `${increments.join(",")}${suffix} ${nText}`.trim();
   }
 
@@ -233,14 +311,18 @@
   }
 
   return {
+    classifyRockRow,
+    classifySoilRow,
     coringStartDepth,
     deriveSpt,
     formatSptDepthLine,
     formatSptLine,
     intervalIssues,
     isGranular,
+    lithologyPattern,
     numberOrNull,
     partitionRockForReport,
+    reportCounts,
     soilDescription,
     soilDescriptionBasis,
     soilDescriptionState,

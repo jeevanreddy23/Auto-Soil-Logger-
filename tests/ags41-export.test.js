@@ -90,3 +90,15 @@ test("marks incomplete metadata as draft without borrowing reference data", () =
 test("escapes quotes and removes record-breaking newlines", () => {
   assert.equal(ags.csvCell('a "quoted"\nvalue'), '"a ""quoted"" value"');
 });
+
+test("exports recovery-only rows as CORE without inventing GEOL lithology", () => {
+  const state = fixture();
+  state.logs.BH3.soil = [{}];
+  state.logs.BH3.rock = [{ from: 2, to: 3.5, rockType: "", description: "", tcr: 100, rqd: 85 }];
+  state.logs.BH3.samples = [];
+  state.logs.BH3.spt = [];
+  const output = ags.build(state, { date: "2026-07-14", domain });
+
+  assert.doesNotMatch(output, /"GROUP","GEOL"/);
+  assert.match(output, /"GROUP","CORE"[\s\S]*"DATA","BH3","2\.00","3\.50","100","","85",""/);
+});

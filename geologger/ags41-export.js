@@ -230,7 +230,13 @@
       const log = logs[borehole.id] || {};
       const soil = completeIntervals(log.soil);
       const rock = completeIntervals((log.rock || []).filter(row => !row.defectType));
-      [...soil.map(row => ({ ...row, kind: "soil" })), ...rock.map(row => ({ ...row, kind: "rock" }))]
+      const soilGeology = soil.filter(row => domain && typeof domain.classifySoilRow === "function"
+        ? domain.classifySoilRow(row) === "geology"
+        : Boolean(clean(row.description || row.material)));
+      const rockGeology = rock.filter(row => domain && typeof domain.classifyRockRow === "function"
+        ? domain.classifyRockRow(row) === "geology"
+        : Boolean(clean(row.description || row.rockType)));
+      [...soilGeology.map(row => ({ ...row, kind: "soil" })), ...rockGeology.map(row => ({ ...row, kind: "rock" }))]
         .sort((left, right) => numberValue(left.from) - numberValue(right.from))
         .forEach(row => {
           const description = clean(row.description || (row.kind === "rock" ? row.rockType : row.material));

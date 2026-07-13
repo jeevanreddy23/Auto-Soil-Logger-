@@ -50,6 +50,57 @@ test("tracks structured, manual and out-of-sync soil descriptions", () => {
   assert.equal(domain.soilDescriptionState(row).kind, "out-of-sync");
 });
 
+test("keeps material-only descriptions grammatical", () => {
+  assert.equal(domain.soilDescription({ material: "CLAY" }), "CLAY");
+  assert.equal(domain.soilDescription({ material: "Sandy CLAY", fillNatural: "FILL" }), "FILL: Sandy CLAY");
+});
+
+test("keeps a completely blank soil record in a not-started state", () => {
+  const row = { from: "", to: "", material: "", description: "", descTouched: false };
+  assert.equal(domain.classifySoilRow(row), "empty");
+  assert.deepEqual(domain.soilDescriptionState(row), {
+    kind: "empty",
+    label: "Not started",
+    generated: "",
+    basis: domain.soilDescriptionBasis(row)
+  });
+  assert.equal(domain.classifySoilRow({ from: 0, material: "CLAY" }), "draft");
+  assert.equal(domain.classifySoilRow({ from: 0, to: 1, material: "CLAY" }), "geology");
+});
+
+test("separates rock geology, core recovery and discontinuity records", () => {
+  assert.equal(domain.classifyRockRow({}), "empty");
+  assert.equal(domain.classifyRockRow({ from: 2, to: 11, tcr: 100, rqd: 99 }), "core-run");
+  assert.equal(domain.classifyRockRow({ from: 2, to: 11, rockType: "SHALE" }), "geology");
+  assert.equal(domain.classifyRockRow({ from: 2.09, to: 2.09, defectType: "Bedding parting" }), "defect");
+  assert.equal(domain.classifyRockRow({ rockType: "SHALE" }), "draft");
+});
+
+test("counts only entered records in report summaries", () => {
+  const counts = domain.reportCounts({
+    soil: [{}, { from: 0, to: 1, material: "CLAY" }],
+    rock: [
+      {},
+      { from: 1, to: 2, rockType: "SHALE" },
+      { from: 2, to: 3, tcr: 100, rqd: 80 },
+      { from: 2.2, to: 2.2, defectType: "Joint" }
+    ]
+  });
+  assert.deepEqual(counts, { soil: 1, rock: 1, coreRuns: 1, defects: 1, drafts: 0 });
+});
+
+test("maps observed OpenGround lithologies without inventing an unknown pattern", () => {
+  assert.equal(domain.lithologyPattern(""), "blank");
+  assert.equal(domain.lithologyPattern("FILL: Silty SAND"), "crosshatch");
+  assert.equal(domain.lithologyPattern("Silty CLAY"), "cohesive");
+  assert.equal(domain.lithologyPattern("Clayey SAND"), "sand");
+  assert.equal(domain.lithologyPattern("CLAYSTONE"), "claystone");
+  assert.equal(domain.lithologyPattern("SHALE"), "shale");
+  assert.equal(domain.lithologyPattern("SILTSTONE"), "siltstone");
+  assert.equal(domain.lithologyPattern("Hawkesbury Sandstone"), "sandstone");
+  assert.equal(domain.lithologyPattern("MYSTERY ROCK"), "blank");
+});
+
 test("uses the primary soil fraction for cohesive versus granular behavior", () => {
   assert.equal(domain.isGranular("Sandy CLAY"), false);
   assert.equal(domain.isGranular("Clayey SAND"), true);
