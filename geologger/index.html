@@ -7,14 +7,15 @@
 <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf-autotable/3.8.2/jspdf.plugin.autotable.min.js"></script>
+<script src="geoflow-domain.js"></script>
 <style>
   :root {
-    --og-blue: #1f6dad; --og-blue-dark: #17578c; --og-header: #3f3f3f;
-    --og-border: #c9c9c9; --og-row-alt: #f5f5f5; --og-row-hover: #e8f1f8;
+    --og-blue: #137a45; --og-blue-dark: #0c5d34; --og-header: #30353a;
+    --og-border: #c8ced3; --og-row-alt: #f6f8f7; --og-row-hover: #eaf5ef;
     --og-text: #1e1e1e; --og-muted: #6b6b6b; --og-warn: #c0392b; --og-ok: #1a7f37;
   }
   * { box-sizing: border-box; margin: 0; padding: 0; }
-  body { font-family: "Segoe UI", Roboto, Arial, sans-serif; background: #ececec; color: var(--og-text); font-size: 13px; }
+  body { font-family: "Segoe UI", Arial, sans-serif; background: #ececec; color: var(--og-text); font-size: 13px; }
   .topbar { background: #fff; border-bottom: 2px solid var(--og-blue); padding: 0 16px; display: flex; align-items: center; gap: 4px; height: 46px; }
   .topbar h1 { font-size: 16px; font-weight: 600; margin-right: 18px; color: var(--og-blue-dark); white-space: nowrap; }
   .topbar h1 small { color: var(--og-muted); font-weight: 400; font-size: 11px; }
@@ -32,11 +33,11 @@
   .lp-add { padding: 7px 10px; color: var(--og-blue); cursor: pointer; font-size: 12px; }
   .main { flex: 1; overflow: auto; display: flex; flex-direction: column; }
   .content { flex: 1; overflow: auto; padding: 12px; }
-  .rightpanel { width: 290px; background: #fff; border-left: 1px solid var(--og-border); overflow-y: auto; flex-shrink: 0; padding-bottom: 20px; }
+  .rightpanel { width: 304px; background: #fff; border-left: 1px solid var(--og-border); overflow-y: auto; flex-shrink: 0; padding: 8px 8px 24px; }
   .rp-sec { border-bottom: 1px solid var(--og-border); }
   .rp-head { background: #f2f2f2; padding: 6px 10px; font-weight: 600; font-size: 12px; color: var(--og-header); }
   .rp-body { padding: 8px 10px; font-size: 12px; }
-  .rp-body .desc-prev { font-family: Georgia, serif; font-size: 12.5px; line-height: 1.5; color: #222; }
+  .rp-body .desc-prev { font-family: inherit; font-size: 12.5px; line-height: 1.5; color: var(--og-text); }
   .vwarn { color: var(--og-warn); padding: 2px 0; font-size: 11.5px; }
   .vok { color: var(--og-ok); font-size: 11.5px; }
   .panel { background: #fff; border: 1px solid var(--og-border); margin-bottom: 12px; }
@@ -2063,7 +2064,7 @@ function buildPdf(bhId) {
       [["Job No.",P.projectNumber,MX+2,26],["Logged By",P.loggedBy,132,16],["Review By",P.reviewBy||P.checkedBy,166,16]],
       [["Address",[P.siteAddress,P.suburb].filter(Boolean).join(", "),MX+2,26],["Location #",P.locationNo||P.lga,132,16]],
       [["Drilling Contractor",P.drillingContractor,MX+2,26],["Surface RL",(B.rl||P.groundRL)?`≈${B.rl||P.groundRL} m (${P.datum||"AHD"})`:"—",100,18],["Drill Bit",P.drillBit,150,14]],
-      [["Plant",P.drillRig,MX+2,26],["Inclination",P.inclination?P.inclination+"°":"90°",100,18],["Hole Ø (mm)",P.holeDia,150,18]],
+      [["Plant",P.drillRig,MX+2,26],["Inclination",P.inclination?P.inclination+" deg":"90 deg",100,18],["Hole dia. (mm)",P.holeDia,150,18]],
     ];
     let y=HY+21.5;
     for (const row of rows) {
@@ -3024,9 +3025,9 @@ function buildPdf(bhId) {
   const HY=17, HH=42, bandY=59, bandH=18, bodyY=77, bodyB=271, SC=1000/52;
   const GW = gwDepth(P,B);
   let sheet = 0, qaLogo = false;
-  /* Calibri-equivalent face for title + header block (reference logs use Calibri/Calibri Light) */
-  const CF = registerCarlito(doc) ? "carlito" : "helvetica";
-  const APPROX = CF==="carlito" ? "≈" : "~";   /* real ≈ glyph once a unicode font is embedded */
+  /* Use a PDF-native face on every sheet; embedded Carlito was unreliable in multi-page renderers. */
+  const CF = "helvetica";
+  const APPROX = "~";
   /* T3 test-pit template: same visual language, pit terminology */
   const isTP = /^(TP|PIT)/i.test(bhId) || B.holeType==="TP" || B.holeType==="Test pit";
   const TITLE = isTP ? "TEST PIT LOG" : "BOREHOLE LOG";
@@ -3075,7 +3076,7 @@ function buildPdf(bhId) {
       [["Job No.",P.projectNumber,MX+0.5,12,110],["Logged By",P.loggedBy,131.5,16,16],["Review By",P.reviewBy||P.checkedBy,166,15,13]],
       [["Address",[P.siteAddress,P.suburb].filter(Boolean).join(", "),MX+0.5,12,110],["Location #",P.locationNo||P.lga,131.5,16,30]],
       [[isTP?"Excavation Contractor":"Drilling Contractor",P.drillingContractor,MX+0.5,27,52],["Surface RL",(B.rl||P.groundRL)?`${APPROX}${B.rl||P.groundRL} m (${P.datum||"AHD"})`:"-",100,16,32],[isTP?"Pit Dimensions":"Drill Bit",isTP?(B.pitDims||P.pitDims||"-"):P.drillBit,152,12,30]],
-      [["Plant",P.drillRig,MX+0.5,27,52],["Inclination",P.inclination?P.inclination+"°":"90°",100,16,32],["Hole Ø (mm)",P.holeDia,152,16,26]],
+      [["Plant",P.drillRig,MX+0.5,27,52],["Inclination",P.inclination?P.inclination+" deg":"90 deg",100,16,32],["Hole dia. (mm)",P.holeDia,152,16,26]],
     ];
     let y=HY+23.4;
     for (const row of rows) {
@@ -3184,7 +3185,7 @@ function buildPdf(bhId) {
     doc.setFontSize(T.defect);
     let lastY=-99;
     const marks=[...L.samples.filter(s2=>num(s2.from)!=null).map(s2=>({d:num(s2.from),lines:[`${s2.sid||""}`]})),
-                 ...L.spt.filter(t2=>num(t2.depth)!=null).map(t2=>({d:num(t2.depth),lines:[`SPT ${num(t2.depth).toFixed(2)}${t2.recovery?"-"+(num(t2.depth)+num(t2.recovery)/1000).toFixed(2):""}`, sptLine2(t2)]}))]
+                 ...L.spt.filter(t2=>num(t2.depth)!=null).map(t2=>({d:num(t2.depth),lines:[GeoFlowDomain.formatSptDepthLine(t2), sptLine2(t2)]}))]
       .filter(m2=>m2.d>=d0&&m2.d<d0+10).sort((a,b)=>a.d-b.d);
     for (const m2 of marks) {
       const y=yOf(m2.d);
@@ -3697,7 +3698,7 @@ function pjCtxBar(){
 .sc-prev .bar { display:flex; align-items:center; gap:8px; padding:8px 10px; border-bottom:1px solid #e6ebf2; font-size:12.5px; flex-wrap:wrap; }
 .sc-prev .doc { max-height:560px; overflow:auto; padding:12px; background:#f4f6f9; }
 .sc-prev canvas { display:block; margin:0 auto 10px; box-shadow:0 1px 4px rgba(20,30,50,.18); background:#fff; max-width:100%; }
-.sc-txt { background:#fff; border:1px solid #e6ebf2; border-radius:8px; padding:12px 14px; margin-bottom:10px; font-size:12.5px; line-height:1.55; white-space:pre-wrap; font-family:Georgia,serif; }
+.sc-txt { background:#fff; border:1px solid #e6ebf2; border-radius:8px; padding:12px 14px; margin-bottom:10px; font-size:12.5px; line-height:1.55; white-space:pre-wrap; font-family:inherit; }
 .sc-txt mark { border-radius:3px; padding:0 2px; }
 .sc-legend { display:flex; flex-wrap:wrap; gap:8px; padding:8px 10px; font-size:11px; border-top:1px solid #e6ebf2; }
 .sc-legend i { display:inline-block; width:10px; height:10px; border-radius:3px; margin-right:4px; vertical-align:-1px; }
@@ -4621,7 +4622,7 @@ body { background:#f8fafc; }
 .cbtn { display:inline-flex; align-items:center; gap:5px; border:1px solid #e2e8f0; background:#fff; border-radius:7px;
   padding:4px 10px; font-size:12px; font-weight:600; color:#334155; cursor:pointer; }
 .cbtn:hover { background:#f1f5f9; }
-.cbtn.pri { background:#1d4ed8; border-color:#1d4ed8; color:#fff; }
+.cbtn.pri { background:var(--og-blue); border-color:var(--og-blue); color:#fff; }
 #ctlBar select.bhsw { border:1px solid #e2e8f0; border-radius:7px; padding:4px 8px; font-size:12px; font-weight:600; background:#fff; }
 /* tower strip → clean white cards */
 .tower-strip { background:#fff !important; border:1px solid #e2e8f0; border-radius:12px; color:#0f172a !important; padding:14px 16px; }
@@ -4634,10 +4635,10 @@ body { background:#f8fafc; }
 table.sc-tbl th { position:sticky; top:0; background:#fff; }
 table.sc-tbl td, table.sc-tbl th { padding:5px 8px; }
 /* sidebar polish */
-#sideNav { background:#020617; }
+#sideNav { background:#202428; }
 #sideNav .ssec { font-size:9.5px; letter-spacing:1.6px; font-weight:700; color:#475569; padding:12px 16px 4px; }
 #sideNav .sn { padding:7px 16px; font-size:12.5px; }
-#sideNav .sn.on { background:#1d4ed8; }
+#sideNav .sn.on { background:var(--og-blue-dark); }
 /* the old green dashboard/portfolio rail duplicates the unified sidebar — remove it */
 .dz-rail { display:none !important; }
 /* phone bottom nav */
@@ -4646,7 +4647,7 @@ table.sc-tbl td, table.sc-tbl th { padding:5px 8px; }
   #botNav { display:flex; position:fixed; left:0; right:0; bottom:0; background:#fff; border-top:1px solid #e2e8f0; z-index:70; }
   #botNav button { flex:1; min-height:54px; border:none; background:none; font-size:10.5px; color:#64748b; cursor:pointer; }
   #botNav button span { display:block; font-size:17px; }
-  #botNav button.on { color:#1d4ed8; font-weight:700; }
+  #botNav button.on { color:var(--og-blue-dark); font-weight:700; }
   body { padding-bottom:54px; }
   #gh .crumb, #gh select.pipe { display:none; }
 }
@@ -5383,6 +5384,304 @@ function schedTick(){
   if (document.getElementById("page-daily")?.classList.contains("show")) renderDaily();
 }
 setInterval(schedTick, 5*60*1000); setTimeout(schedTick, 20000);
+})();
+</script>
+<style id="v17-field-to-pdf-css">
+.soil-mobile, .spt-mobile { display:none; }
+.slice-status { display:inline-flex; align-items:center; gap:7px; min-height:28px; padding:4px 8px; border:1px solid #b9c4bd; background:#f6f8f7; color:#36413b; font-size:11.5px; font-weight:600; }
+.slice-status::before { content:""; width:7px; height:7px; border-radius:50%; background:var(--og-blue); flex:0 0 auto; }
+.slice-status.manual::before { background:#68727a; }
+.slice-status.out-of-sync { border-color:#dfb35d; background:#fff8e8; color:#7a4b00; }
+.slice-status.out-of-sync::before { background:#b66a00; }
+.mobile-record-nav { display:flex; align-items:center; gap:8px; padding:10px 12px; border-bottom:1px solid var(--og-border); background:#f6f8f7; }
+.mobile-record-nav strong { flex:1; min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.mobile-record-nav button { min-width:44px; min-height:44px; border:1px solid var(--og-border); background:#fff; color:var(--og-text); font:inherit; cursor:pointer; }
+.mobile-form { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:10px 12px; padding:12px; }
+.mobile-form .mf { min-width:0; }
+.mobile-form .mf.wide { grid-column:1 / -1; }
+.mobile-form label { display:block; color:var(--og-muted); font-size:12px; font-weight:600; margin-bottom:4px; }
+.mobile-form input, .mobile-form select, .mobile-form textarea { width:100%; min-width:0; min-height:44px; border:1px solid var(--og-border); background:#fff; color:var(--og-text); padding:8px; font:inherit; }
+.mobile-form textarea { min-height:92px; resize:vertical; }
+.mobile-form input:focus, .mobile-form select:focus, .mobile-form textarea:focus { outline:3px solid rgba(19,122,69,.25); border-color:var(--og-blue); }
+.mobile-form input[readonly] { background:#eef1ef; color:#4c5751; }
+.mobile-check { display:flex; align-items:center; gap:10px; min-height:44px; font-weight:600; }
+.mobile-check input { width:22px; min-height:22px; }
+.mobile-record-actions { display:flex; gap:8px; padding:0 12px 12px; }
+.mobile-record-actions .btn { min-height:44px; flex:1; }
+@media (max-width:900px) {
+  #gh .crumb, #gh select.pipe, #ghSync, #ghAv, #ghSet { display:none !important; }
+  .soil-desktop, .spt-desktop { display:none; }
+  .soil-mobile, .spt-mobile { display:block; }
+  .content { min-width:0; padding:8px; }
+  #page-soil .panel, #page-spt .panel { margin:0; }
+  #page-soil .panel-header, #page-spt .panel-header { min-height:44px; }
+  #page-soil .toolbar, #page-spt .toolbar { padding:8px; }
+  #page-soil .toolbar .btn, #page-spt .toolbar .btn { min-height:44px; }
+  #page-soil .sv-btn, #page-spt .sv-btn { min-height:44px !important; height:44px !important; }
+  .slice-export { display:none; }
+}
+@media (max-width:430px) {
+  .topbar { padding-inline:10px; }
+  #gh .co { font-size:11.5px; }
+  .mobile-form { grid-template-columns:minmax(0,1fr); }
+  .mobile-form .mf.wide { grid-column:auto; }
+  .slice-status { width:100%; }
+}
+</style>
+<script id="v17-field-to-pdf">
+"use strict";
+(function(){
+if (!window.GeoFlowDomain) throw new Error("GeoFlow domain rules failed to load");
+const D17=window.GeoFlowDomain;
+const SOIL_STRUCTURED_KEYS17=["material","secondary","colour","moisture","consistency","plasticity","structure","origin","inclusions","fillNatural"];
+let soilMobileSelection17=0;
+let sptMobileSelection17=0;
+
+function options17(options,value){
+  return options.map(option=>`<option value="${esc(option)}" ${String(option)===String(value??"")?"selected":""}>${esc(option)}</option>`).join("");
+}
+function soilStateHtml17(row){
+  const state=D17.soilDescriptionState(row);
+  return `<span class="slice-status ${state.kind}">Description: ${esc(state.label)}</span>`;
+}
+function setSoilState17(page,row){
+  const state=page.querySelector("#soilDescState");
+  if (state) state.innerHTML=soilStateHtml17(row);
+  showDesc(row.description||D17.soilDescription(row));
+}
+function applySoilChange17(row,key,value){
+  if (key==="description") {
+    if (!row.descTouched) row.descBasis=D17.soilDescriptionBasis(row);
+    row.description=value;
+    row.descTouched=true;
+    return;
+  }
+  row[key]=value;
+  if (key==="material" && !row.uscs) row.uscs=uscsFor(value);
+  if (SOIL_STRUCTURED_KEYS17.includes(key) && !row.descTouched) {
+    row.description=D17.soilDescription(row);
+    row.descBasis="";
+  }
+}
+function regenerateSoil17(row){
+  row.description=D17.soilDescription(row);
+  row.descTouched=false;
+  row.descBasis="";
+}
+function soilMobileHtml17(row,index,count){
+  const consistency=D17.isGranular(row.material||"")?DENSITY_GRAN:CONSISTENCY_COH;
+  return `<div class="mobile-record-nav">
+    <button type="button" data-soil-nav="prev" title="Previous interval" aria-label="Previous interval">&#8592;</button>
+    <strong>Interval ${index+1} of ${count}: ${fmt(row.from)||"-"} to ${fmt(row.to)||"-"} m</strong>
+    <button type="button" data-soil-nav="next" title="Next interval" aria-label="Next interval">&#8594;</button>
+  </div>
+  <div class="mobile-form">
+    <div class="mf"><label>From (m)</label><input type="number" step="0.01" data-ms-k="from" value="${esc(row.from)}"></div>
+    <div class="mf"><label>To (m)</label><input type="number" step="0.01" data-ms-k="to" value="${esc(row.to)}"></div>
+    <div class="mf"><label>Material</label><select data-ms-k="material">${options17(["",...SOIL_MATERIALS],row.material)}</select></div>
+    <div class="mf"><label>Fill / natural</label><select data-ms-k="fillNatural">${options17(FILLNAT,row.fillNatural)}</select></div>
+    <div class="mf"><label>Colour</label><select data-ms-k="colour">${options17(COLOURS,row.colour)}</select></div>
+    <div class="mf"><label>Moisture</label><select data-ms-k="moisture">${options17(MOISTURE,row.moisture)}</select></div>
+    <div class="mf"><label>Consistency / density</label><select data-ms-k="consistency">${options17(consistency,row.consistency)}</select></div>
+    <div class="mf"><label>Plasticity</label><select data-ms-k="plasticity">${options17(PLASTICITY,row.plasticity)}</select></div>
+    <div class="mf"><label>Secondary component</label><select data-ms-k="secondary">${options17(SECONDARY,row.secondary)}</select></div>
+    <div class="mf"><label>Structure</label><select data-ms-k="structure">${options17(STRUCTURE,row.structure)}</select></div>
+    <div class="mf"><label>Origin</label><select data-ms-k="origin">${options17(ORIGIN,row.origin)}</select></div>
+    <div class="mf"><label>USCS</label><select data-ms-k="uscs">${options17(USCS,row.uscs)}</select></div>
+    <div class="mf wide"><label>Inclusions</label><input data-ms-k="inclusions" value="${esc(row.inclusions)}"></div>
+    <div class="mf wide"><label>AS 1726 material description</label><textarea data-ms-k="description">${esc(row.description||D17.soilDescription(row))}</textarea></div>
+    <div class="mf wide"><label>Remarks</label><textarea data-ms-k="remarks">${esc(row.remarks)}</textarea></div>
+  </div>
+  <div class="mobile-record-actions"><button class="btn primary" type="button" data-soil-action="add">Add interval</button><button class="btn danger" type="button" data-soil-action="delete">Delete interval</button></div>`;
+}
+
+soilDescription=function(row){ return D17.soilDescription(row); };
+const consistencyColumn17=SOIL_COLS.find(column=>column.key==="consistency");
+if (consistencyColumn17) consistencyColumn17.optsFn=row=>D17.isGranular(row.material||"")?DENSITY_GRAN:CONSISTENCY_COH;
+blankSoil=function(prev){
+  return { from:prev&&num(prev.to)!=null?prev.to:"", to:"", material:"", secondary:"", colour:"", moisture:"", consistency:"", plasticity:"", structure:"", origin:"", inclusions:"", fillNatural:"", uscs:"", description:"", descTouched:false, descBasis:"", samples:"", sptN:"", dcp:"", envNotes:"", remarks:"" };
+};
+renderSoil=function(){
+  const L=logs();
+  if (!L.soil.length) L.soil.push(blankSoil());
+  soilMobileSelection17=Math.max(0,Math.min(soilMobileSelection17,L.soil.length-1));
+  let selected=soilMobileSelection17;
+  const page=document.getElementById("page-soil");
+  page.innerHTML=`<div class="panel"><div class="panel-header"><span>Soil log - ${esc(S.activeBh)} (AS 1726:2017)</span><span class="hint" style="color:#e2f2e8">${L.soil.length} layers</span></div>
+    <div class="toolbar">
+      <button class="btn primary" id="soilAdd">+ Add layer</button><button class="btn" id="soilSplit">Split interval</button><button class="btn" id="soilMerge">Merge with below</button>
+      <span id="soilDescState">${soilStateHtml17(L.soil[selected])}</span><button class="btn" id="soilRegenerate">Regenerate description</button>
+      <span class="spacer"></span><button class="btn slice-export" id="soilXlsx">Export XLSX</button><button class="btn slice-export" id="soilPdf">Export PDF</button>
+    </div>
+    <div class="soil-mobile">${soilMobileHtml17(L.soil[selected],selected,L.soil.length)}</div>
+    <div class="soil-desktop">${gridHTML("soilGrid",SOIL_COLS,L.soil)}</div></div>`;
+  wireGrid("soilGrid",()=>logs().soil,{
+    rerender:renderSoil,
+    addRow:()=>{ logs().soil.push(blankSoil(logs().soil.at(-1))); soilMobileSelection17=logs().soil.length-1; save(); renderSoil(); },
+    onSelect:i=>{ selected=i; soilMobileSelection17=i; setSoilState17(page,logs().soil[i]); },
+    onChange:(i,key,value,tr)=>{
+      const row=logs().soil[i];
+      applySoilChange17(row,key,value);
+      if (key==="material") {
+        const uscs=tr.querySelector('[data-k="uscs"]'); if (uscs) uscs.value=row.uscs||"";
+      }
+      if (SOIL_STRUCTURED_KEYS17.includes(key) && !row.descTouched) {
+        const description=tr.querySelector('[data-k="description"]'); if (description) description.value=row.description;
+      }
+      setSoilState17(page,row); markDepthValidity("soilGrid",logs().soil);
+    }
+  });
+  page.querySelector("#soilAdd").onclick=()=>{ L.soil.push(blankSoil(L.soil.at(-1))); soilMobileSelection17=L.soil.length-1; save(); renderSoil(); };
+  page.querySelector("#soilSplit").onclick=()=>{
+    const row=L.soil[selected]; if (!row||num(row.from)==null||num(row.to)==null) return setStatus("Select a layer with both depths first");
+    const mid=Math.round((num(row.from)+num(row.to))/2*100)/100;
+    const copy=JSON.parse(JSON.stringify(row)); copy.from=mid; row.to=mid;
+    L.soil.splice(selected+1,0,copy); soilMobileSelection17=selected+1; save(); renderSoil();
+  };
+  page.querySelector("#soilMerge").onclick=()=>{
+    if (selected>=L.soil.length-1) return setStatus("No layer below to merge");
+    L.soil[selected].to=L.soil[selected+1].to; L.soil.splice(selected+1,1); save(); renderSoil();
+  };
+  page.querySelector("#soilRegenerate").onclick=()=>{ regenerateSoil17(L.soil[selected]); save(); renderSoil(); };
+  page.querySelector("#soilXlsx").onclick=()=>exportModuleXlsx("soil",SOIL_COLS,L.soil);
+  page.querySelector("#soilPdf").onclick=()=>exportModulePdf("soil",SOIL_COLS,L.soil);
+  page.querySelectorAll("[data-ms-k]").forEach(input=>input.addEventListener("input",()=>{
+    const row=L.soil[selected];
+    applySoilChange17(row,input.dataset.msK,input.value);
+    if (input.dataset.msK!=="description") {
+      const description=page.querySelector('[data-ms-k="description"]'); if (description&&!row.descTouched) description.value=row.description;
+      const uscs=page.querySelector('[data-ms-k="uscs"]'); if (uscs) uscs.value=row.uscs||"";
+    }
+    setSoilState17(page,row); save();
+  }));
+  page.querySelectorAll("[data-soil-nav]").forEach(button=>button.onclick=()=>{
+    soilMobileSelection17=(selected+(button.dataset.soilNav==="next"?1:-1)+L.soil.length)%L.soil.length; renderSoil();
+  });
+  page.querySelector('[data-soil-action="add"]').onclick=()=>page.querySelector("#soilAdd").click();
+  page.querySelector('[data-soil-action="delete"]').onclick=()=>{
+    if (L.soil.length===1) L.soil[0]=blankSoil(); else L.soil.splice(selected,1);
+    soilMobileSelection17=Math.max(0,selected-1); save(); renderSoil();
+  };
+  markDepthValidity("soilGrid",L.soil); setSoilState17(page,L.soil[selected]);
+};
+
+SPT_COLS.length=0;
+SPT_COLS.push(
+  {key:"depth",label:"Start depth (m)",w:78,type:"num"},{key:"endDepth",label:"End depth (m)",w:78,type:"auto"},
+  {key:"seat",label:"Seating blows",w:75,type:"num"},
+  {key:"b1",label:"1st blows",w:64,type:"num"},{key:"p1",label:"1st pen. (mm)",w:78,type:"num"},
+  {key:"b2",label:"2nd blows",w:64,type:"num"},{key:"p2",label:"2nd pen. (mm)",w:78,type:"num"},
+  {key:"b3",label:"3rd blows",w:64,type:"num"},{key:"p3",label:"3rd pen. (mm)",w:78,type:"num"},
+  {key:"n",label:"N value",w:60,type:"auto"},{key:"status",label:"Status",w:145,type:"auto"},
+  {key:"refusal",label:"Refusal",w:60,type:"check"},{key:"hb",label:"HB",w:48,type:"check"},
+  {key:"hammer",label:"Hammer type",w:110,type:"select",opts:HAMMER},{key:"energy",label:"Energy ratio %",w:85,type:"num"},
+  {key:"recovery",label:"Recovery (mm)",w:85,type:"num"},{key:"soilDesc",label:"Soil description",w:230},{key:"remarks",label:"Remarks",w:160}
+);
+function applySptDerived17(row){
+  const result=D17.deriveSpt(row);
+  row.n=result.n;
+  row.endDepth=result.endDepth==null?"":result.endDepth.toFixed(3);
+  row.status=result.label;
+  return result;
+}
+function sptMobileHtml17(row,index,count){
+  const result=D17.deriveSpt(row);
+  return `<div class="mobile-record-nav">
+    <button type="button" data-spt-nav="prev" title="Previous test" aria-label="Previous test">&#8592;</button>
+    <strong>SPT ${index+1} of ${count}: ${num(row.depth)==null?"depth not set":fmt(row.depth)+" m"}</strong>
+    <button type="button" data-spt-nav="next" title="Next test" aria-label="Next test">&#8594;</button>
+  </div>
+  <div class="mobile-form">
+    <div class="mf"><label>Start depth (m)</label><input type="number" step="0.01" data-msp-k="depth" value="${esc(row.depth)}"></div>
+    <div class="mf"><label>End depth (m)</label><input id="mspEnd" readonly value="${result.endDepth==null?"":result.endDepth.toFixed(3)}"></div>
+    <div class="mf"><label>1st blows</label><input type="number" step="1" min="0" data-msp-k="b1" value="${esc(row.b1)}"></div>
+    <div class="mf"><label>1st penetration (mm)</label><input type="number" step="1" min="1" max="150" data-msp-k="p1" value="${esc(row.p1)}" placeholder="150"></div>
+    <div class="mf"><label>2nd blows</label><input type="number" step="1" min="0" data-msp-k="b2" value="${esc(row.b2)}"></div>
+    <div class="mf"><label>2nd penetration (mm)</label><input type="number" step="1" min="1" max="150" data-msp-k="p2" value="${esc(row.p2)}" placeholder="150"></div>
+    <div class="mf"><label>3rd blows</label><input type="number" step="1" min="0" data-msp-k="b3" value="${esc(row.b3)}"></div>
+    <div class="mf"><label>3rd penetration (mm)</label><input type="number" step="1" min="1" max="150" data-msp-k="p3" value="${esc(row.p3)}" placeholder="150"></div>
+    <div class="mf"><label>N value</label><input id="mspN" readonly value="${esc(result.n)}"></div>
+    <div class="mf"><label>Status</label><input id="mspStatus" readonly value="${esc(result.label)}"></div>
+    <label class="mobile-check"><input type="checkbox" data-msp-k="refusal" ${row.refusal?"checked":""}> Refusal</label>
+    <label class="mobile-check"><input type="checkbox" data-msp-k="hb" ${row.hb?"checked":""}> Hammer bounce (HB)</label>
+    <div class="mf"><label>Hammer type</label><select data-msp-k="hammer">${options17(HAMMER,row.hammer)}</select></div>
+    <div class="mf"><label>Energy ratio (%)</label><input type="number" step="0.1" data-msp-k="energy" value="${esc(row.energy)}"></div>
+    <div class="mf wide"><label>Soil description</label><textarea data-msp-k="soilDesc">${esc(row.soilDesc)}</textarea></div>
+    <div class="mf wide"><label>Remarks</label><textarea data-msp-k="remarks">${esc(row.remarks)}</textarea></div>
+  </div>
+  <div class="mobile-record-actions"><button class="btn primary" type="button" data-spt-action="add">Add SPT</button><button class="btn danger" type="button" data-spt-action="delete">Delete SPT</button></div>`;
+}
+blankSpt=function(){ return { depth:"", endDepth:"", seat:"", b1:"",p1:"",b2:"",p2:"",b3:"",p3:"",n:"",status:"",refusal:false,hb:false,hammer:"",energy:"",recovery:"",soilDesc:"",remarks:"" }; };
+calcN=function(row){ return D17.deriveSpt(row).n; };
+renderSPT=function(){
+  const L=logs(); if (!L.spt.length) L.spt.push(blankSpt());
+  L.spt.forEach(applySptDerived17);
+  sptMobileSelection17=Math.max(0,Math.min(sptMobileSelection17,L.spt.length-1));
+  let selected=sptMobileSelection17;
+  const page=document.getElementById("page-spt");
+  page.innerHTML=`<div class="panel"><div class="panel-header"><span>SPT - ${esc(S.activeBh)}</span><span class="hint" style="color:#e2f2e8">N = 2nd + 3rd full 150 mm increments</span></div>
+    <div class="toolbar"><button class="btn primary" id="sptAdd">+ Add test</button><span class="spacer"></span><button class="btn slice-export" id="sptXlsx">Export XLSX</button><button class="btn slice-export" id="sptPdf">Export PDF</button></div>
+    <div class="spt-mobile">${sptMobileHtml17(L.spt[selected],selected,L.spt.length)}</div><div class="spt-desktop">${gridHTML("sptGrid",SPT_COLS,L.spt)}</div></div>`;
+  wireGrid("sptGrid",()=>logs().spt,{
+    rerender:renderSPT,
+    addRow:()=>{ logs().spt.push(blankSpt()); sptMobileSelection17=logs().spt.length-1; save(); renderSPT(); },
+    onSelect:i=>{ selected=i; sptMobileSelection17=i; },
+    onChange:(i,key,value,tr)=>{
+      if (["depth","b1","p1","b2","p2","b3","p3","refusal","hb"].includes(key)) {
+        const result=applySptDerived17(logs().spt[i]);
+        const n=tr.querySelector('[data-k="n"]'); if (n) n.value=result.n;
+        const end=tr.querySelector('[data-k="endDepth"]'); if (end) end.value=logs().spt[i].endDepth;
+        const status=tr.querySelector('[data-k="status"]'); if (status) status.value=result.label;
+      }
+    }
+  });
+  page.querySelector("#sptAdd").onclick=()=>{ L.spt.push(blankSpt()); sptMobileSelection17=L.spt.length-1; save(); renderSPT(); };
+  page.querySelector("#sptXlsx").onclick=()=>exportModuleXlsx("spt",SPT_COLS,L.spt);
+  page.querySelector("#sptPdf").onclick=()=>exportModulePdf("spt",SPT_COLS,L.spt);
+  page.querySelectorAll("[data-msp-k]").forEach(input=>input.addEventListener("input",()=>{
+    const row=L.spt[selected]; row[input.dataset.mspK]=input.type==="checkbox"?input.checked:input.value;
+    const result=applySptDerived17(row);
+    page.querySelector("#mspN").value=result.n; page.querySelector("#mspEnd").value=row.endDepth; page.querySelector("#mspStatus").value=result.label; save();
+  }));
+  page.querySelectorAll("[data-spt-nav]").forEach(button=>button.onclick=()=>{
+    sptMobileSelection17=(selected+(button.dataset.sptNav==="next"?1:-1)+L.spt.length)%L.spt.length; renderSPT();
+  });
+  page.querySelector('[data-spt-action="add"]').onclick=()=>page.querySelector("#sptAdd").click();
+  page.querySelector('[data-spt-action="delete"]').onclick=()=>{
+    if (L.spt.length===1) L.spt[0]=blankSpt(); else L.spt.splice(selected,1);
+    sptMobileSelection17=Math.max(0,selected-1); save(); renderSPT();
+  };
+};
+
+const validateBeforeSlice17=validate;
+validate=function(){
+  const result=validateBeforeSlice17();
+  result.warns=result.warns.filter(message=>!message.includes("auto-corrected on PDF"));
+  for (const borehole of S.boreholes) {
+    const log=S.logs[borehole.id]; if (!log) continue;
+    (log.soil||[]).forEach(row=>{
+      if (D17.soilDescriptionState(row).kind==="out-of-sync") result.warns.push(`${borehole.id} Soil ${fmt(row.from)} m: manual description is out of sync with structured fields`);
+    });
+    (log.spt||[]).forEach(row=>D17.sptIssues(row).forEach(issue=>{
+      const message=`${borehole.id} SPT ${fmt(row.depth)||"-"} m: ${issue.message}`;
+      (issue.severity==="error"?result.errs:result.warns).push(message);
+    }));
+  }
+  result.errs=[...new Set(result.errs)]; result.warns=[...new Set(result.warns)];
+  return result;
+};
+sptLine2=function(row){ return D17.formatSptLine(row); };
+const buildPdfBeforeSlice17=buildPdf;
+buildPdf=function(bhId){
+  const source=S.logs[bhId];
+  if (!source) return buildPdfBeforeSlice17(bhId);
+  const projection=JSON.parse(JSON.stringify(source));
+  (projection.spt||[]).forEach(applySptDerived17);
+  S.logs[bhId]=projection;
+  try { return buildPdfBeforeSlice17(bhId); }
+  finally { S.logs[bhId]=source; }
+};
+if (["soil","spt"].includes(S.activeTab)) showTab(S.activeTab);
 })();
 </script>
 </body>

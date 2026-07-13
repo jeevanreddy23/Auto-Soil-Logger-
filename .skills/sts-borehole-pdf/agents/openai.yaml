@@ -1,0 +1,4 @@
+interface:
+  display_name: "STS Borehole PDF"
+  short_description: "Generate and verify professional STS logs."
+  default_prompt: "Apply $sts-borehole-pdf to this borehole PDF generation, pagination, or visual QA task."

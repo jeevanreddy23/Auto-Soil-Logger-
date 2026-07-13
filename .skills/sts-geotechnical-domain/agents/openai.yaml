@@ -1,0 +1,4 @@
+interface:
+  display_name: "STS Geotechnical Domain"
+  short_description: "Review GeoFlow engineering terminology and cross-module rules."
+  default_prompt: "Apply $sts-geotechnical-domain to preserve engineering meaning and validate this GeoFlow change."

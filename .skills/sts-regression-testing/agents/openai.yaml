@@ -1,0 +1,4 @@
+interface:
+  display_name: "STS Regression Testing"
+  short_description: "Verify records, workflows, PDFs, and screenshots."
+  default_prompt: "Apply $sts-regression-testing to plan or run GeoFlow regression evidence."

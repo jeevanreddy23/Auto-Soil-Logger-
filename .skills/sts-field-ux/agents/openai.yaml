@@ -1,0 +1,4 @@
+interface:
+  display_name: "STS Field UX"
+  short_description: "Design reliable phone and tablet field capture."
+  default_prompt: "Apply $sts-field-ux to this field workflow, responsive, offline, or sync task."

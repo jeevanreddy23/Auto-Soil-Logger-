@@ -1,0 +1,40 @@
+{
+  "schemaVersion": 2,
+  "generatedAt": "2026-07-13T00:00:00+10:00",
+  "title": "Design System: STS GeoFlow",
+  "extensions": {
+    "colorMeta": {
+      "sts-green": { "role": "primary", "displayName": "STS Green", "canonical": "#137A45" },
+      "graphite": { "role": "neutral", "displayName": "Engineering Graphite", "canonical": "#24282D" },
+      "workspace": { "role": "neutral", "displayName": "Cool Workspace", "canonical": "#F5F7F8" }
+    },
+    "typographyMeta": {
+      "title": { "displayName": "Workspace title", "purpose": "Screen and workspace titles." },
+      "body": { "displayName": "Working text", "purpose": "Field values, descriptions and review text." },
+      "label": { "displayName": "Control label", "purpose": "Controls, tables and status labels." }
+    },
+    "shadows": [
+      { "name": "overlay", "value": "0 4px 12px rgba(23,32,42,0.18)", "purpose": "Temporary menus and drawers only." }
+    ],
+    "motion": [
+      { "name": "state", "value": "180ms cubic-bezier(0.25,1,0.5,1)", "purpose": "State transitions; disabled for reduced motion." }
+    ],
+    "breakpoints": [
+      { "name": "phone", "value": "720px" },
+      { "name": "tablet", "value": "1024px" },
+      { "name": "review-panel", "value": "1200px" }
+    ]
+  },
+  "components": [],
+  "narrative": {
+    "northStar": "The Field Register",
+    "overview": "A disciplined engineering field register made faster by software, with depth-led information and structural responsive behavior.",
+    "keyCharacteristics": ["restrained STS identity", "depth-led information", "compact controls", "actionable validation"],
+    "rules": [
+      { "name": "The One Accent Rule", "body": "STS green is functional, not decorative.", "section": "colors" },
+      { "name": "The Flat Register Rule", "body": "Use alignment and rules before elevation.", "section": "elevation" }
+    ],
+    "dos": ["Show borehole, depth, sync and validation context.", "Use tabular numerals for measurements."],
+    "donts": ["Do not use generic SaaS or AI-dashboard styling.", "Do not shrink wide grids into phone layouts."]
+  }
+}

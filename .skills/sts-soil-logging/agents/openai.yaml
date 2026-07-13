@@ -1,0 +1,4 @@
+interface:
+  display_name: "STS Soil Logging"
+  short_description: "Implement and verify structured soil logging."
+  default_prompt: "Apply $sts-soil-logging to this soil-entry, description, validation, or PDF task."

@@ -1,0 +1,7 @@
+.wrangler/
+.wrangler-dev.*.log
+.agents/
+.codex/
+tmp/
+__pycache__/
+*.py[cod]

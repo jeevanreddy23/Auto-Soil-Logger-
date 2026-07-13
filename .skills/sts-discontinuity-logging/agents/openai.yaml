@@ -1,0 +1,4 @@
+interface:
+  display_name: "STS Discontinuity Logging"
+  short_description: "Preserve structured defects and zones."
+  default_prompt: "Apply $sts-discontinuity-logging to this defect, zone, or discontinuity rendering task."

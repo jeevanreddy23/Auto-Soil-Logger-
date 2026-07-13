@@ -1,0 +1,4 @@
+interface:
+  display_name: "STS Impeccable Design"
+  short_description: "Enforce the restrained STS product interface."
+  default_prompt: "Apply $sts-impeccable-design to audit or improve this GeoFlow screen."

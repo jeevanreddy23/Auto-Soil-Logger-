@@ -1,0 +1,4 @@
+interface:
+  display_name: "STS Rock Logging"
+  short_description: "Implement and verify rock and core-run logging."
+  default_prompt: "Apply $sts-rock-logging to this rock-material, weathering, strength, or core-run task."
