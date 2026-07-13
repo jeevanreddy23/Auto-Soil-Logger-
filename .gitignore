@@ -3,5 +3,7 @@
 .agents/
 .codex/
 tmp/
+output/
+.pdf-http.*.log
 __pycache__/
 *.py[cod]

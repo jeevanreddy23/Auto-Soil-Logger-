@@ -63,3 +63,40 @@ test("finds interval gaps and overlaps without changing the rows", () => {
   assert.deepEqual(issues.map(issue => issue.severity), ["warning", "error"]);
   assert.deepEqual(rows, [{ from: 0, to: 1 }, { from: 1.2, to: 2 }, { from: 1.8, to: 3 }]);
 });
+
+test("keeps non-cored rock on the material log", () => {
+  const rock = [{ from: 2.4, to: 6, rockType: "SHALE", weathering: "MW", strength: "M" }];
+  const partition = domain.partitionRockForReport({ rock });
+  assert.equal(partition.coreStart, null);
+  assert.deepEqual(partition.material, rock);
+  assert.deepEqual(partition.cored, []);
+});
+
+test("starts the cored template only where coring evidence begins", () => {
+  const weatheredRock = { from: 1.8, to: 2, rockType: "CLAYSTONE" };
+  const coreUnit = { from: 2, to: 11, rockType: "SHALE", tcr: 100, rqd: 99 };
+  const partition = domain.partitionRockForReport({
+    rock: [weatheredRock, coreUnit],
+    corebox: { rows: [{ start: 2, end: 3 }, { start: 3, end: 4 }] }
+  });
+  assert.equal(partition.coreStart, 2);
+  assert.deepEqual(partition.material, [weatheredRock]);
+  assert.deepEqual(partition.cored, [coreUnit]);
+});
+
+test("uses an explicit coring requirement when legacy records have no metrics", () => {
+  const rock = [{ from: 7.5, to: 10, rockType: "SHALE" }];
+  assert.equal(domain.coringStartDepth({ borehole: { coreReq: true }, rock }), 7.5);
+  assert.equal(domain.coringStartDepth({ project: { drillingMethod: "NMLC coring" }, rock }), 7.5);
+});
+
+test("splits a material interval that crosses the coring start without mutating source data", () => {
+  const rock = [{ from: 1.8, to: 3, rockType: "SHALE" }];
+  const partition = domain.partitionRockForReport({
+    rock,
+    corebox: { rows: [{ start: 2, end: 3 }] }
+  });
+  assert.deepEqual(partition.material, [{ from: 1.8, to: 2, rockType: "SHALE" }]);
+  assert.deepEqual(partition.cored, [{ from: 2, to: 3, rockType: "SHALE" }]);
+  assert.deepEqual(rock, [{ from: 1.8, to: 3, rockType: "SHALE" }]);
+});

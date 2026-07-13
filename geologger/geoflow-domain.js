@@ -188,13 +188,59 @@
     return issues;
   }
 
+  function coringStartDepth({ borehole = {}, project = {}, rock = [], corebox = {} } = {}) {
+    const candidates = [];
+    const add = value => {
+      const depth = numberOrNull(value);
+      if (depth !== null && depth >= 0) candidates.push(depth);
+    };
+
+    (corebox.rows || []).forEach(row => {
+      const start = numberOrNull(row.start);
+      const end = numberOrNull(row.end);
+      if (start !== null && end !== null && end > start) add(start);
+    });
+    add(corebox.topD);
+
+    const units = (rock || []).filter(row => !row.defectType && numberOrNull(row.from) !== null && numberOrNull(row.to) > numberOrNull(row.from));
+    units.forEach(row => {
+      const hasMetrics = ["tcr", "scr", "rqd", "is50"].some(key => numberOrNull(row[key]) !== null);
+      const isCoreboxUnit = row._cbunit || /\bcore(?:box| run)?\b/i.test(String(row.remarks || ""));
+      if (hasMetrics || isCoreboxUnit) add(row.from);
+    });
+
+    const explicitCoring = Boolean(borehole.coreReq) || /\b(?:core|coring|nmlc|h(?:q|q3)|p(?:q|q3)|diamond)\b/i.test(String(project.drillingMethod || ""));
+    if (!candidates.length && explicitCoring && units.length) add(units[0].from);
+
+    return candidates.length ? Math.min(...candidates) : null;
+  }
+
+  function partitionRockForReport({ borehole = {}, project = {}, rock = [], corebox = {} } = {}) {
+    const units = (rock || [])
+      .filter(row => !row.defectType && numberOrNull(row.from) !== null && numberOrNull(row.to) > numberOrNull(row.from))
+      .slice()
+      .sort((left, right) => numberOrNull(left.from) - numberOrNull(right.from));
+    const coreStart = coringStartDepth({ borehole, project, rock: units, corebox });
+    return {
+      coreStart,
+      material: coreStart === null ? units : units
+        .filter(row => numberOrNull(row.from) < coreStart)
+        .map(row => numberOrNull(row.to) > coreStart ? { ...row, to: coreStart } : row),
+      cored: coreStart === null ? [] : units
+        .filter(row => numberOrNull(row.to) > coreStart)
+        .map(row => numberOrNull(row.from) < coreStart ? { ...row, from: coreStart } : row)
+    };
+  }
+
   return {
+    coringStartDepth,
     deriveSpt,
     formatSptDepthLine,
     formatSptLine,
     intervalIssues,
     isGranular,
     numberOrNull,
+    partitionRockForReport,
     soilDescription,
     soilDescriptionBasis,
     soilDescriptionState,
