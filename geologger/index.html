@@ -1216,6 +1216,11 @@ function renderPreview() {
     </div>
     <iframe id="previewFrame"></iframe></div>`;
   const frame = document.getElementById("previewFrame");
+  const cloudSaveButton = document.getElementById("saveCloudPdf");
+  const resetCloudSave = () => {
+    cloudSaveButton.disabled=false;
+    cloudSaveButton.textContent="Save PDF to Cloudflare";
+  };
   const previewCurrent = () => {
     try {
       const doc = buildPdf(S.activeBh);
@@ -1227,10 +1232,10 @@ function renderPreview() {
   document.getElementById("reportBh").onchange = e=>{
     S.activeBh=e.target.value;
     localStorage.setItem("autosoil-logger", JSON.stringify(S));
-    previewCurrent(); refreshLeftPanel();
+    resetCloudSave(); previewCurrent(); refreshLeftPanel();
   };
   document.getElementById("currentPdf").onclick = ()=>buildPdf(S.activeBh).save(`log-${S.activeBh}.pdf`);
-  document.getElementById("saveCloudPdf").onclick = async e=>{
+  cloudSaveButton.onclick = async e=>{
     const btn=e.currentTarget, id=S.activeBh;
     btn.disabled=true; btn.textContent="Saving PDF...";
     try {
