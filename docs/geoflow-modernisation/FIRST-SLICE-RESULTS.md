@@ -36,3 +36,12 @@ The third SPT increment was changed from 9 to 10 in the focused editor. N change
 ## Remaining Scope
 
 Required project metadata is still blank in the supplied project, so its output remains visibly marked `DRAFT - UNREVIEWED`. Filling real project metadata is an operational data task, not a report-layout defect.
+
+## Production Release
+
+- Cloudflare Worker version: `ca9afc2d-e28b-4739-84b6-ae97fc0c874e`.
+- Soil logging route: `?v=files#/projects/p_rwulad/soil-logs`.
+- Report assembly route: `?v=files#/projects/p_rwulad/reports`.
+- Live soil verification: BH3 loaded two intervals, showed the new description-state control, offered cohesive consistency terms for Sandy CLAY and had no document-level horizontal overflow in the narrow production viewport.
+- Live report verification: BH3 displayed `2 soil · 1 rock · 2 sheet(s)`, created the PDF preview from a blob URL and produced no browser warnings or errors.
+- Deployment target: Cloudflare Workers and KV only; no Vercel deployment was used.

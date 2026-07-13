@@ -6,7 +6,7 @@
 
 ## Phase
 
-VERIFY
+COMPLETE
 
 ## Baseline
 
@@ -18,6 +18,7 @@ VERIFY
 - Cloudflare Worker dry run: pass
 - Backend compile check: pass
 - Impeccable baseline: four warnings
+- Cloudflare production version: `ca9afc2d-e28b-4739-84b6-ae97fc0c874e`
 
 ## Decisions
 
@@ -37,4 +38,12 @@ VERIFY
 
 ## Next
 
-Run the release gate, commit, push, deploy through Cloudflare and verify the exact production deep links.
+Populate the real project metadata before issue so the generated logs can move from `DRAFT - UNREVIEWED` to an issued state.
+
+## Release
+
+- Release gate passed: 8/8 domain tests, 25/25 inline script parses, backend compile, skill validation and Wrangler dry run.
+- Committed and pushed on `improve/geoflow-field-to-pdf` at `a54e378`.
+- Deployed directly to the Cloudflare Worker; no Vercel deployment was used.
+- Production soil route verified with the responsive editor, manual-description state, cohesive Sandy CLAY terms and no horizontal overflow.
+- Production report route verified with a clean console and a live two-sheet BH3 PDF blob preview.
