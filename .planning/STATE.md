@@ -2,48 +2,51 @@
 
 ## Milestone
 
-0 - Baseline and soil-plus-SPT vertical slice
+0 - Field data to professional borehole PDF and AGS 4.1.1 export
 
 ## Phase
 
 COMPLETE
 
-## Baseline
+## Release Baseline
 
-- Production branch: `main` at `77bd196`
 - Working branch: `improve/geoflow-field-to-pdf`
-- Live route: `#/projects/p_rwulad/soil-logs`
-- Live console warnings/errors: none
-- Existing baseline inline script parse: 24/24 across the three HTML entry points
-- Cloudflare Worker dry run: pass
-- Backend compile check: pass
-- Impeccable baseline: four warnings
-- Cloudflare production version: `ca9afc2d-e28b-4739-84b6-ae97fc0c874e`
+- Final code commit: `b2a87c4`
+- Live report route: `#/projects/p_rwulad/reports`
+- Cloudflare Worker version: `833454d7-e37c-4d35-a555-b05542bcf857`
+- Cloudflare KV namespace: `f9c604a7cd24492fb826a45f7ed1c28a`
+- Deployment target: Cloudflare Workers and KV only; no Vercel deployment was used.
 
 ## Decisions
 
-- Keep the current canonical project and borehole records.
-- Add optional fields only; no bulk migration in this slice.
-- Extract only deterministic soil/SPT rules into a browser-compatible tested module.
-- Preserve old SPT records by treating missing penetration fields as legacy full increments when the corresponding blow count exists.
-- Make the phone workflow structurally different from the desktop grid.
+- Cloudflare KV is authoritative for project facts and borehole logs; browser storage retains view state only.
+- OpenGround reference PDFs inform visual hierarchy, tracks, typography and sheet structure only. Their project data is never copied.
+- PDF is the human-readable visual borehole report. AGS 4.1.1 is a separate machine-readable factual export.
+- Rock remains on the material log unless corebox, recovery/RQD, or explicit coring evidence establishes a coring start depth.
+- Missing source facts remain blank and the report remains marked `DRAFT - UNREVIEWED`; report generation does not invent metadata.
 
-## Completed Slice
+## Completed
 
-- Added tested soil/SPT domain rules with legacy compatibility.
-- Added focused phone/tablet soil and SPT editors.
-- Demonstrated save/reload persistence and local Worker sync.
-- Generated, saved, read back and rendered the two-page BH3 PDF.
-- Removed the multi-page embedded-font failure.
+- Added professional material and cored-borehole PDF layouts using the live project records.
+- Corrected non-cored rock classification and split intervals that cross the coring start.
+- Added AGS 4.1.1 groups for project, location, geology, samples, SPT, core and discontinuity data.
+- Fixed deep-link hydration so stale browser data cannot hide current Cloudflare logs.
+- Prevented cloud writes until the current KV state has been observed.
+- Reset the Cloudflare PDF save action when changing boreholes.
+- Saved verified `log-BH01.pdf` and `log-BH3.pdf` artifacts to the project file store.
+
+## Verification
+
+- 25/25 Node regression tests passed.
+- Three browser-compatible modules and 23 inline scripts parsed.
+- Backend Python compile passed.
+- Wrangler dry run passed with the production KV binding.
+- `python_ags4` 1.2.0 against the AGS 4.1.1 standard dictionary: 0 errors, 0 warnings, 0 FYI findings.
+- BH01 production preview: 1 soil, 10 rock, 2 sheets.
+- BH3 production preview: 2 soil, 1 rock, 1 sheet.
+- Production console: no warnings or errors; PDF preview used a live blob URL.
+- Saved Cloudflare artifacts are valid `data:application/pdf` payloads.
 
 ## Next
 
-Populate the real project metadata before issue so the generated logs can move from `DRAFT - UNREVIEWED` to an issued state.
-
-## Release
-
-- Release gate passed: 8/8 domain tests, 25/25 inline script parses, backend compile, skill validation and Wrangler dry run.
-- Committed and pushed on `improve/geoflow-field-to-pdf` at `a54e378`.
-- Deployed directly to the Cloudflare Worker; no Vercel deployment was used.
-- Production soil route verified with the responsive editor, manual-description state, cohesive Sandy CLAY terms and no horizontal overflow.
-- Production report route verified with a clean console and a live two-sheet BH3 PDF blob preview.
+Populate and review the real project metadata before issue so the reports can move from `DRAFT - UNREVIEWED` to an approved issue state.

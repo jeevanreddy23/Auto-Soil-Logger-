@@ -2,46 +2,52 @@
 
 ## Delivered
 
-- Browser/Node domain module for soil description state, SPT derivation, notation and interval checks.
-- Focused soil and SPT editors below 900 px, with 44 px touch targets and no document-level horizontal overflow at 390 px or 820 px.
-- Visible Structured, Manual and Manual-out-of-sync description states with explicit regeneration.
-- Optional SPT penetration, end-depth, hammer-bounce and status fields with legacy compatibility.
-- Validation for incomplete/invalid SPTs, stored/derived N mismatches and description drift.
-- Report-safe projection so PDF repair logic operates on a copy.
-- Native Helvetica report typography to avoid multi-page embedded-font corruption.
-- STS green/graphite shell alignment for the changed workflow.
+- Professional A4 borehole-log PDFs modeled on the supplied OpenGround examples without copying their data.
+- Separate material and cored templates with evidence-based transitions between them.
+- Soil, rock, samples, SPT, core recovery, RQD and discontinuity tracks drawn from current project data.
+- A separate AGS 4.1.1 text export for machine import; the PDF is not represented as AGS data.
+- Canonical Cloudflare hydration for report deep links, including replacement of stale local logs.
+- Cloudflare file storage for generated borehole PDFs.
 
-## Verification Fixture
+## Root Causes Found
 
-Project route `p_rwulad`, borehole BH3:
+1. Any rock interval was previously treated as cored rock, so weathered or non-cored rock generated the wrong template.
+2. Report defaults fabricated facts such as drilling method, groundwater and termination wording when source fields were blank.
+3. AGS and PDF responsibilities were mixed conceptually instead of being separate outputs.
+4. `pullSync()` ignored Cloudflare whenever `autosoil-logger` already existed in localStorage. This made BH01 appear empty even though KV contained 1 soil and 10 rock records.
+5. After one PDF was saved, the Cloudflare save control stayed disabled when another borehole was selected.
 
-- Two soil intervals.
-- One legacy-compatible complete SPT at 1.50 m.
-- Derived end depth 1.950 m and N=17.
-- One rock interval and termination at 6.00 m.
-- Two-page A4 output saved and read back through the local Worker file API.
+## Verification Fixtures
 
-## Persistence Evidence
+### BH01 - cored
 
-The third SPT increment was changed from 9 to 10 in the focused editor. N changed from 17 to 18, then remained 18 after reload. The fixture was restored to 9/N=17 and synced before PDF verification.
+- 1 soil record, 10 rock records, 1 SPT and 1 sample.
+- Two A4 sheets.
+- Stored in Cloudflare as `report-BH01` / `log-BH01.pdf`.
 
-## PDF Evidence
+### BH3 - non-cored
 
-- `pdfinfo`: two A4 portrait pages, unencrypted, no JavaScript.
-- Browser/PDFium render: both sheets complete with STS header, tracks, legends, sheet numbers and no clipped text.
-- Soil sheet: sample mark, SPT 1.50-1.95, blows `5,8,9 N=17`, two material intervals and continuation note.
-- Rock sheet: NMLC/flush tracks, weathering/strength bands, material interval and 6.00 m termination.
-- Poppler text/geometry render completed; its bundled build logged missing optional Symbol/ArialUnicode display fonts, while neither font is referenced by page content. PDFium and the browser preview render both pages correctly.
+- 2 soil records, 1 non-cored rock record, 1 SPT and 1 sample.
+- One A4 material-log sheet; no false cored sheet.
+- Stored in Cloudflare as `report-BH3` / `log-BH3.pdf`.
 
-## Remaining Scope
+## Quality Evidence
 
-Required project metadata is still blank in the supplied project, so its output remains visibly marked `DRAFT - UNREVIEWED`. Filling real project metadata is an operational data task, not a report-layout defect.
+- 25/25 automated tests pass.
+- Official `python_ags4` 1.2.0 validation against dictionary 4.1.1 reports no findings.
+- Generated PDFs are A4, unencrypted and contain no JavaScript.
+- Poppler renders are nonblank and visually inspected; both templates retain the STS header, depth scale, tracks, legends and sheet numbering.
+- The exact production report route hydrates from KV, creates a blob preview and produces no browser console warnings or errors.
 
 ## Production Release
 
-- Cloudflare Worker version: `ca9afc2d-e28b-4739-84b6-ae97fc0c874e`.
-- Soil logging route: `?v=files#/projects/p_rwulad/soil-logs`.
-- Report assembly route: `?v=files#/projects/p_rwulad/reports`.
-- Live soil verification: BH3 loaded two intervals, showed the new description-state control, offered cohesive consistency terms for Sandy CLAY and had no document-level horizontal overflow in the narrow production viewport.
-- Live report verification: BH3 displayed `2 soil · 1 rock · 2 sheet(s)`, created the PDF preview from a blob URL and produced no browser warnings or errors.
-- Deployment target: Cloudflare Workers and KV only; no Vercel deployment was used.
+- Worker: `autosoillogger.poreddyjeevanreddy.workers.dev`
+- Version: `833454d7-e37c-4d35-a555-b05542bcf857`
+- Report route: `?v=files#/projects/p_rwulad/reports`
+- Export route: `?v=files#/projects/p_rwulad/export`
+- KV namespace: `f9c604a7cd24492fb826a45f7ed1c28a`
+- Cloudflare Workers and KV only; no Vercel deployment.
+
+## Issue Boundary
+
+The supplied project metadata is incomplete. Reports therefore remain visibly marked `DRAFT - UNREVIEWED`; approval and issue status require factual project details and technical review, not layout changes.
