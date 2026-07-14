@@ -2,6 +2,7 @@
 .wrangler-dev.*.log
 .agents/
 .codex/
+.playwright-cli/
 tmp/
 output/
 .pdf-http.*.log

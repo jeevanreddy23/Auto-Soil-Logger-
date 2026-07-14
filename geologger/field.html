@@ -2,8 +2,12 @@
 <html lang="en">
 <head>
 <meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
-<meta name="theme-color" content="#0D523E">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
+<meta name="theme-color" content="#143B2C">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<link rel="icon" href="favicon.svg" type="image/svg+xml">
 <link rel="manifest" href="manifest.webmanifest">
 <title>STS GeoFlow — Field Logging</title>
 <style>
@@ -89,6 +93,205 @@
     .tgrid { grid-template-columns:repeat(3,1fr); }
     .cols2 { display:grid; grid-template-columns:1fr 1fr; gap:10px; align-items:start; }
   }
+
+  /* Native-ready field workspace: compact on phones, information-dense on tablets. */
+  :root {
+    --field-brand:#0B6B3A;
+    --field-brand-strong:#07542E;
+    --field-brand-soft:#E8F4ED;
+    --field-ink:#19211D;
+    --field-muted:#5F6F67;
+    --field-canvas:#F2F5F3;
+    --field-surface:#FFFFFF;
+    --field-surface-muted:#F7F9F8;
+    --field-border:#D4DDD7;
+    --field-border-strong:#B7C5BD;
+    --field-info:#245F9E;
+    --field-warning:#9A5A00;
+    --field-danger:#B42318;
+    --field-focus:rgba(11,107,58,.22);
+    --g:var(--field-brand-strong);
+    --ga:var(--field-brand);
+    --ink:var(--field-ink);
+    --sec:var(--field-muted);
+    --bd:var(--field-border);
+    --soft:var(--field-canvas);
+    --warn:var(--field-warning);
+    --err:var(--field-danger);
+  }
+  html { min-height:100%; background:var(--field-canvas); }
+  body {
+    min-height:100%;
+    padding-bottom:calc(66px + env(safe-area-inset-bottom));
+    background:var(--field-canvas);
+    font-family:Inter,Roboto,"Segoe UI",system-ui,sans-serif;
+    letter-spacing:0;
+  }
+  button, input, select, textarea { font:inherit; letter-spacing:0; }
+  button:focus-visible, input:focus-visible, select:focus-visible, textarea:focus-visible {
+    outline:3px solid var(--field-focus);
+    outline-offset:1px;
+  }
+  header {
+    min-height:58px;
+    padding:calc(8px + env(safe-area-inset-top)) 14px 8px;
+    background:#143B2C;
+    box-shadow:0 1px 0 rgba(0,0,0,.18);
+  }
+  header > div:first-child {
+    position:relative;
+    min-width:0;
+    padding-left:15px;
+  }
+  header > div:first-child::before {
+    content:"";
+    position:absolute;
+    left:0;
+    top:2px;
+    width:5px;
+    height:30px;
+    border-radius:2px;
+    background:#35A668;
+  }
+  header b { font-size:16px; line-height:1.2; }
+  header small { color:#B8D5C7; font-size:9.5px; line-height:1.3; }
+  .pill { max-width:42vw; overflow:hidden; text-overflow:ellipsis; border-radius:999px; background:#255441; }
+  .pill.off { background:#66521D; }
+  .pill.ok { background:#1B6944; }
+  .avatar { flex:0 0 34px; width:34px; height:34px; border-radius:50%; }
+  .avatar .lucide { width:17px; height:17px; }
+  main { width:100%; max-width:680px; padding:12px; }
+  main[data-screen="home"], main[data-screen="jobs"] { padding-bottom:18px; }
+  .card { border-radius:8px; padding:14px; box-shadow:0 1px 1px rgba(17,39,28,.04); }
+  .card h3 { line-height:1.35; }
+  .btn { min-height:46px; border-radius:6px; gap:7px; }
+  .btn.big { min-height:62px; border-radius:8px; }
+  .btn.primary { background:var(--field-brand); border-color:var(--field-brand); }
+  .btn.primary:active { background:var(--field-brand-strong); }
+  .chip { min-height:42px; border-radius:999px; }
+  input.f, select.f, textarea.f { border-radius:6px; border-color:var(--field-border-strong); }
+  input.f:focus, select.f:focus, textarea.f:focus { border-color:var(--field-brand); }
+  .qbtn { border-radius:7px; min-height:68px; padding:7px 4px; }
+  .qbtn .lucide { width:21px; height:21px; margin-bottom:5px; }
+  .prev { border-radius:6px; }
+  .tag { border-radius:999px; }
+  .photo-grid img { border-radius:6px; }
+  .tcard { border-radius:7px; }
+  .sheet { border-radius:8px 8px 0 0; padding-bottom:calc(24px + env(safe-area-inset-bottom)); }
+  #toast { bottom:calc(76px + env(safe-area-inset-bottom)); border-radius:999px; }
+  nav.bottom {
+    min-height:calc(62px + env(safe-area-inset-bottom));
+    padding-bottom:env(safe-area-inset-bottom);
+    box-shadow:0 -3px 14px rgba(24,49,37,.08);
+  }
+  nav.bottom button {
+    min-width:0;
+    min-height:62px;
+    padding:6px 2px 5px;
+    color:#63726A;
+  }
+  nav.bottom button.on { color:var(--field-brand); }
+  nav.bottom button span { height:23px; margin-bottom:2px; }
+  nav.bottom .lucide { width:21px; height:21px; stroke-width:2; }
+  .btn.has-field-icon .lucide { flex:0 0 auto; width:18px; height:18px; }
+  .btn.big.has-field-icon { flex-flow:row wrap; column-gap:8px; row-gap:2px; }
+  .btn.big.has-field-icon small { flex:0 0 100%; }
+  .action-grid { display:grid; grid-template-columns:repeat(4,minmax(0,1fr)); gap:8px; }
+  .action-grid > * { min-width:0; }
+
+  @media (max-width:420px) {
+    .row3 { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); }
+    .action-grid { grid-template-columns:repeat(2,minmax(0,1fr)); }
+    .qgrid { gap:7px; }
+    .qbtn { font-size:12px; }
+    h2.screen { font-size:19px; }
+  }
+
+  @media (min-width:768px) {
+    body { padding:0 0 0 184px; }
+    header {
+      left:184px;
+      min-height:64px;
+      padding:10px 22px;
+      color:var(--field-ink);
+      background:var(--field-surface);
+      border-bottom:1px solid var(--field-border);
+      box-shadow:none;
+    }
+    header > div:first-child::before { background:var(--field-brand); }
+    header b { font-size:17px; }
+    header small { color:var(--field-muted); }
+    header .pill { color:#315B47; background:var(--field-brand-soft); }
+    header .pill.off { color:#754E00; background:#FFF2CF; }
+    header .pill.ok { color:#1C6742; background:#E1F3E8; }
+    header .avatar { color:#fff; background:var(--field-brand); }
+    main { max-width:1180px; padding:20px 24px 28px; }
+    main[data-screen="home"] .card, main[data-screen="jobs"] .card { margin-bottom:12px; }
+    nav.bottom {
+      left:0;
+      top:0;
+      bottom:0;
+      width:184px;
+      min-height:100vh;
+      padding:84px 10px 18px;
+      border:0;
+      background:#163D2E;
+      box-shadow:none;
+    }
+    nav.bottom::before {
+      content:"STS\A GEOFLOW";
+      white-space:pre;
+      position:absolute;
+      top:20px;
+      left:18px;
+      color:#FFFFFF;
+      font-size:14px;
+      line-height:1.05;
+      font-weight:800;
+    }
+    nav.bottom::after {
+      content:"FIELD";
+      position:absolute;
+      top:48px;
+      left:18px;
+      color:#9CC7B3;
+      font-size:9px;
+      letter-spacing:1.2px;
+    }
+    nav.bottom button {
+      flex:0 0 50px;
+      display:flex;
+      align-items:center;
+      justify-content:flex-start;
+      gap:12px;
+      width:100%;
+      min-height:50px;
+      padding:0 12px;
+      border-radius:6px;
+      color:#C3D6CC;
+      font-size:13px;
+      text-align:left;
+    }
+    nav.bottom button:hover { background:rgba(255,255,255,.06); }
+    nav.bottom button.on { color:#FFFFFF; background:#276246; }
+    nav.bottom button span { display:flex; align-items:center; height:auto; margin:0; }
+    nav.bottom .lucide { width:20px; height:20px; }
+    .qgrid { grid-template-columns:repeat(6,minmax(0,1fr)); }
+    .tgrid { grid-template-columns:repeat(3,minmax(0,1fr)); }
+    .cols2 { gap:14px; }
+    .tsplit { grid-template-columns:260px minmax(0,1fr); gap:18px; }
+    .tsplit > aside { position:sticky; top:84px; max-height:calc(100vh - 104px); overflow:auto; }
+    .sheet-bg { align-items:center; padding:24px; }
+    .sheet { max-width:620px; border-radius:8px; padding-bottom:20px; }
+    #toast { bottom:24px; }
+  }
+
+  @media (min-width:1100px) {
+    body { padding-left:208px; }
+    header { left:208px; }
+    nav.bottom { width:208px; }
+    main { padding-left:30px; padding-right:30px; }
+  }
 </style>
 </head>
 <body>
@@ -106,11 +309,74 @@
   <button data-s="photos"><span>📷</span>Photos</button>
   <button data-s="sync"><span>⇅</span>Sync</button>
 </nav>
+<script src="vendor/lucide.min.js"></script>
 <script>
 "use strict";
 /* ============ STS GeoFlow — offline-first field workspace ============ */
-if ("serviceWorker" in navigator) navigator.serviceWorker.register("sw.js").catch(()=>{});
-const SYNC_URL = "/api/v1/geologger/logs";
+const NATIVE_APP = Boolean(window.Capacitor && typeof window.Capacitor.isNativePlatform === "function" && window.Capacitor.isNativePlatform());
+document.documentElement.classList.toggle("native-app", NATIVE_APP);
+if (!NATIVE_APP && "serviceWorker" in navigator) navigator.serviceWorker.register("sw.js").catch(()=>{});
+const SYNC_URL = NATIVE_APP
+  ? "https://autosoillogger.poreddyjeevanreddy.workers.dev/api/v1/geologger/logs"
+  : "/api/v1/geologger/logs";
+const FIELD_ICONS = {
+  home:"house", jobs:"briefcase-business", bh:"clipboard-pen-line", photos:"camera", sync:"refresh-cw",
+  soil:"layers-3", spt:"gauge", sample:"package-plus", photo:"camera", water:"droplets", prog:"ruler",
+  resumeSess:"arrow-right", contBh:"arrow-right", newJob:"plus", goUpdate:"clipboard-check",
+  addBh:"plus", batchBh:"copy", goLog:"arrow-right", goReview:"shield-check", saveIv:"save",
+  dupLayer:"copy", smpFromIv:"package-plus", sptFromIv:"gauge", gwFromIv:"droplets",
+  sSave:"save", smSave:"save", syncNow:"refresh-cw", markDone:"circle-check", upSave:"save",
+  wizDraft:"save", wizBack:"arrow-left", wizNext:"arrow-right", wizGps:"map-pin",
+  wizAddBh:"plus", wizBatch:"copy", wizStart:"play"
+};
+function fieldIcon(name){
+  const i=document.createElement("i");
+  i.setAttribute("data-lucide",name);
+  i.setAttribute("aria-hidden","true");
+  return i;
+}
+function cleanButtonGlyphs(btn){
+  const texts=Array.from(btn.childNodes).filter(node=>node.nodeType===Node.TEXT_NODE && node.nodeValue.trim());
+  if (!texts.length) return;
+  texts[0].nodeValue=texts[0].nodeValue.replace(/^\s*[^A-Za-z0-9]+/,"");
+  const last=texts[texts.length-1];
+  last.nodeValue=last.nodeValue.replace(/[^A-Za-z0-9)\]]+\s*$/,"");
+}
+function enhanceFieldUI(){
+  if (!window.lucide) return;
+  document.querySelectorAll("#nav button[data-s]").forEach(btn=>{
+    const span=btn.querySelector("span");
+    if (span) span.replaceChildren(fieldIcon(FIELD_ICONS[btn.dataset.s]||"circle"));
+    btn.setAttribute("aria-label",btn.textContent.trim());
+  });
+  document.querySelectorAll(".qbtn[data-qa]").forEach(btn=>{
+    const span=btn.querySelector("span");
+    if (span) span.replaceChildren(fieldIcon(FIELD_ICONS[btn.dataset.qa]||"circle"));
+  });
+  document.querySelectorAll(".qbtn[data-act]").forEach(btn=>{
+    const label=btn.textContent.toLowerCase();
+    const key=label.includes("sample")?"sample":label.includes("photo")?"photo":label.includes("water")?"water":btn.dataset.act;
+    const span=btn.querySelector("span");
+    if (span) span.replaceChildren(fieldIcon(FIELD_ICONS[key]||"circle"));
+  });
+  document.querySelectorAll("button.del").forEach(btn=>{
+    btn.replaceChildren(fieldIcon("trash-2"));
+    btn.setAttribute("aria-label","Delete");
+  });
+  const avatar=document.getElementById("avatar");
+  if (avatar && !/[A-Za-z0-9]/.test(avatar.textContent)) {
+    avatar.replaceChildren(fieldIcon("user-round"));
+    avatar.setAttribute("aria-label","Profile and field role");
+  }
+  Object.entries(FIELD_ICONS).forEach(([id,name])=>{
+    const btn=document.getElementById(id);
+    if (!btn || btn.closest("#nav") || btn.querySelector(".lucide,[data-lucide]")) return;
+    cleanButtonGlyphs(btn);
+    btn.prepend(fieldIcon(name));
+    btn.classList.add("has-field-icon");
+  });
+  window.lucide.createIcons({attrs:{"stroke-width":"2","aria-hidden":"true"}});
+}
 const MATERIALS = ["TOPSOIL","FILL","CLAY","Silty CLAY","Sandy CLAY","Gravelly CLAY","SILT","Sandy SILT","Clayey SILT","SAND","Silty SAND","Clayey SAND","Gravelly SAND","GRAVEL","Sandy GRAVEL","Clayey GRAVEL","Residual soil","Extremely weathered rock","SANDSTONE","SHALE","SILTSTONE"];
 const COLOURS = ["brown","dark brown","red-brown","yellow-brown","orange-brown","grey","dark grey","light grey","grey-brown","black","mottled"];
 const MOIST = ["dry","moist","wet"];
@@ -336,6 +602,7 @@ function render(){
   const navS = ({home:"home",jobs:"jobs",wizard:"jobs",bh:"bh",log:"bh",spt:"bh",review:"bh",photos:"photos",sync:"sync",update:"home"})[s];
   document.querySelectorAll("#nav button").forEach(b=>b.classList.toggle("on", b.dataset.s===navS));
   const m=document.getElementById("main");
+  m.dataset.screen=s;
   const html=map[s]();
   /* tablet split view: borehole rail beside the working screen */
   if (window.innerWidth>=900 && ["bh","log","spt","photos","update"].includes(s) && F.boreholes.length){
@@ -347,6 +614,7 @@ function render(){
   } else m.innerHTML = html;
   wire(m, s);
   pill();
+  enhanceFieldUI();
 }
 
 /* ---------- HOME ---------- */
@@ -625,7 +893,7 @@ function scrLog(){
     ${depths}
     ${isRock? rockForm : soilForm}
     <label class="f">Remarks</label><input class="f" id="dRem" value="${esc(d.remarks)}">
-    <div class="row2">
+    <div class="row2 action-grid">
       <button class="btn" id="dupLayer">⧉ Duplicate</button>
       <button class="btn" id="smpFromIv">＋ Sample</button>
       <button class="btn" id="sptFromIv">＋ SPT</button>
@@ -1072,6 +1340,23 @@ if (!SCREENS()[F.screen] || F.screen==="boreholes") F.screen="home";
 if (!["wizard"].includes(F.screen)) F.screen="home";
 render();
 if (online() && F.pending) doSync(false);
+let fieldResizeTimer;
+addEventListener("resize",()=>{
+  clearTimeout(fieldResizeTimer);
+  fieldResizeTimer=setTimeout(render,160);
+});
+async function initNativeShell(){
+  const plugins=window.Capacitor?.Plugins||{};
+  try { await plugins.StatusBar?.setBackgroundColor({color:"#143B2C"}); } catch {}
+  try { await plugins.StatusBar?.setStyle({style:"LIGHT"}); } catch {}
+  try { await plugins.SplashScreen?.hide(); } catch {}
+  plugins.App?.addListener("backButton",()=>{
+    const back={ log:"bh", spt:"bh", photos:"bh", review:"bh", bh:"jobs", jobs:"home", wizard:"home", update:"home", sync:"home" };
+    if (back[F.screen]) go(back[F.screen]);
+    else plugins.App.exitApp();
+  });
+}
+if (NATIVE_APP) initNativeShell();
 </script>
 </body>
 </html>

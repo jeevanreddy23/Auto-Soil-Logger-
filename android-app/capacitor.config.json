@@ -1,0 +1,30 @@
+{
+  "appId": "au.com.stsgeotechnics.geoflow",
+  "appName": "STS GeoFlow",
+  "webDir": "www",
+  "loggingBehavior": "none",
+  "backgroundColor": "#F2F5F3",
+  "server": {
+    "hostname": "localhost",
+    "androidScheme": "https"
+  },
+  "android": {
+    "allowMixedContent": false,
+    "captureInput": true,
+    "webContentsDebuggingEnabled": false
+  },
+  "plugins": {
+    "SplashScreen": {
+      "launchShowDuration": 900,
+      "launchAutoHide": true,
+      "backgroundColor": "#F2F5F3",
+      "androidScaleType": "CENTER_CROP",
+      "showSpinner": false
+    },
+    "StatusBar": {
+      "style": "LIGHT",
+      "backgroundColor": "#143B2C",
+      "overlaysWebView": false
+    }
+  }
+}

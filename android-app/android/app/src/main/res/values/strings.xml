@@ -1,0 +1,7 @@
+<?xml version='1.0' encoding='utf-8'?>
+<resources>
+    <string name="app_name">STS GeoFlow</string>
+    <string name="title_activity_main">STS GeoFlow</string>
+    <string name="package_name">au.com.stsgeotechnics.geoflow</string>
+    <string name="custom_url_scheme">au.com.stsgeotechnics.geoflow</string>
+</resources>

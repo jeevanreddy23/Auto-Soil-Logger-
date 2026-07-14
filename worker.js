@@ -15,9 +15,41 @@
 
 const LEGACY_API = "https://auto-soil-logger-api.onrender.com";
 const PREFIX = "log:";
+const MOBILE_ORIGINS = new Set([
+  "https://localhost",
+  "http://localhost",
+  "capacitor://localhost",
+  "https://autosoillogger.poreddyjeevanreddy.workers.dev"
+]);
 
 const json = (obj, status = 200) =>
   new Response(JSON.stringify(obj), { status, headers: { "Content-Type": "application/json" } });
+
+function corsHeaders(request) {
+  const origin = request.headers.get("Origin");
+  if (!origin || !MOBILE_ORIGINS.has(origin)) return null;
+  return {
+    "Access-Control-Allow-Origin": origin,
+    "Access-Control-Allow-Methods": "GET, POST, OPTIONS",
+    "Access-Control-Allow-Headers": "Content-Type, X-Autosoil-Api-Key",
+    "Access-Control-Max-Age": "86400",
+    "Vary": "Origin"
+  };
+}
+
+function withCors(response, request) {
+  const allowed = corsHeaders(request);
+  if (!allowed) return response;
+  const headers = new Headers(response.headers);
+  for (const [name, value] of Object.entries(allowed)) headers.set(name, value);
+  return new Response(response.body, { status: response.status, statusText: response.statusText, headers });
+}
+
+function handlePreflight(request) {
+  const allowed = corsHeaders(request);
+  if (!allowed) return json({ error: "origin not allowed" }, 403);
+  return new Response(null, { status: 204, headers: allowed });
+}
 
 function authorised(request, env) {
   if (!env.AUTOSOIL_API_KEY) return true;
@@ -124,8 +156,9 @@ export default {
   async fetch(request, env) {
     const url = new URL(request.url);
 
-    if (url.pathname === "/api/v1/geologger/logs") return handleLogs(request, env);
-    if (url.pathname === "/api/v1/files") return handleFiles(request, env);
+    if (url.pathname.startsWith("/api/") && request.method === "OPTIONS") return handlePreflight(request);
+    if (url.pathname === "/api/v1/geologger/logs") return withCors(await handleLogs(request, env), request);
+    if (url.pathname === "/api/v1/files") return withCors(await handleFiles(request, env), request);
 
     /* any other legacy /api path still proxies to the old backend (vision pipeline etc.) */
     if (url.pathname.startsWith("/api/")) {
@@ -135,9 +168,9 @@ export default {
         body: ["GET", "HEAD"].includes(request.method) ? undefined : request.body,
         redirect: "follow"
       };
-      try { return await fetch(LEGACY_API + url.pathname + url.search, init); }
+      try { return withCors(await fetch(LEGACY_API + url.pathname + url.search, init), request); }
       catch (e) {
-        return json({ error: "backend unreachable", detail: String(e) }, 502);
+        return withCors(json({ error: "backend unreachable", detail: String(e) }, 502), request);
       }
     }
 
