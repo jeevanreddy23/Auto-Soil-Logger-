@@ -4811,7 +4811,8 @@ const syncEl=document.getElementById("syncStatus");   /* keep a live reference �
 function buildHeader(){
   const pj=pjMeta(); const num=pj?.number||S.project?.projectNumber||""; const name=pj?.name||S.project?.projectName||S.project?.clientName||"";
   const r=readiness();
-  gh.innerHTML=`<span class="co" id="coHome">STS GEOTECHNICS ▾</span>
+  gh.innerHTML=`<button class="cbtn icon-only" id="ghHome" type="button" title="Home" aria-label="Home"></button>
+    <span class="co" id="coHome">STS GEOTECHNICS ▾</span>
     <select class="pipe" id="pipeSel">${PIPES.map(p=>`<option ${(S.pipeline||PIPES[0])===p?"selected":""}>${p}</option>`).join("")}</select>
     <span class="crumb">STS GeoFlow${num?` / <b>${e16(num)}${name?" — "+e16(name.slice(0,30)):""}</b>`:""}</span>
     <span class="sp"></span>
@@ -4820,6 +4821,7 @@ function buildHeader(){
     <span class="av16" id="ghAv">${e16((S.project?.loggedBy||"·").split(/[\/,\s]+/)[0].slice(0,2).toUpperCase()||"·")}</span>
     <button class="cbtn" id="ghSet" title="Settings">⚙</button>`;
   if (syncEl) gh.querySelector("#ghSync").appendChild(syncEl);
+  gh.querySelector("#ghHome").addEventListener("click",()=>showTab("projects"));
   gh.querySelector("#coHome").addEventListener("click",()=>showTab("projects"));
   gh.querySelector("#pipeSel").addEventListener("change",e=>{ S.pipeline=e.target.value;
     try{ save(); }catch(x){ localStorage.setItem("autosoil-logger", JSON.stringify(S)); } });
@@ -5969,6 +5971,13 @@ button:focus-visible, input:focus-visible, select:focus-visible, textarea:focus-
 }
 .topbar > div[style*="flex:1"] { display:none; }
 #gh { gap:14px; color:var(--sts-ink-soft); }
+#ghHome {
+  color:var(--sts-brand-strong);
+  border-color:#c1d0c7;
+  background:#fff;
+}
+#ghHome:hover { border-color:#8eb49e; background:var(--sts-brand-soft); }
+#ghHome svg { width:16px; height:16px; stroke-width:1.9; }
 #gh .co {
   display:inline-flex;
   align-items:center;
@@ -6295,7 +6304,7 @@ table.og td.auto { background:#f0f7f3 !important; }
   .mobile-form { padding:10px; }
 }
 </style>
-<script src="https://cdn.jsdelivr.net/npm/lucide@0.468.0/dist/umd/lucide.min.js"></script>
+<script src="vendor/lucide.min.js"></script>
 <script id="v20-sts-professional-ui">
 "use strict";
 (function(){
@@ -6307,7 +6316,7 @@ const navIcons={
   projects:"house", settings:"settings"
 };
 const buttonIcons={
-  sbBurger:{icon:"menu",label:""}, ghSet:{icon:"settings",label:""}, cbAddBh:{icon:"plus",label:"Borehole"},
+  sbBurger:{icon:"menu",label:""}, ghHome:{icon:"house",label:""}, ghSet:{icon:"settings",label:""}, cbAddBh:{icon:"plus",label:"Borehole"},
   cbProp:{icon:"file-up",label:"Upload proposal"}, cbDaily:{icon:"clipboard-check",label:"Daily report"},
   cbRep:{icon:"file-text",label:"Report assembly"}, cbLab:{icon:"flask-conical",label:"Laboratory"},
   cbNewTab:{icon:"external-link",label:"Open in new tab"}, cbRefresh:{icon:"rotate-cw",label:""},
