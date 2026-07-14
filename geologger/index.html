@@ -3,11 +3,12 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="color-scheme" content="only light">
 <link rel="icon" href="favicon.svg" type="image/svg+xml">
 <title>STS GeoFlow — Geotechnical Project Delivery</title>
-<script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
-<script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
-<script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf-autotable/3.8.2/jspdf.plugin.autotable.min.js"></script>
+<script src="vendor/xlsx.full.min.js"></script>
+<script src="vendor/jspdf.umd.min.js"></script>
+<script src="vendor/jspdf.plugin.autotable.min.js"></script>
 <script src="geoflow-domain.js"></script>
 <script src="ags41-export.js"></script>
 <script src="geoflow-sync.js"></script>
@@ -2983,14 +2984,13 @@ async function ensureCarlito(){
   }
   try{
     const [r,b] = await Promise.all([
-      get("https://cdn.jsdelivr.net/gh/google/fonts@main/ofl/carlito/Carlito-Regular.ttf","pdf-carlito-r"),
-      get("https://cdn.jsdelivr.net/gh/google/fonts@main/ofl/carlito/Carlito-Bold.ttf","pdf-carlito-b")
+      get("vendor/Carlito-Regular.ttf","pdf-carlito-r"),
+      get("vendor/Carlito-Bold.ttf","pdf-carlito-b")
     ]);
     _carlito = { r, b };
   }catch(e){ _carlito = false; }
   return _carlito;
 }
-ensureCarlito();   /* warm the cache at load so the first export already has it */
 function registerCarlito(doc){
   if (!_carlito) return false;
   try{
@@ -3881,9 +3881,9 @@ window._scopeMem = window._scopeMem || {};   /* in-memory originals: pdf docs + 
 /* ---------- lazy libs ---------- */
 function loadScript(src){ return new Promise((res,rej)=>{ if (document.querySelector(`script[src="${src}"]`)) return res();
   const s=document.createElement("script"); s.src=src; s.onload=res; s.onerror=rej; document.head.appendChild(s); }); }
-async function pdfjs(){ await loadScript("https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js");
-  window.pdfjsLib.GlobalWorkerOptions.workerSrc="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js"; return window.pdfjsLib; }
-async function mammothLib(){ await loadScript("https://cdnjs.cloudflare.com/ajax/libs/mammoth/1.6.0/mammoth.browser.min.js"); return window.mammoth; }
+async function pdfjs(){ await loadScript("vendor/pdf.min.js");
+  window.pdfjsLib.GlobalWorkerOptions.workerSrc="vendor/pdf.worker.min.js"; return window.pdfjsLib; }
+async function mammothLib(){ await loadScript("vendor/mammoth.browser.min.js"); return window.mammoth; }
 /* proposal binaries persist in the Cloudflare file store — previews survive reloads and devices */
 function abToDataUrl(ab, mime){ let s=""; const a=new Uint8Array(ab);
   for (let i=0;i<a.length;i+=8192) s+=String.fromCharCode.apply(null, a.subarray(i,i+8192));
@@ -6304,6 +6304,7 @@ table.og td.auto { background:#f0f7f3 !important; }
   .mobile-form { padding:10px; }
 }
 </style>
+<link rel="stylesheet" href="geoflow-premium.css">
 <script src="vendor/lucide.min.js"></script>
 <script id="v20-sts-professional-ui">
 "use strict";
@@ -6372,7 +6373,11 @@ function paintIcons(){
     const activePage=document.getElementById("page-"+S.activeTab);
     if (activePage?.classList.contains("show") && !activePage.querySelector(".qeBar")) window.injectQuickEntry(S.activeTab);
   }
-  if (window.lucide) window.lucide.createIcons({attrs:{"stroke-width":1.8}});
+  if (window.lucide) {
+    const pending=document.querySelectorAll("i[data-lucide]");
+    pending.forEach(node=>{ node.setAttribute("data-lucide-pending",node.getAttribute("data-lucide")); node.removeAttribute("data-lucide"); });
+    if (pending.length) window.lucide.createIcons({nameAttr:"data-lucide-pending",attrs:{"stroke-width":1.8}});
+  }
   painting=false;
 }
 function schedulePaint(){ clearTimeout(paintTimer); paintTimer=setTimeout(paintIcons,0); }
@@ -6380,5 +6385,8 @@ new MutationObserver(schedulePaint).observe(document.body,{childList:true,subtre
 paintIcons();
 })();
 </script>
+<script src="geoflow-ui-core.js"></script>
+<script src="geoflow-premium.js"></script>
+<script src="geoflow-reports.js"></script>
 </body>
 </html>
