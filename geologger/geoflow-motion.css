@@ -1,0 +1,201 @@
+:root {
+  --gf-motion-immediate: 100ms;
+  --gf-motion-small: 160ms;
+  --gf-motion-panel: 220ms;
+  --gf-motion-page: 260ms;
+  --gf-ease-enter: cubic-bezier(.2, .7, .2, 1);
+  --gf-ease-exit: cubic-bezier(.4, 0, 1, 1);
+}
+
+/* Shell movement explains navigation state without delaying interaction. */
+body.gf-motion-ready.sb-on {
+  transition: padding-left var(--gf-motion-panel) var(--gf-ease-enter);
+}
+
+body.gf-motion-ready #sideNav {
+  transition: width var(--gf-motion-panel) var(--gf-ease-enter), transform var(--gf-motion-panel) var(--gf-ease-enter);
+}
+
+body.gf-motion-ready #sideNav .sn,
+body.gf-motion-ready #stsWorkspaceTabs button {
+  transition: border-color var(--gf-motion-small) ease-out, background-color var(--gf-motion-small) ease-out, color var(--gf-motion-small) ease-out;
+}
+
+body.gf-motion-ready #stsWorkspaceTabs button {
+  position: relative;
+  border-bottom-color: transparent;
+}
+
+body.gf-motion-ready #stsWorkspaceTabs button::after {
+  position: absolute;
+  right: 10px;
+  bottom: 0;
+  left: 10px;
+  height: 2px;
+  content: "";
+  transform: scaleX(0);
+  transform-origin: center;
+  background: var(--gf-green);
+  transition: transform var(--gf-motion-small) var(--gf-ease-enter);
+}
+
+body.gf-motion-ready #stsWorkspaceTabs button.on::after {
+  transform: scaleX(1);
+}
+
+/* Page motion is opt-in and never applied to technical entry workspaces. */
+.tabpage[data-gf-motion-page="enter"] > .sts-page,
+.tabpage[data-gf-motion-page="enter"] > .dz {
+  animation: gf-page-enter var(--gf-motion-page) var(--gf-ease-enter) both;
+}
+
+@keyframes gf-page-enter {
+  from { opacity: 0; transform: translateY(4px); }
+  to { opacity: 1; transform: none; }
+}
+
+/* Selected records keep their position and receive only a restrained state cue. */
+.sts-report-row td,
+.sts-data-table tbody tr td {
+  transition: background-color var(--gf-motion-small) ease-out, border-color var(--gf-motion-small) ease-out;
+}
+
+.sts-report-details[data-gf-motion-entry="details"] {
+  animation: gf-detail-enter var(--gf-motion-small) var(--gf-ease-enter) both;
+}
+
+@keyframes gf-detail-enter {
+  from { opacity: 0; transform: translateX(3px); }
+  to { opacity: 1; transform: none; }
+}
+
+/* The actual PDF remains static. Motion belongs only to its surrounding viewer. */
+.sts-report-preview[data-gf-motion-entry="preview"] {
+  animation: gf-preview-enter var(--gf-motion-panel) var(--gf-ease-enter) both;
+}
+
+@keyframes gf-preview-enter {
+  from { opacity: 0; transform: scale(.995); }
+  to { opacity: 1; transform: none; }
+}
+
+.sts-pdf-stage {
+  position: relative;
+}
+
+.sts-pdf-stage.gf-pdf-loading::before {
+  position: absolute;
+  top: 0;
+  right: 0;
+  left: 0;
+  z-index: 5;
+  height: 2px;
+  content: "";
+  transform: scaleX(.12);
+  transform-origin: left;
+  background: var(--gf-green-action);
+  animation: gf-genuine-progress 900ms ease-in-out infinite;
+  pointer-events: none;
+}
+
+@keyframes gf-genuine-progress {
+  0% { transform: scaleX(.12); opacity: .65; }
+  75% { transform: scaleX(.88); opacity: 1; }
+  100% { transform: scaleX(1); opacity: 0; }
+}
+
+/* Validation movement directs attention while preserving the grid geometry. */
+#stsDrawerBackdrop {
+  display: block;
+  visibility: hidden;
+  opacity: 0;
+  pointer-events: none;
+  transition: visibility 0s linear var(--gf-motion-panel), opacity var(--gf-motion-panel) var(--gf-ease-exit);
+}
+
+#stsDrawerBackdrop.open {
+  visibility: visible;
+  opacity: 1;
+  pointer-events: auto;
+  transition-delay: 0s;
+  transition-timing-function: var(--gf-ease-enter);
+}
+
+#stsValidationDrawer {
+  transition: transform var(--gf-motion-panel) var(--gf-ease-enter);
+}
+
+tr.gf-record-focus td {
+  background-color: var(--gf-warning-bg) !important;
+  box-shadow: inset 0 1px 0 #d6b66f, inset 0 -1px 0 #d6b66f;
+}
+
+/* Dialogs and feedback enter once without decorative movement or looping. */
+.sts-dialog-backdrop[data-gf-motion-entry="dialog"] {
+  animation: gf-backdrop-enter var(--gf-motion-small) ease-out both;
+}
+
+.sts-dialog-backdrop[data-gf-motion-entry="dialog"] > * {
+  animation: gf-dialog-enter var(--gf-motion-panel) var(--gf-ease-enter) both;
+}
+
+@keyframes gf-backdrop-enter {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+@keyframes gf-dialog-enter {
+  from { opacity: 0; transform: translateY(-5px) scale(.995); }
+  to { opacity: 1; transform: none; }
+}
+
+.sts-toast[data-gf-motion-entry="toast"] {
+  animation: gf-toast-enter var(--gf-motion-small) var(--gf-ease-enter) both;
+}
+
+@keyframes gf-toast-enter {
+  from { opacity: 0; transform: translateY(5px); }
+  to { opacity: 1; transform: none; }
+}
+
+#syncStatus.gf-state-change {
+  animation: gf-state-confirm var(--gf-motion-panel) ease-out both;
+  border-radius: 4px;
+}
+
+@keyframes gf-state-confirm {
+  0% { background-color: transparent; }
+  35% { background-color: var(--gf-green-soft); }
+  100% { background-color: transparent; }
+}
+
+.sts-status.syncing::before,
+.sts-status.generating::before {
+  animation: gf-genuine-wait 900ms ease-in-out infinite;
+}
+
+@keyframes gf-genuine-wait {
+  0%, 100% { opacity: .45; transform: scale(.82); }
+  50% { opacity: 1; transform: scale(1); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  body.gf-motion-ready,
+  body.gf-motion-ready *,
+  body.gf-motion-ready *::before,
+  body.gf-motion-ready *::after {
+    scroll-behavior: auto !important;
+    animation: none !important;
+    transition-duration: .01ms !important;
+    transition-delay: 0s !important;
+  }
+}
+
+@media print {
+  *,
+  *::before,
+  *::after {
+    animation: none !important;
+    transition: none !important;
+  }
+}

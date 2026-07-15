@@ -564,7 +564,11 @@
       if (grid && issue.rowIndex != null) target = document.querySelector(`#${grid} tr[data-i="${issue.rowIndex}"] input, #${grid} tr[data-i="${issue.rowIndex}"] select`);
       if (issue.nav === "dcp" && issue.rowIndex != null) target = document.querySelector(`#stsDcpTable tr[data-i="${issue.rowIndex}"] input`);
       if (issue.nav === "boreholes" && issue.rowIndex != null) target = document.querySelector(`#bhGrid tr[data-i="${issue.rowIndex}"] input`);
-      if (target) { target.scrollIntoView({ block: "center", behavior: root.matchMedia("(prefers-reduced-motion: reduce)").matches ? "auto" : "smooth" }); target.focus(); }
+      if (target) {
+        target.scrollIntoView({ block: "center", behavior: root.matchMedia("(prefers-reduced-motion: reduce)").matches ? "auto" : "smooth" });
+        target.focus();
+        if (root.GeoFlowMotion) root.GeoFlowMotion.revealRecord(target);
+      }
     }, 80);
   }
 
