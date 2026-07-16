@@ -2,12 +2,8 @@
 <html lang="en">
 <head>
 <meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
-<meta name="theme-color" content="#143B2C">
-<meta name="mobile-web-app-capable" content="yes">
-<meta name="apple-mobile-web-app-capable" content="yes">
-<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
-<link rel="icon" href="favicon.svg" type="image/svg+xml">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#0D523E">
 <link rel="manifest" href="manifest.webmanifest">
 <title>STS GeoFlow — Field Logging</title>
 <style>
@@ -93,205 +89,6 @@
     .tgrid { grid-template-columns:repeat(3,1fr); }
     .cols2 { display:grid; grid-template-columns:1fr 1fr; gap:10px; align-items:start; }
   }
-
-  /* Native-ready field workspace: compact on phones, information-dense on tablets. */
-  :root {
-    --field-brand:#0B6B3A;
-    --field-brand-strong:#07542E;
-    --field-brand-soft:#E8F4ED;
-    --field-ink:#19211D;
-    --field-muted:#5F6F67;
-    --field-canvas:#F2F5F3;
-    --field-surface:#FFFFFF;
-    --field-surface-muted:#F7F9F8;
-    --field-border:#D4DDD7;
-    --field-border-strong:#B7C5BD;
-    --field-info:#245F9E;
-    --field-warning:#9A5A00;
-    --field-danger:#B42318;
-    --field-focus:rgba(11,107,58,.22);
-    --g:var(--field-brand-strong);
-    --ga:var(--field-brand);
-    --ink:var(--field-ink);
-    --sec:var(--field-muted);
-    --bd:var(--field-border);
-    --soft:var(--field-canvas);
-    --warn:var(--field-warning);
-    --err:var(--field-danger);
-  }
-  html { min-height:100%; background:var(--field-canvas); }
-  body {
-    min-height:100%;
-    padding-bottom:calc(66px + env(safe-area-inset-bottom));
-    background:var(--field-canvas);
-    font-family:Inter,Roboto,"Segoe UI",system-ui,sans-serif;
-    letter-spacing:0;
-  }
-  button, input, select, textarea { font:inherit; letter-spacing:0; }
-  button:focus-visible, input:focus-visible, select:focus-visible, textarea:focus-visible {
-    outline:3px solid var(--field-focus);
-    outline-offset:1px;
-  }
-  header {
-    min-height:58px;
-    padding:calc(8px + env(safe-area-inset-top)) 14px 8px;
-    background:#143B2C;
-    box-shadow:0 1px 0 rgba(0,0,0,.18);
-  }
-  header > div:first-child {
-    position:relative;
-    min-width:0;
-    padding-left:15px;
-  }
-  header > div:first-child::before {
-    content:"";
-    position:absolute;
-    left:0;
-    top:2px;
-    width:5px;
-    height:30px;
-    border-radius:2px;
-    background:#35A668;
-  }
-  header b { font-size:16px; line-height:1.2; }
-  header small { color:#B8D5C7; font-size:9.5px; line-height:1.3; }
-  .pill { max-width:42vw; overflow:hidden; text-overflow:ellipsis; border-radius:999px; background:#255441; }
-  .pill.off { background:#66521D; }
-  .pill.ok { background:#1B6944; }
-  .avatar { flex:0 0 34px; width:34px; height:34px; border-radius:50%; }
-  .avatar .lucide { width:17px; height:17px; }
-  main { width:100%; max-width:680px; padding:12px; }
-  main[data-screen="home"], main[data-screen="jobs"] { padding-bottom:18px; }
-  .card { border-radius:8px; padding:14px; box-shadow:0 1px 1px rgba(17,39,28,.04); }
-  .card h3 { line-height:1.35; }
-  .btn { min-height:46px; border-radius:6px; gap:7px; }
-  .btn.big { min-height:62px; border-radius:8px; }
-  .btn.primary { background:var(--field-brand); border-color:var(--field-brand); }
-  .btn.primary:active { background:var(--field-brand-strong); }
-  .chip { min-height:42px; border-radius:999px; }
-  input.f, select.f, textarea.f { border-radius:6px; border-color:var(--field-border-strong); }
-  input.f:focus, select.f:focus, textarea.f:focus { border-color:var(--field-brand); }
-  .qbtn { border-radius:7px; min-height:68px; padding:7px 4px; }
-  .qbtn .lucide { width:21px; height:21px; margin-bottom:5px; }
-  .prev { border-radius:6px; }
-  .tag { border-radius:999px; }
-  .photo-grid img { border-radius:6px; }
-  .tcard { border-radius:7px; }
-  .sheet { border-radius:8px 8px 0 0; padding-bottom:calc(24px + env(safe-area-inset-bottom)); }
-  #toast { bottom:calc(76px + env(safe-area-inset-bottom)); border-radius:999px; }
-  nav.bottom {
-    min-height:calc(62px + env(safe-area-inset-bottom));
-    padding-bottom:env(safe-area-inset-bottom);
-    box-shadow:0 -3px 14px rgba(24,49,37,.08);
-  }
-  nav.bottom button {
-    min-width:0;
-    min-height:62px;
-    padding:6px 2px 5px;
-    color:#63726A;
-  }
-  nav.bottom button.on { color:var(--field-brand); }
-  nav.bottom button span { height:23px; margin-bottom:2px; }
-  nav.bottom .lucide { width:21px; height:21px; stroke-width:2; }
-  .btn.has-field-icon .lucide { flex:0 0 auto; width:18px; height:18px; }
-  .btn.big.has-field-icon { flex-flow:row wrap; column-gap:8px; row-gap:2px; }
-  .btn.big.has-field-icon small { flex:0 0 100%; }
-  .action-grid { display:grid; grid-template-columns:repeat(4,minmax(0,1fr)); gap:8px; }
-  .action-grid > * { min-width:0; }
-
-  @media (max-width:420px) {
-    .row3 { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); }
-    .action-grid { grid-template-columns:repeat(2,minmax(0,1fr)); }
-    .qgrid { gap:7px; }
-    .qbtn { font-size:12px; }
-    h2.screen { font-size:19px; }
-  }
-
-  @media (min-width:768px) {
-    body { padding:0 0 0 184px; }
-    header {
-      left:184px;
-      min-height:64px;
-      padding:10px 22px;
-      color:var(--field-ink);
-      background:var(--field-surface);
-      border-bottom:1px solid var(--field-border);
-      box-shadow:none;
-    }
-    header > div:first-child::before { background:var(--field-brand); }
-    header b { font-size:17px; }
-    header small { color:var(--field-muted); }
-    header .pill { color:#315B47; background:var(--field-brand-soft); }
-    header .pill.off { color:#754E00; background:#FFF2CF; }
-    header .pill.ok { color:#1C6742; background:#E1F3E8; }
-    header .avatar { color:#fff; background:var(--field-brand); }
-    main { max-width:1180px; padding:20px 24px 28px; }
-    main[data-screen="home"] .card, main[data-screen="jobs"] .card { margin-bottom:12px; }
-    nav.bottom {
-      left:0;
-      top:0;
-      bottom:0;
-      width:184px;
-      min-height:100vh;
-      padding:84px 10px 18px;
-      border:0;
-      background:#163D2E;
-      box-shadow:none;
-    }
-    nav.bottom::before {
-      content:"STS\A GEOFLOW";
-      white-space:pre;
-      position:absolute;
-      top:20px;
-      left:18px;
-      color:#FFFFFF;
-      font-size:14px;
-      line-height:1.05;
-      font-weight:800;
-    }
-    nav.bottom::after {
-      content:"FIELD";
-      position:absolute;
-      top:48px;
-      left:18px;
-      color:#9CC7B3;
-      font-size:9px;
-      letter-spacing:1.2px;
-    }
-    nav.bottom button {
-      flex:0 0 50px;
-      display:flex;
-      align-items:center;
-      justify-content:flex-start;
-      gap:12px;
-      width:100%;
-      min-height:50px;
-      padding:0 12px;
-      border-radius:6px;
-      color:#C3D6CC;
-      font-size:13px;
-      text-align:left;
-    }
-    nav.bottom button:hover { background:rgba(255,255,255,.06); }
-    nav.bottom button.on { color:#FFFFFF; background:#276246; }
-    nav.bottom button span { display:flex; align-items:center; height:auto; margin:0; }
-    nav.bottom .lucide { width:20px; height:20px; }
-    .qgrid { grid-template-columns:repeat(6,minmax(0,1fr)); }
-    .tgrid { grid-template-columns:repeat(3,minmax(0,1fr)); }
-    .cols2 { gap:14px; }
-    .tsplit { grid-template-columns:260px minmax(0,1fr); gap:18px; }
-    .tsplit > aside { position:sticky; top:84px; max-height:calc(100vh - 104px); overflow:auto; }
-    .sheet-bg { align-items:center; padding:24px; }
-    .sheet { max-width:620px; border-radius:8px; padding-bottom:20px; }
-    #toast { bottom:24px; }
-  }
-
-  @media (min-width:1100px) {
-    body { padding-left:208px; }
-    header { left:208px; }
-    nav.bottom { width:208px; }
-    main { padding-left:30px; padding-right:30px; }
-  }
 </style>
 </head>
 <body>
@@ -309,74 +106,11 @@
   <button data-s="photos"><span>📷</span>Photos</button>
   <button data-s="sync"><span>⇅</span>Sync</button>
 </nav>
-<script src="vendor/lucide.min.js"></script>
 <script>
 "use strict";
 /* ============ STS GeoFlow — offline-first field workspace ============ */
-const NATIVE_APP = Boolean(window.Capacitor && typeof window.Capacitor.isNativePlatform === "function" && window.Capacitor.isNativePlatform());
-document.documentElement.classList.toggle("native-app", NATIVE_APP);
-if (!NATIVE_APP && "serviceWorker" in navigator) navigator.serviceWorker.register("sw.js").catch(()=>{});
-const SYNC_URL = NATIVE_APP
-  ? "https://autosoillogger.poreddyjeevanreddy.workers.dev/api/v1/geologger/logs"
-  : "/api/v1/geologger/logs";
-const FIELD_ICONS = {
-  home:"house", jobs:"briefcase-business", bh:"clipboard-pen-line", photos:"camera", sync:"refresh-cw",
-  soil:"layers-3", spt:"gauge", sample:"package-plus", photo:"camera", water:"droplets", prog:"ruler",
-  resumeSess:"arrow-right", contBh:"arrow-right", newJob:"plus", goUpdate:"clipboard-check",
-  addBh:"plus", batchBh:"copy", goLog:"arrow-right", goReview:"shield-check", saveIv:"save",
-  dupLayer:"copy", smpFromIv:"package-plus", sptFromIv:"gauge", gwFromIv:"droplets",
-  sSave:"save", smSave:"save", syncNow:"refresh-cw", markDone:"circle-check", upSave:"save",
-  wizDraft:"save", wizBack:"arrow-left", wizNext:"arrow-right", wizGps:"map-pin",
-  wizAddBh:"plus", wizBatch:"copy", wizStart:"play"
-};
-function fieldIcon(name){
-  const i=document.createElement("i");
-  i.setAttribute("data-lucide",name);
-  i.setAttribute("aria-hidden","true");
-  return i;
-}
-function cleanButtonGlyphs(btn){
-  const texts=Array.from(btn.childNodes).filter(node=>node.nodeType===Node.TEXT_NODE && node.nodeValue.trim());
-  if (!texts.length) return;
-  texts[0].nodeValue=texts[0].nodeValue.replace(/^\s*[^A-Za-z0-9]+/,"");
-  const last=texts[texts.length-1];
-  last.nodeValue=last.nodeValue.replace(/[^A-Za-z0-9)\]]+\s*$/,"");
-}
-function enhanceFieldUI(){
-  if (!window.lucide) return;
-  document.querySelectorAll("#nav button[data-s]").forEach(btn=>{
-    const span=btn.querySelector("span");
-    if (span) span.replaceChildren(fieldIcon(FIELD_ICONS[btn.dataset.s]||"circle"));
-    btn.setAttribute("aria-label",btn.textContent.trim());
-  });
-  document.querySelectorAll(".qbtn[data-qa]").forEach(btn=>{
-    const span=btn.querySelector("span");
-    if (span) span.replaceChildren(fieldIcon(FIELD_ICONS[btn.dataset.qa]||"circle"));
-  });
-  document.querySelectorAll(".qbtn[data-act]").forEach(btn=>{
-    const label=btn.textContent.toLowerCase();
-    const key=label.includes("sample")?"sample":label.includes("photo")?"photo":label.includes("water")?"water":btn.dataset.act;
-    const span=btn.querySelector("span");
-    if (span) span.replaceChildren(fieldIcon(FIELD_ICONS[key]||"circle"));
-  });
-  document.querySelectorAll("button.del").forEach(btn=>{
-    btn.replaceChildren(fieldIcon("trash-2"));
-    btn.setAttribute("aria-label","Delete");
-  });
-  const avatar=document.getElementById("avatar");
-  if (avatar && !/[A-Za-z0-9]/.test(avatar.textContent)) {
-    avatar.replaceChildren(fieldIcon("user-round"));
-    avatar.setAttribute("aria-label","Profile and field role");
-  }
-  Object.entries(FIELD_ICONS).forEach(([id,name])=>{
-    const btn=document.getElementById(id);
-    if (!btn || btn.closest("#nav") || btn.querySelector(".lucide,[data-lucide]")) return;
-    cleanButtonGlyphs(btn);
-    btn.prepend(fieldIcon(name));
-    btn.classList.add("has-field-icon");
-  });
-  window.lucide.createIcons({attrs:{"stroke-width":"2","aria-hidden":"true"}});
-}
+if ("serviceWorker" in navigator) navigator.serviceWorker.register("sw.js").catch(()=>{});
+const SYNC_URL = "/api/v1/geologger/logs";
 const MATERIALS = ["TOPSOIL","FILL","CLAY","Silty CLAY","Sandy CLAY","Gravelly CLAY","SILT","Sandy SILT","Clayey SILT","SAND","Silty SAND","Clayey SAND","Gravelly SAND","GRAVEL","Sandy GRAVEL","Clayey GRAVEL","Residual soil","Extremely weathered rock","SANDSTONE","SHALE","SILTSTONE"];
 const COLOURS = ["brown","dark brown","red-brown","yellow-brown","orange-brown","grey","dark grey","light grey","grey-brown","black","mottled"];
 const MOIST = ["dry","moist","wet"];
@@ -391,7 +125,10 @@ const WEATH_F = [["XW","extremely weathered"],["HW","highly weathered"],["MW","m
 const STR_F = [["VL","very low"],["L","low"],["M","medium"],["H","high"],["VH","very high"]];
 const SMP_CODE = { D:"D", U:"U50", U50:"U50", S:"SPT", B:"BULK", Jar:"JAR", Tube:"U50", Bag:"BULK" };
 function autoSid(type){ const code=SMP_CODE[type]||String(type||"S").toUpperCase().slice(0,4);
-  const n=(L().samples||[]).filter(s=>(s.sid||"").indexOf(`-${code}-`)>=0).length+1;
+  /* next number = max existing + 1 — counting rows reused numbers after a deletion,
+     creating duplicate sample IDs that block the PDF validation gate */
+  const rx=new RegExp(`-${code}-(\\d+)$`);
+  const n=(L().samples||[]).reduce((a,s)=>{ const m2=rx.exec(String(s.sid||"")); return m2? Math.max(a,parseInt(m2[1],10)):a; },0)+1;
   return `${F.activeBh}-${code}-${String(n).padStart(2,"0")}`; }
 function sampleHasTest(re){ for (const id in (F.logs||{})) for (const s of (F.logs[id].samples||[]))
   { const t=Array.isArray(s.tests)? s.tests.join(" ") : String(s.tests||""); if (re.test(t+" "+(s.type||""))) return true; } return false; }
@@ -431,13 +168,21 @@ function blankLogs(){ return { soil:[], rock:[], spt:[], samples:[], drilling:[]
 let _toastT = null;
 function toast(msg){ const t=document.getElementById("toast"); t.textContent=msg||"Saved on device ✓"; t.style.opacity="1";
   clearTimeout(_toastT); _toastT=setTimeout(()=>t.style.opacity="0", 1400); }
-function save(dirty=true){ if (dirty){ F.pending=(F.pending||0)+1; if (F.activeBh && F.logs[F.activeBh]) F.logs[F.activeBh]._touched=true; }
-  localStorage.setItem("geoflow", JSON.stringify(F)); pill(); if (dirty) toast(); }
+function save(dirty=true, quiet=false){ if (dirty){ F.pending=(F.pending||0)+1; if (F.activeBh && F.logs[F.activeBh]) F.logs[F.activeBh]._touched=true; }
+  localStorage.setItem("geoflow", JSON.stringify(F)); pill(); if (dirty && !quiet) toast(); }
+/* per-keystroke saves serialised the whole state (incl. photos) on every input event —
+   janky typing / keyboard stalls on phones. Debounce; flush on pagehide so nothing is lost. */
+let __debT=null;
+function debSave(){ clearTimeout(__debT); __debT=setTimeout(()=>save(true,true),400); }
+window.addEventListener("pagehide",()=>{ try{ clearTimeout(__debT);
+  localStorage.setItem("geoflow", JSON.stringify(F));
+  localStorage.setItem("geoflow-wizards", JSON.stringify(WIZ)); }catch(_e){} });
 function normLogs(id){ F.logs[id] = Object.assign(blankLogs(), F.logs[id]||{}); if(!F.logs[id].gw) F.logs[id].gw={state:"",depth:"",remarks:""}; return F.logs[id]; }
 function L(){ return F.activeBh? normLogs(F.activeBh) : blankLogs(); }
 function bh(){ return F.boreholes.find(b=>b.id===F.activeBh); }
 function curDepth(id){ const l=F.logs[id]||blankLogs(); const b=F.boreholes.find(x=>x.id===id)||{};
-  return Math.max(...(l.soil||[]).map(r=>num(r.to)||0), ...(l.spt||[]).map(t=>num(t.depth)||0),
+  return Math.max(...(l.soil||[]).map(r=>num(r.to)||0), ...(l.rock||[]).map(r=>num(r.to)||0),
+    ...(l.spt||[]).map(t=>num(t.depth)||0),
     ...(l.drilling||[]).map(d=>num(d.to)||0), num(b.progressDepth)||0, 0); }
 
 /* ---- description generator (AS 1726, STS format) ---- */
@@ -467,7 +212,9 @@ function pill(){
 }
 async function doSync(manual){
   if (!online()) { pill(); if (manual) alert("Offline — changes are stored on this device and will sync when signal returns."); return; }
-  if (!manual && wifiOnlyBlocked()) { pill(); return; }
+  /* the Wi-Fi-only setting pauses PHOTO upload on cellular — log sync itself always runs
+     (previously it silently blocked the whole sync, contradicting the setting's own description) */
+  const skipPhotos = !manual && wifiOnlyBlocked();
   try {
     const key = localStorage.getItem("geologger-api-key")||"";
     const h = {"Content-Type":"application/json"}; if (key) h["X-Autosoil-Api-Key"]=key;
@@ -485,7 +232,16 @@ async function doSync(manual){
       server = all[F.syncKey]?.rows?.[0]||null;
     }
     if (server) {
-      for (const b of (server.boreholes||[])) if (!F.boreholes.some(x=>x.id===b.id)) { F.boreholes.push(b); F.logs[b.id]=server.logs?.[b.id]||blankLogs(); }
+      for (const b of (server.boreholes||[])){
+        const loc=F.boreholes.find(x=>x.id===b.id);
+        if (!loc) { F.boreholes.push(b); F.logs[b.id]=server.logs?.[b.id]||blankLogs(); continue; }
+        /* untouched on this device → refresh from server so office edits reach the field */
+        const fl=F.logs[b.id];
+        if (!(fl && fl._touched)){
+          if (server.logs?.[b.id]) F.logs[b.id]=server.logs[b.id];
+          for (const k of ["planned","termDepth","termReason","status"]) if (b[k]!=null && b[k]!=="") loc[k]=b[k];
+        }
+      }
       if (!F.project.projectNumber && server.project) F.project=Object.assign({},F.project,{projectNumber:server.project.projectNumber,clientName:server.project.clientName,siteAddress:server.project.siteAddress,loggedBy:server.project.loggedBy});
       /* scope requirements from the approved web scope — drives field prompts, no re-typing */
       if (server.scope){ const acc=(server.scope.items||[]).filter(i=>i.status!=="rej");
@@ -497,7 +253,18 @@ async function doSync(manual){
     }
     /* push merged: field data wins for field-entered boreholes */
     const merged = server || { project:{}, boreholes:[], logs:{}, activeBh:null, activeTab:"dashboard" };
-    merged.project = Object.assign({}, merged.project, Object.fromEntries(Object.entries(F.project).filter(([k,v])=>v)));
+    /* master-record fields are locked on the website — never silently overwrite them from the field */
+    const LOCKED=["projectNumber","clientName","siteAddress"];
+    merged.project = Object.assign({}, merged.project, Object.fromEntries(Object.entries(F.project).filter(([k,v])=>{
+      if (!v) return false;
+      if (LOCKED.includes(k) && server?.project?.[k] && String(server.project[k])!==String(v)){
+        if (!(F.conflicts||[]).some(c=>c.bh==="PROJECT" && c.field===k))
+          (F.conflicts=F.conflicts||[]).unshift({bh:"PROJECT", field:k, server:server.project[k], local:v, ts:now()});
+        F.project[k]=server.project[k];
+        return false;
+      }
+      return true;
+    })));
     if (F.dailyNotes && F.dailyNotes.date===new Date().toISOString().slice(0,10)) merged.dailyNotes=F.dailyNotes;
     for (const b of F.boreholes) {
       const i = merged.boreholes.findIndex(x=>x.id===b.id);
@@ -529,9 +296,26 @@ async function doSync(manual){
     }
     const push = await fetch(SYNC_URL, { method:"POST", headers:h, body: JSON.stringify({ location:F.syncKey, rows:[merged] }) });
     if (!push.ok) throw new Error("HTTP "+push.status);
+    if (!skipPhotos) await pushPhotos(h);
     F.pending = 0; F.lastSync = now(); save(false); pill(); render();
     if (manual) alert("Synced to GeoLogger web ✓");
   } catch(e) { pill(); if (manual) alert("Sync failed: "+e.message+"\nData remains safe on this device."); }
+}
+/* field photos were shown in the sync queue but never actually uploaded anywhere —
+   push them to the Worker file store (same store the web corebox uses) so they survive the device */
+async function pushPhotos(h){
+  for (const b of F.boreholes){
+    const l=F.logs[b.id]; const ph=(l&&l.photos)||[];
+    if (!ph.length || !ph.some(p=>p.syncStatus!=="SYNCED")) continue;
+    try {
+      const payload={ bh:b.id, project:F.syncKey, photos:ph.map(p=>({id:p.id,img:p.img,depth:p.depth,caption:p.caption,type:p.type,sample:p.sample,ts:p.ts,by:p.by,gps:p.gps})) };
+      const data="data:application/json;base64,"+btoa(unescape(encodeURIComponent(JSON.stringify(payload))));
+      if (data.length>19*1024*1024) continue;              /* over file-store cap — stays on device */
+      const r=await fetch("/api/v1/files",{ method:"POST", headers:h,
+        body:JSON.stringify({ project:F.syncKey, id:"fieldphotos-"+b.id, name:"Field photos "+b.id, kind:"fieldphotos", data }) });
+      if (r.ok) ph.forEach(p=>p.syncStatus="SYNCED");
+    } catch(_e){ /* best-effort: log sync already succeeded; photos retry next sync */ }
+  }
 }
 window.addEventListener("online", ()=>{ pill(); doSync(false); });
 window.addEventListener("offline", pill);
@@ -552,6 +336,7 @@ document.getElementById("avatar").addEventListener("click",()=>{
 function sheet(html, wireFn){
   const bg=document.createElement("div"); bg.className="sheet-bg";
   bg.innerHTML=`<div class="sheet">${html}</div>`;
+  bg.querySelectorAll('input[type="number"]').forEach(i=>i.setAttribute("inputmode","decimal"));
   bg.addEventListener("click",e=>{ if(e.target===bg) bg.remove(); });
   document.body.appendChild(bg);
   if (wireFn) wireFn(bg, ()=>bg.remove());
@@ -598,11 +383,13 @@ function scrUpdate(){
 function render(){
   let s=F.screen; const map=SCREENS();
   if (!map[s]) s="home";
+  /* stale wizard reference → scrWizard would render Home's HTML but wire() would skip Home's
+     handlers, leaving every button dead. Fall back properly. */
+  if (s==="wizard" && !curWiz()){ s="home"; F.screen="home"; }
   if (["bh","log","spt","photos","review"].includes(s) && !F.activeBh) s="jobs";
   const navS = ({home:"home",jobs:"jobs",wizard:"jobs",bh:"bh",log:"bh",spt:"bh",review:"bh",photos:"photos",sync:"sync",update:"home"})[s];
   document.querySelectorAll("#nav button").forEach(b=>b.classList.toggle("on", b.dataset.s===navS));
   const m=document.getElementById("main");
-  m.dataset.screen=s;
   const html=map[s]();
   /* tablet split view: borehole rail beside the working screen */
   if (window.innerWidth>=900 && ["bh","log","spt","photos","update"].includes(s) && F.boreholes.length){
@@ -614,7 +401,6 @@ function render(){
   } else m.innerHTML = html;
   wire(m, s);
   pill();
-  enhanceFieldUI();
 }
 
 /* ---------- HOME ---------- */
@@ -893,7 +679,7 @@ function scrLog(){
     ${depths}
     ${isRock? rockForm : soilForm}
     <label class="f">Remarks</label><input class="f" id="dRem" value="${esc(d.remarks)}">
-    <div class="row2 action-grid">
+    <div class="row2">
       <button class="btn" id="dupLayer">⧉ Duplicate</button>
       <button class="btn" id="smpFromIv">＋ Sample</button>
       <button class="btn" id="sptFromIv">＋ SPT</button>
@@ -969,7 +755,8 @@ function scrSync(){
     const n=(l.soil||[]).length+(l.spt||[]).length+(l.samples||[]).length;
     const ph=(l.photos||[]).length;
     const kb=Math.round((l.photos||[]).reduce((a,p)=>a+(p.img?p.img.length*0.75:0),0)/1024);
-    return `<div class="qrow"><b>${esc(b.id)}</b> <span style="color:var(--sec)">${n} records · ${ph} photos${kb?` · ${kb>1024?(kb/1024).toFixed(1)+" MB":kb+" KB"}`:""}</span>
+    const up=(l.photos||[]).filter(p=>p.syncStatus!=="SYNCED").length;
+    return `<div class="qrow"><b>${esc(b.id)}</b> <span style="color:var(--sec)">${n} records · ${ph} photos${up?` (${up} to upload)`:""}${kb?` · ${kb>1024?(kb/1024).toFixed(1)+" MB":kb+" KB"}`:""}</span>
       <span class="st">${F.pending? (l._touched?"queued":"✓") : "✓ synced"}</span></div>`; }).join("");
   const wifi = localStorage.getItem("geoflow-wifi")==="1";
   return `<h2 class="screen">Sync status</h2>
@@ -1001,9 +788,10 @@ function scrReview(){
     if (i>0 && num(r.from)>num(iv[i-1].to)+0.011) warns.push(`Gap ${iv[i-1].to}–${r.from} m not logged`);
     if (i>0 && num(r.from)<num(iv[i-1].to)-0.011) errs.push(`Overlap at ${r.from} m`); });
   const term=num(b?.termDepth);
-  if (term!=null) { const deepest=Math.max(...iv.map(r=>num(r.to)||0), ...l.spt.map(t=>num(t.depth)||0), 0);
+  if (term!=null) { const deepest=Math.max(...iv.map(r=>num(r.to)||0), ...(l.rock||[]).map(r=>num(r.to)||0),
+      ...l.spt.map(t=>num(t.depth)||0), ...(l.samples||[]).map(s2=>num(s2.from)||0), 0);
     if (deepest>term+0.011) errs.push(`Records deeper (${deepest} m) than termination ${term} m`); }
-  for (const t of l.spt) if (t.b2===""||t.b3==="") if(!t.refusal) warns.push(`SPT at ${t.depth} m missing blow counts`);
+  for (const t of l.spt) if (!t.refusal && (t.b2==null||t.b2===""||t.b3==null||t.b3==="")) warns.push(`SPT at ${t.depth} m missing blow counts`);
   return `<h2 class="screen">${esc(F.activeBh)} — Review & sync</h2>
   <div class="card">
     ${errs.map(e=>`<div class="verr">✗ ${esc(e)}</div>`).join("")}
@@ -1071,7 +859,8 @@ function batchCreate(pre,start,count,depth,target){
 
 /* ---- wiring ---- */
 function wire(m, s){
-  m.querySelectorAll("[data-p]").forEach(i=>i.addEventListener("input",()=>{ F.project[i.dataset.p]=i.value; save(); }));
+  m.querySelectorAll('input[type="number"]').forEach(i=>i.setAttribute("inputmode","decimal"));
+  m.querySelectorAll("[data-p]").forEach(i=>i.addEventListener("input",()=>{ F.project[i.dataset.p]=i.value; debSave(); }));
   const pj=m.querySelector("#pjPick");
   if (pj) pj.addEventListener("change",()=>{ const meta=PROJECTS_CACHE.find(p=>p.key===pj.value); switchProject(pj.value, meta); });
   m.querySelectorAll("[data-open]").forEach(c=>c.addEventListener("click",()=>{ F.activeBh=c.dataset.open; normLogs(F.activeBh); F.draft=null; go("bh"); }));
@@ -1102,14 +891,16 @@ function wire(m, s){
     m.querySelectorAll("[data-wizdel]").forEach(b=>b.addEventListener("click",()=>{
       if (!confirm("Delete this job draft?")) return; WIZ=WIZ.filter(w=>w.id!==b.dataset.wizdel); saveWiz(); render(); }));
     const rs=m.querySelector("#resumeSess");
-    if (rs) rs.addEventListener("click",()=>{ F.activeBh=F.lastCtx.bh; normLogs(F.activeBh); go(F.lastCtx.screen||"bh"); });
+    if (rs) rs.addEventListener("click",()=>{ if (F.activeBh!==F.lastCtx.bh) F.draft=null;
+      F.activeBh=F.lastCtx.bh; normLogs(F.activeBh); go(F.lastCtx.screen||"bh"); });
     const cb=m.querySelector("#contBh");
-    if (cb) cb.addEventListener("click",()=>{ F.activeBh=cb.dataset.bh; normLogs(F.activeBh);
+    if (cb) cb.addEventListener("click",()=>{ if (F.activeBh!==cb.dataset.bh) F.draft=null;
+      F.activeBh=cb.dataset.bh; normLogs(F.activeBh);
       go(F.lastCtx && F.lastCtx.bh===cb.dataset.bh ? (F.lastCtx.screen||"bh") : "bh"); });
   }
   if (s==="wizard"){
     const w=curWiz(); if (!w) return;
-    const touch=()=>{ w.updated=now(); saveWiz(); toast(); };
+    const touch=()=>{ w.updated=now(); saveWiz(); };   /* no toast — it flashed on every keystroke */
     m.querySelectorAll("[data-w]").forEach(i=>i.addEventListener("input",()=>{
       const [o,k]=i.dataset.w.split("."); w[o][k]=i.value; touch(); }));
     m.querySelectorAll("[data-inv]").forEach(c=>c.addEventListener("click",()=>{
@@ -1184,8 +975,9 @@ function wire(m, s){
         bg.querySelectorAll("[data-qst]").forEach(c=>c.addEventListener("click",()=>{ ty=c.dataset.qst; bg.querySelectorAll("[data-qst]").forEach(x=>x.classList.toggle("on",x===c)); }));
         bg.querySelectorAll("[data-qtt]").forEach(c=>c.addEventListener("click",()=>{ const v=c.dataset.qtt; ts.includes(v)?ts.splice(ts.indexOf(v),1):ts.push(v); c.classList.toggle("on"); }));
         bg.querySelector("#qsSave").addEventListener("click",()=>{
-          L().samples.push({ sid:autoSid(ty), from:f??0, to:t??f??0, type:ty, container:"", tests:ts.slice(), remarks:"" });
-          save(); close(); toast("Sample "+autoSid(ty).replace(/\d+$/,x=>String(+x-1).padStart(2,"0"))+" saved"); render(); }); }); });
+          const sid=autoSid(ty);
+          L().samples.push({ sid, from:f??0, to:t??f??0, type:ty, container:"", tests:ts.slice(), remarks:"" });
+          save(); close(); toast("Sample "+sid+" saved"); render(); }); }); });
     /* SPT without leaving the log screen — depth prefilled from the current interval */
     const spi=m.querySelector("#sptFromIv");
     if (spi) spi.addEventListener("click",()=>{
@@ -1256,8 +1048,8 @@ function wire(m, s){
       save(); render(); });
     m.querySelectorAll("[data-di]").forEach(b=>b.addEventListener("click",e=>{ e.stopPropagation(); L().soil.splice(+b.dataset.di,1); save(); render(); }));
     m.querySelectorAll("[data-gw]").forEach(c=>c.addEventListener("click",()=>{ L().gw.state=c.dataset.gw; save(); render(); }));
-    const gwD=m.querySelector("#gwD"); if(gwD) gwD.addEventListener("input",()=>{ L().gw.depth=gwD.value; save(); });
-    const tD=m.querySelector("#termD"); if(tD) tD.addEventListener("input",()=>{ if(bh()) bh().termDepth=tD.value; save(); });
+    const gwD=m.querySelector("#gwD"); if(gwD) gwD.addEventListener("input",()=>{ L().gw.depth=gwD.value; debSave(); });
+    const tD=m.querySelector("#termD"); if(tD) tD.addEventListener("input",()=>{ if(bh()) bh().termDepth=tD.value; debSave(); });
   }
   if (s==="spt"){
     let refusal=false, smType="", smTests=[];
@@ -1280,9 +1072,9 @@ function wire(m, s){
       const v=c.dataset.smtest; smTests.includes(v)? smTests.splice(smTests.indexOf(v),1):smTests.push(v); c.classList.toggle("on"); }));
     m.querySelector("#smSave").addEventListener("click",()=>{
       const f=num(document.getElementById("smF").value); if (f==null) return alert("Enter sample depth");
-      L().samples.push({ sid:autoSid(smType||"D"),
-        from:f, to:num(document.getElementById("smT").value)??f, type:smType, container:"", tests:smTests.slice(), remarks:"" });
-      save(); render(); });
+      const ty=smType||"D"; const sid=autoSid(ty);
+      L().samples.push({ sid, from:f, to:num(document.getElementById("smT").value)??f, type:ty, container:"", tests:smTests.slice(), remarks:"" });
+      save(); toast("Sample "+sid+" saved"); render(); });
     m.querySelectorAll("[data-smi]").forEach(b=>b.addEventListener("click",()=>{ L().samples.splice(+b.dataset.smi,1); save(); render(); }));
   }
   if (s==="photos"){
@@ -1297,14 +1089,18 @@ function wire(m, s){
       ()=>{ const el=document.getElementById("phGps"); if(el) el.textContent="GPS unavailable — photos still saved."; }, {timeout:8000});
     m.querySelector("#phFile").addEventListener("change",e=>{
       const f=e.target.files[0]; if(!f) return;
+      /* capture context NOW — user can switch borehole/screen before the image finishes decoding,
+         which previously crashed on missing inputs or filed the photo under the wrong borehole */
+      const lg=L(), depth=document.getElementById("phD")?.value||"", caption=document.getElementById("phC")?.value||"";
+      const ptype=d.type, psample=d.sample||"";
       const rd=new FileReader();
       rd.onload=()=>{ const img=new Image(); img.onload=()=>{
         const cv=document.createElement("canvas"); const sc=Math.min(1, 900/img.width);
         cv.width=img.width*sc; cv.height=img.height*sc;
         cv.getContext("2d").drawImage(img,0,0,cv.width,cv.height);
-        L().photos.push({ id:uid(), img:cv.toDataURL("image/jpeg",0.62), depth:document.getElementById("phD").value,
-          caption:document.getElementById("phC").value, type:d.type, sample:d.sample||"", ts:now(), by:F.project.loggedBy||"", gps, syncStatus:"LOCAL_ONLY" });
-        save(); render(); };
+        lg.photos.push({ id:uid(), img:cv.toDataURL("image/jpeg",0.62), depth, caption,
+          type:ptype, sample:psample, ts:now(), by:F.project.loggedBy||"", gps, syncStatus:"LOCAL_ONLY" });
+        save(); if (F.screen==="photos") render(); };
         img.src=rd.result; };
       rd.readAsDataURL(f); });
   }
@@ -1340,23 +1136,6 @@ if (!SCREENS()[F.screen] || F.screen==="boreholes") F.screen="home";
 if (!["wizard"].includes(F.screen)) F.screen="home";
 render();
 if (online() && F.pending) doSync(false);
-let fieldResizeTimer;
-addEventListener("resize",()=>{
-  clearTimeout(fieldResizeTimer);
-  fieldResizeTimer=setTimeout(render,160);
-});
-async function initNativeShell(){
-  const plugins=window.Capacitor?.Plugins||{};
-  try { await plugins.StatusBar?.setBackgroundColor({color:"#143B2C"}); } catch {}
-  try { await plugins.StatusBar?.setStyle({style:"LIGHT"}); } catch {}
-  try { await plugins.SplashScreen?.hide(); } catch {}
-  plugins.App?.addListener("backButton",()=>{
-    const back={ log:"bh", spt:"bh", photos:"bh", review:"bh", bh:"jobs", jobs:"home", wizard:"home", update:"home", sync:"home" };
-    if (back[F.screen]) go(back[F.screen]);
-    else plugins.App.exitApp();
-  });
-}
-if (NATIVE_APP) initNativeShell();
 </script>
 </body>
 </html>

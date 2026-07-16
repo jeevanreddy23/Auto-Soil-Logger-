@@ -1,6 +1,6 @@
 /* STS GeoFlow service worker — offline-first app shell */
-const CACHE = "geoflow-v6";
-const SHELL = ["./field.html", "./favicon.svg", "./manifest.webmanifest", "./vendor/lucide.min.js"];
+const CACHE = "geoflow-v5";
+const SHELL = ["./field.html", "./manifest.webmanifest"];
 self.addEventListener("install", e => {
   e.waitUntil(caches.open(CACHE).then(c => c.addAll(SHELL)).then(() => self.skipWaiting()));
 });
