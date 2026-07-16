@@ -110,7 +110,11 @@
 "use strict";
 /* ============ STS GeoFlow — offline-first field workspace ============ */
 if ("serviceWorker" in navigator) navigator.serviceWorker.register("sw.js").catch(()=>{});
-const SYNC_URL = "/api/v1/geologger/logs";
+/* In the packaged Android app (Capacitor) the page origin is https://localhost, where a
+   relative /api path can never reach the backend — point natively-served copies at the Worker. */
+const API_BASE = (["https:","capacitor:"].includes(location.protocol) && ["localhost","127.0.0.1"].includes(location.hostname))
+  ? "https://autosoillogger.poreddyjeevanreddy.workers.dev" : "";
+const SYNC_URL = API_BASE + "/api/v1/geologger/logs";
 const MATERIALS = ["TOPSOIL","FILL","CLAY","Silty CLAY","Sandy CLAY","Gravelly CLAY","SILT","Sandy SILT","Clayey SILT","SAND","Silty SAND","Clayey SAND","Gravelly SAND","GRAVEL","Sandy GRAVEL","Clayey GRAVEL","Residual soil","Extremely weathered rock","SANDSTONE","SHALE","SILTSTONE"];
 const COLOURS = ["brown","dark brown","red-brown","yellow-brown","orange-brown","grey","dark grey","light grey","grey-brown","black","mottled"];
 const MOIST = ["dry","moist","wet"];
@@ -311,7 +315,7 @@ async function pushPhotos(h){
       const payload={ bh:b.id, project:F.syncKey, photos:ph.map(p=>({id:p.id,img:p.img,depth:p.depth,caption:p.caption,type:p.type,sample:p.sample,ts:p.ts,by:p.by,gps:p.gps})) };
       const data="data:application/json;base64,"+btoa(unescape(encodeURIComponent(JSON.stringify(payload))));
       if (data.length>19*1024*1024) continue;              /* over file-store cap — stays on device */
-      const r=await fetch("/api/v1/files",{ method:"POST", headers:h,
+      const r=await fetch(API_BASE+"/api/v1/files",{ method:"POST", headers:h,
         body:JSON.stringify({ project:F.syncKey, id:"fieldphotos-"+b.id, name:"Field photos "+b.id, kind:"fieldphotos", data }) });
       if (r.ok) ph.forEach(p=>p.syncStatus="SYNCED");
     } catch(_e){ /* best-effort: log sync already succeeded; photos retry next sync */ }
