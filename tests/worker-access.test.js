@@ -158,9 +158,10 @@ test("live hierarchy caps project architecture and laboratory staff must submit 
   const coordinator = new WorkflowCoordinator(workflowContext(), {});
   const director = { id: "u_director", name: "Dina Director", role: "director", verified: true };
   const all = { allProjects: true, projectIds: [], pmProjectIds: [] };
+  const commercial = workflowProjection("p_commercial", "invoice_issued", "admin");
+  commercial.jobs[0].projectDetails = { stsNumber: "STS-44", quotedRate: 4800, invoicePercentage: 50, proposalOutcome: "Internal note" };
   let response = await workflowRequest(coordinator, director, all, { type: "sync_projects", projects: [
-    workflowProjection("p_lab", "lab_results_pending", "laboratory_staff"),
-    workflowProjection("p_commercial", "invoice_issued", "admin")
+    workflowProjection("p_lab", "lab_results_pending", "laboratory_staff"), commercial
   ] });
   assert.equal(response.status, 200, await response.text());
 
@@ -172,6 +173,9 @@ test("live hierarchy caps project architecture and laboratory staff must submit 
   assert.equal(scoped.jobs[0].currentStageId, "technical_review");
   assert.equal(scoped.job_stages.length, 11);
   assert.equal("invoiceAmount" in scoped.jobs[0], false);
+  assert.equal(scoped.jobs[0].projectDetails.stsNumber, "STS-44");
+  assert.equal("quotedRate" in scoped.jobs[0].projectDetails, false);
+  assert.equal("proposalOutcome" in scoped.jobs[0].projectDetails, false);
 
   const lab = { id: "u_lab", name: "Lena Lab", role: "laboratory_staff", verified: true };
   const labScope = { allProjects: false, projectIds: ["p_lab"], pmProjectIds: [] };
@@ -189,6 +193,41 @@ test("live hierarchy caps project architecture and laboratory staff must submit 
   assert.equal(payload.snapshot.projects[0].jobs[0].handoverStatus, "awaiting_assignment");
   assert.equal(payload.snapshot.projects[0].lab_tests[0].resultReference, "ALS-260718-44");
   assert.equal(payload.snapshot.projects[0].job_tasks[0].result.fileName, "ALS-260718-44.pdf");
+});
+
+test("forty connected users receive only changed projects and identical syncs cause no storage write", async () => {
+  const context = workflowContext(); let writes = 0;
+  const put = context.storage.put.bind(context.storage);
+  context.storage.put = async (...args) => { writes += 1; return put(...args); };
+  const coordinator = new WorkflowCoordinator(context, {});
+  const director = { id: "u_director", name: "Dina Director", role: "director", verified: true };
+  const all = { allProjects: true, projectIds: [], pmProjectIds: [] };
+  let response = await workflowRequest(coordinator, director, all, {
+    type: "sync_projects", projects: [workflowProjection("p_scale_one", "fieldwork_in_progress", "field_engineer"), workflowProjection("p_scale_two", "lab_results_pending", "laboratory_staff")]
+  });
+  assert.equal(response.status, 200, await response.text());
+  assert.equal(writes, 1);
+
+  const attachment = { actor: director, projectIds: [], pmProjectIds: [], allProjects: true };
+  const messages = Array.from({ length: 40 }, () => []);
+  context.getWebSockets = () => messages.map((received) => ({ deserializeAttachment: () => attachment, send: (value) => received.push(JSON.parse(value)) }));
+  const changed = workflowProjection("p_scale_one", "fieldwork_in_progress", "field_engineer");
+  changed.jobs[0].projectName = "Updated scale project";
+  changed.jobs[0].updatedAt = "2026-07-18T01:00:00.000Z";
+  response = await workflowRequest(coordinator, director, all, { type: "sync_projects", projects: [changed] });
+  let payload = await response.json();
+  assert.equal(response.status, 200, JSON.stringify(payload));
+  assert.equal(writes, 2);
+  assert.equal(payload.snapshot.partial, true);
+  assert.deepEqual(payload.snapshot.projects.map((project) => project.projectId), ["p_scale_one"]);
+  assert.equal(messages.every((received) => received.length === 1 && received[0].partial === true && received[0].projects.length === 1), true);
+
+  response = await workflowRequest(coordinator, director, all, { type: "sync_projects", projects: [changed] });
+  payload = await response.json();
+  assert.equal(payload.result.changed, false);
+  assert.equal("snapshot" in payload, false);
+  assert.equal(writes, 2);
+  assert.equal(messages.every((received) => received.length === 1), true);
 });
 
 test("requires a valid Cloudflare Access JWT before reading protected data", async () => {
@@ -333,4 +372,24 @@ test("enforces project record isolation and independent report approval", async 
   response = await request(env, "/api/v1/files?project=__project_p_1__&id=report-BH02", emails.client, { projectId: "p_1", recordKey: "__project_p_1__" });
   assert.equal(response.status, 403);
   assert.equal((await response.json()).error, "file_access_denied");
+});
+
+test("stores the client directory in paginated SQLite rows with role-filtered output", () => {
+  const source = fs.readFileSync(path.join(__dirname, "../worker.js"), "utf8");
+  assert.match(source, /CREATE TABLE IF NOT EXISTS control_directory/);
+  assert.match(source, /ON CONFLICT\(project_id\) DO UPDATE/);
+  assert.match(source, /transactionSync/);
+  assert.match(source, /CONTROL_DIRECTORY_PAGE_SIZE = 200/);
+  assert.match(source, /project_id IN/);
+  assert.match(source, /controlFilteredDirectoryRecord/);
+  assert.match(source, /\/api\/v1\/control\/directory/);
+  assert.match(source, /directory_access_required/);
+  assert.match(source, /isLocalDevelopmentRequest/);
+});
+
+test("refuses shared client-directory data when Cloudflare Access is disabled in production", async () => {
+  const env = Object.assign(environment(kvStore()), { ACCESS_ENFORCEMENT: "disabled", WORKFLOW: {} });
+  const response = await worker.fetch(new Request("https://example.workers.dev/api/v1/control/directory"), env);
+  assert.equal(response.status, 503);
+  assert.equal((await response.json()).error, "directory_access_required");
 });

@@ -120,6 +120,26 @@
   function currentRole() { return AccessCore.roleDefinition(currentUser() && currentUser().role); }
   function can(permission, projectId) { return AccessCore.can(loadPolicy(), permission, { user: currentUser(), projectId: projectId == null ? activeProjectId() : projectId }); }
   function canAccessProject(projectId) { return AccessCore.canAccessProject(loadPolicy(), currentUser(), projectId); }
+
+  function upsertPortalClient(input) {
+    const actor = currentUser(); const data = input || {};
+    if (!AccessCore.can(loadPolicy(), "users.manage", { user: actor })) throw new Error("User management permission is required.");
+    const email = text(data.email).toLowerCase();
+    const existing = loadPolicy().users.find((user) => user.email === email);
+    if (existing && existing.role !== "client") throw new Error("That email belongs to an internal STS user and cannot become a client login.");
+    const result = AccessCore.upsertUser(loadPolicy(), { id: existing && existing.id, name: data.name, email, role: "client", active: true }, actor);
+    policy = result.state;
+    (Array.isArray(data.projects) ? data.projects : []).forEach((project) => {
+      const projectId = text(project && project.id);
+      if (!projectId) return;
+      policy.projects[projectId] = Object.assign({}, policy.projects[projectId], {
+        id: projectId, name: text(project.name), number: text(project.number), recordKey: text(project.recordKey) || `__project_${projectId}__`
+      });
+      policy = AccessCore.setProjectAssignment(policy, projectId, result.user.id, project.assigned !== false, actor, "Client viewer");
+    });
+    savePolicy();
+    return result.user;
+  }
   function tabPermission(tab) { return AccessCore.TAB_PERMISSIONS[tab] || "projects.view"; }
   function canOpenTab(tab) {
     if (tab === "projects") return can("projects.list", "");
@@ -579,6 +599,7 @@
 
   return Object.freeze({
     core: AccessCore, loadPolicy, savePolicy, currentUser, currentRole, can, canAccessProject,
+    upsertPortalClient,
     reportWorkflow, reportActions, canViewReport, assertReportAction, transitionReport, hydrateReportWorkflows,
     projectResponsibility, renderAccessPage, applyPolicy, install, isServerEnforced: () => serverConnected && loadPolicy().enforcement === "cloudflare-rls"
   });

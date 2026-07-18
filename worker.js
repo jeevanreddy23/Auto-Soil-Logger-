@@ -86,6 +86,7 @@ const CONTROL_EVIDENCE_STORES = Object.freeze([
   "job_assignments", "job_scope_items", "field_activities", "boreholes", "samples", "lab_tests", "reports", "review_comments", "variations", "invoices", "blockers"
 ]);
 const CONTROL_STATE_KEY = "control-workflow:v1";
+const CONTROL_DIRECTORY_PAGE_SIZE = 200;
 
 const accessJwksCache = new Map();
 
@@ -100,6 +101,11 @@ class AccessError extends Error {
 
 function accessEnabled(env) {
   return String(env.ACCESS_ENFORCEMENT || "").toLowerCase() === "enabled";
+}
+
+function isLocalDevelopmentRequest(request) {
+  const hostname = new URL(request.url).hostname.toLowerCase();
+  return hostname === "localhost" || hostname === "127.0.0.1" || hostname === "::1";
 }
 
 function accessText(value) {
@@ -842,7 +848,7 @@ function controlMergeProject(current, incoming, actor, now) {
   const descriptiveFields = [
     "jobNumber", "projectName", "client", "siteAddress", "projectType", "projectManager", "projectManagerId",
     "fieldEngineer", "projectEngineer", "reviewer", "adminCoordinator", "fieldworkStart", "fieldworkDue", "reportDue",
-    "riskStatus", "blockingCategory", "blockingReason", "invoiceStatus"
+    "riskStatus", "blockingCategory", "blockingReason", "invoiceStatus", "clientDetails", "projectDetails", "importSource", "importExtras"
   ];
   if (["director", "admin"].includes(actor.role)) descriptiveFields.push("invoiceNumber", "invoiceAmount", "paymentStatus");
   source.jobs.forEach(incomingJob => {
@@ -853,6 +859,12 @@ function controlMergeProject(current, incoming, actor, now) {
   controlSyncStoresForRole(actor.role).forEach(store => { next[store] = controlMergeRows(next[store], source[store]); });
   next.updatedAt = now;
   return next;
+}
+
+function controlProjectFingerprint(project) {
+  const comparable = controlClone(project || {});
+  delete comparable.revision; delete comparable.seededAt; delete comparable.updatedAt;
+  return JSON.stringify(comparable);
 }
 
 function controlEvent(job, task, actor, action, previousValue, newValue, reason, at) {
@@ -1014,6 +1026,11 @@ function controlFilteredProject(project, actor) {
     }
     if (!["director", "admin"].includes(role)) {
       delete copy.invoiceAmount; delete copy.invoiceNumber; delete copy.paymentStatus;
+      if (copy.projectDetails && typeof copy.projectDetails === "object") {
+        copy.projectDetails = controlClone(copy.projectDetails);
+        delete copy.projectDetails.quotedRate; delete copy.projectDetails.invoicePercentage;
+        delete copy.projectDetails.finalInvoiceDate; delete copy.projectDetails.proposalOutcome;
+      }
     }
     return copy;
   });
@@ -1031,10 +1048,48 @@ function controlFilteredProject(project, actor) {
   return next;
 }
 
-function controlSnapshotFor(state, attachment) {
+function controlDirectoryValue(value, depth) {
+  if (value == null || typeof value === "boolean" || typeof value === "number") return value;
+  if (typeof value === "string") return value.slice(0, 4096);
+  if (depth >= 3) return undefined;
+  if (Array.isArray(value)) return value.slice(0, 50).map(item => controlDirectoryValue(item, depth + 1)).filter(item => item !== undefined);
+  if (typeof value !== "object") return undefined;
+  return Object.fromEntries(Object.entries(value).slice(0, 80).map(([key, item]) => [key.slice(0, 120), controlDirectoryValue(item, depth + 1)]).filter(([, item]) => item !== undefined));
+}
+
+function controlDirectoryRecord(input, now) {
+  const projectId = accessText(input && (input.projectId || input.id)).slice(0, 160);
+  if (!projectId) return null;
+  const record = {
+    id: accessText(input.id || projectId).slice(0, 160), projectId,
+    jobNumber: accessText(input.jobNumber).slice(0, 160), projectName: accessText(input.projectName).slice(0, 500),
+    client: accessText(input.client).slice(0, 500), siteAddress: accessText(input.siteAddress).slice(0, 1000),
+    projectType: accessText(input.projectType).slice(0, 500), currentStageId: accessText(input.currentStageId) || "job_created",
+    registerOnly: true, workflowStatus: "register", createdAt: accessText(input.createdAt) || now,
+    updatedAt: accessText(input.updatedAt) || now, clientDetails: controlDirectoryValue(input.clientDetails || {}, 0),
+    projectDetails: controlDirectoryValue(input.projectDetails || {}, 0), importSource: controlDirectoryValue(input.importSource || {}, 0)
+  };
+  if (JSON.stringify(record).length > 65536) record.importSource = { fileName: accessText(input.importSource && input.importSource.fileName), sheetName: accessText(input.importSource && input.importSource.sheetName) };
+  return record;
+}
+
+function controlFilteredDirectoryRecord(record, actor) {
+  const copy = controlClone(record); const role = ACCESS_ROLES[actor.role] ? actor.role : "client";
+  if (!["director", "admin"].includes(role) && copy.projectDetails) {
+    delete copy.projectDetails.quotedRate; delete copy.projectDetails.invoicePercentage;
+    delete copy.projectDetails.finalInvoiceDate; delete copy.projectDetails.proposalOutcome;
+  }
+  if (!["director", "engineering_manager", "project_engineer", "admin"].includes(role)) delete copy.importSource;
+  return copy;
+}
+
+function controlSnapshotFor(state, attachment, projectIds) {
   const actor = attachment.actor;
-  const projects = Object.values(state.projects).filter(project => controlProjectAllowed(attachment, project.projectId)).map(project => controlFilteredProject(project, actor));
-  return { type: "snapshot", revision: state.revision, updatedAt: state.updatedAt, projects };
+  const selected = projectIds == null ? null : new Set(projectIds);
+  const projects = Object.values(state.projects)
+    .filter(project => (!selected || selected.has(project.projectId)) && controlProjectAllowed(attachment, project.projectId))
+    .map(project => controlFilteredProject(project, actor));
+  return { type: "snapshot", partial: Boolean(selected), revision: state.revision, updatedAt: state.updatedAt, projects };
 }
 
 function controlAttachmentFromHeaders(request) {
@@ -1059,6 +1114,20 @@ export class WorkflowCoordinator {
   constructor(ctx, env) {
     this.ctx = ctx;
     this.env = env;
+    this.sql = ctx.storage && ctx.storage.sql;
+    if (this.sql && ctx.blockConcurrencyWhile) ctx.blockConcurrencyWhile(async () => {
+      this.sql.exec(`CREATE TABLE IF NOT EXISTS control_directory (
+        project_id TEXT PRIMARY KEY,
+        client_name TEXT NOT NULL DEFAULT '',
+        project_name TEXT NOT NULL DEFAULT '',
+        job_number TEXT NOT NULL DEFAULT '',
+        site_address TEXT NOT NULL DEFAULT '',
+        updated_at TEXT NOT NULL,
+        payload TEXT NOT NULL
+      );
+      CREATE INDEX IF NOT EXISTS control_directory_client ON control_directory(client_name COLLATE NOCASE, job_number COLLATE NOCASE);
+      CREATE INDEX IF NOT EXISTS control_directory_updated ON control_directory(updated_at DESC);`);
+    });
   }
 
   async loadState() {
@@ -1071,6 +1140,9 @@ export class WorkflowCoordinator {
 
   async fetch(request) {
     const attachment = controlAttachmentFromHeaders(request);
+    if (new URL(request.url).pathname === "/directory") {
+      try { return await this.directory(request, attachment); } catch (error) { return apiFailure(error); }
+    }
     if (request.headers.get("Upgrade")?.toLowerCase() === "websocket") return this.openSocket(attachment);
     if (request.method === "GET") return json(controlSnapshotFor(await this.loadState(), attachment));
     if (request.method !== "POST") return json({ error: "method not allowed" }, 405);
@@ -1085,6 +1157,51 @@ export class WorkflowCoordinator {
     }
   }
 
+  async directory(request, attachment) {
+    if (!this.sql) throw new AccessError(503, "directory_storage_unavailable", "The shared client directory is unavailable.");
+    const actor = attachment.actor; const url = new URL(request.url);
+    if (request.method === "POST") {
+      if (!["director", "admin"].includes(actor.role)) throw new AccessError(403, "directory_import_denied", "Only a Director or Admin can import the company project register.");
+      let body;
+      try { body = await request.json(); } catch (error) { throw new AccessError(400, "invalid_json", "The directory payload must be valid JSON."); }
+      const now = new Date().toISOString();
+      const projects = (Array.isArray(body && body.projects) ? body.projects : []).slice(0, 100).map(item => controlDirectoryRecord(item, now)).filter(Boolean);
+      this.ctx.storage.transactionSync(() => {
+        projects.forEach(project => this.sql.exec(
+          `INSERT INTO control_directory (project_id, client_name, project_name, job_number, site_address, updated_at, payload)
+           VALUES (?, ?, ?, ?, ?, ?, ?)
+           ON CONFLICT(project_id) DO UPDATE SET client_name=excluded.client_name, project_name=excluded.project_name,
+             job_number=excluded.job_number, site_address=excluded.site_address, updated_at=excluded.updated_at, payload=excluded.payload`,
+          project.projectId, project.client, project.projectName, project.jobNumber, project.siteAddress, project.updatedAt, JSON.stringify(project)
+        ));
+      });
+      return json({ ok: true, received: projects.length, stored: projects.length });
+    }
+    if (request.method !== "GET") return json({ error: "method not allowed" }, 405);
+    const page = Math.max(0, Math.min(100000, Number.parseInt(url.searchParams.get("page") || "0", 10) || 0));
+    const limit = Math.max(25, Math.min(CONTROL_DIRECTORY_PAGE_SIZE, Number.parseInt(url.searchParams.get("limit") || String(CONTROL_DIRECTORY_PAGE_SIZE), 10) || CONTROL_DIRECTORY_PAGE_SIZE));
+    const search = accessText(url.searchParams.get("search")).toLowerCase().slice(0, 160);
+    const where = []; const bindings = [];
+    if (!attachment.allProjects) {
+      if (!attachment.projectIds.length) return json({ projects: [], page, limit, total: 0, nextPage: null });
+      where.push(`project_id IN (${attachment.projectIds.map(() => "?").join(",")})`); bindings.push(...attachment.projectIds);
+    }
+    if (search) {
+      where.push("(LOWER(client_name) LIKE ? OR LOWER(project_name) LIKE ? OR LOWER(job_number) LIKE ? OR LOWER(site_address) LIKE ?)");
+      const pattern = `%${search}%`; bindings.push(pattern, pattern, pattern, pattern);
+    }
+    const clause = where.length ? ` WHERE ${where.join(" AND ")}` : "";
+    const total = Number(this.sql.exec(`SELECT COUNT(*) AS count FROM control_directory${clause}`, ...bindings).one().count) || 0;
+    const rows = this.sql.exec(
+      `SELECT payload FROM control_directory${clause} ORDER BY client_name COLLATE NOCASE, job_number COLLATE NOCASE LIMIT ? OFFSET ?`,
+      ...bindings, limit, page * limit
+    ).toArray();
+    const projects = rows.map(row => {
+      try { return controlFilteredDirectoryRecord(JSON.parse(row.payload), actor); } catch (error) { return null; }
+    }).filter(Boolean);
+    return json({ projects, page, limit, total, nextPage: (page + 1) * limit < total ? page + 1 : null });
+  }
+
   async openSocket(attachment) {
     const pair = new WebSocketPair();
     const client = pair[0]; const server = pair[1];
@@ -1094,26 +1211,27 @@ export class WorkflowCoordinator {
     return new Response(null, { status: 101, webSocket: client });
   }
 
-  async applyOperation(operation, attachment) {
+  async applyOperation(operation, attachment, options) {
     const body = operation && typeof operation === "object" ? operation : {};
     const type = accessText(body.type);
     const requestId = accessText(body.requestId);
     const actor = Object.assign({}, attachment.actor, { pmProjectIds: attachment.pmProjectIds });
     const now = new Date().toISOString(); const state = await this.loadState();
-    let changed = false; let result = null;
+    const changedProjectIds = new Set(); let changed = false; let result = null;
 
     if (type === "sync_projects") {
       if (actor.role === "client") throw new AccessError(403, "workflow_sync_denied", "Clients cannot publish internal workflow records.");
-      const projections = Array.isArray(body.projects) ? body.projects.slice(0, 250) : [];
+      const projections = Array.isArray(body.projects) ? body.projects.slice(0, 250) : []; let synced = 0;
       for (const input of projections) {
         const projectId = accessText(input && input.projectId);
         if (!projectId || !controlProjectAllowed(attachment, projectId)) continue;
         const incoming = controlNormaliseProject(input, projectId, now);
-        state.projects[projectId] = controlMergeProject(state.projects[projectId], incoming, actor, now);
-        state.projects[projectId].revision = (Number(state.projects[projectId].revision) || 0) + 1;
-        changed = true;
+        const current = state.projects[projectId]; const merged = controlMergeProject(current, incoming, actor, now);
+        if (current && controlProjectFingerprint(current) === controlProjectFingerprint(merged)) continue;
+        merged.revision = (Number(current && current.revision) || 0) + 1; merged.updatedAt = now;
+        state.projects[projectId] = merged; changedProjectIds.add(projectId); synced += 1; changed = true;
       }
-      result = { synced: projections.length };
+      result = { received: projections.length, synced, changed: synced > 0 };
     } else {
       const projectId = accessText(body.projectId);
       if (!projectId || !controlProjectAllowed(attachment, projectId)) throw new AccessError(403, "workflow_project_denied", "This identity cannot access the requested project workflow.");
@@ -1186,21 +1304,26 @@ export class WorkflowCoordinator {
       if (transition.changed) {
         project.activity_history = [...transition.events].reverse().concat(project.activity_history || []).slice(0, 1000);
         project.revision = (Number(project.revision) || 0) + 1; project.updatedAt = now;
-        changed = true;
+        changedProjectIds.add(projectId); changed = true;
       }
       result = transition;
     }
 
     if (changed) {
-      state.revision += 1; state.updatedAt = now; await this.saveState(state); await this.broadcast(state);
+      state.revision += 1; state.updatedAt = now; await this.saveState(state); await this.broadcast(state, changedProjectIds);
     }
-    return { type: "operation_result", ok: true, requestId, result: result && { changed: result.changed !== false, jobId: result.job && result.job.id, taskId: result.task && result.task.id }, snapshot: controlSnapshotFor(state, attachment) };
+    const response = {
+      type: "operation_result", ok: true, requestId,
+      result: type === "sync_projects" ? result : result && { changed: result.changed !== false, jobId: result.job && result.job.id, taskId: result.task && result.task.id }
+    };
+    if (changed && (!options || options.includeSnapshot !== false)) response.snapshot = controlSnapshotFor(state, attachment, changedProjectIds);
+    return response;
   }
 
-  async broadcast(state) {
+  async broadcast(state, projectIds) {
     const sockets = this.ctx.getWebSockets ? this.ctx.getWebSockets() : [];
     for (const socket of sockets) {
-      try { socket.send(JSON.stringify(controlSnapshotFor(state, socket.deserializeAttachment()))); }
+      try { socket.send(JSON.stringify(controlSnapshotFor(state, socket.deserializeAttachment(), projectIds))); }
       catch (error) {}
     }
   }
@@ -1209,7 +1332,7 @@ export class WorkflowCoordinator {
     let operation;
     try { operation = JSON.parse(typeof message === "string" ? message : new TextDecoder().decode(message)); }
     catch (error) { socket.send(JSON.stringify({ type: "operation_result", ok: false, error: "invalid_json", message: "The live workflow message must be valid JSON." })); return; }
-    try { socket.send(JSON.stringify(await this.applyOperation(operation, socket.deserializeAttachment()))); }
+    try { socket.send(JSON.stringify(await this.applyOperation(operation, socket.deserializeAttachment(), { includeSnapshot: false }))); }
     catch (error) {
       socket.send(JSON.stringify({ type: "operation_result", ok: false, requestId: operation && operation.requestId || "", error: error.code || "internal_error", message: error instanceof AccessError ? error.message : "The live workflow operation failed." }));
     }
@@ -1261,6 +1384,23 @@ async function handleControlLive(request, env) {
   return stub.fetch(internal);
 }
 
+async function handleControlDirectory(request, env) {
+  if (!env.WORKFLOW) throw new AccessError(503, "workflow_binding_missing", "The Cloudflare shared directory binding is unavailable.");
+  if (!accessEnabled(env) && !isLocalDevelopmentRequest(request)) {
+    throw new AccessError(503, "directory_access_required", "Cloudflare Access must be enforced before client directory data can be shared.");
+  }
+  const attachment = await controlRequestContext(request, env);
+  const id = env.WORKFLOW.idFromName("sts-geoflow-company"); const stub = env.WORKFLOW.get(id);
+  const headers = new Headers(request.headers);
+  headers.set("X-GeoFlow-Workflow-Actor", encodeURIComponent(JSON.stringify(attachment.actor)));
+  headers.set("X-GeoFlow-Workflow-Scope", encodeURIComponent(JSON.stringify({ projectIds: attachment.projectIds, pmProjectIds: attachment.pmProjectIds, allProjects: attachment.allProjects })));
+  const url = new URL(request.url);
+  const internal = new Request(`https://workflow.internal/directory${url.search}`, {
+    method: request.method, headers, body: ["GET", "HEAD"].includes(request.method) ? undefined : request.body
+  });
+  return stub.fetch(internal);
+}
+
 export default {
   async fetch(request, env) {
     const url = new URL(request.url);
@@ -1274,6 +1414,7 @@ export default {
       const response = await safely(() => handleControlLive(request, env));
       return request.headers.get("Upgrade")?.toLowerCase() === "websocket" ? response : withCors(response, request);
     }
+    if (url.pathname === "/api/v1/control/directory") return withCors(await safely(() => handleControlDirectory(request, env)), request);
     if (url.pathname === "/api/v1/geologger/logs") return withCors(await safely(() => handleLogs(request, env)), request);
     if (url.pathname === "/api/v1/files") return withCors(await safely(() => handleFiles(request, env)), request);
 

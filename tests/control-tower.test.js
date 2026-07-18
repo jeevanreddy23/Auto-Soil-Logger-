@@ -180,6 +180,115 @@ test("canonical project import maps headers, validates duplicates and never trus
   assert.match(duplicate.rejected[0].errors.join(" "), /duplicate/i);
 });
 
+test("imports the STS Project Register by deriving the site name and preserving client details", () => {
+  const matrix = [
+    ["", "PROJECTS REGISTER", "", "STS GEOTECHNICS PTY LIMITED"],
+    ["Job No", "Client", "Client Address", "Client Phone Number", "Contact Name", "Client Email", "Client Code", "Street", "Suburb", "Project Date", "Date Rec'd", "Entered By", "Project Description"],
+    [30001, "Example Developments Pty Ltd", "Level 2, Sydney", "02 9000 0000", "Alex Client", "alex@example.test", "EXA001", "FITZGERALD ROAD, 56", "ERMINGTON", "2019-09-27", "2019-09-25", "MS", "GEOTECHNICAL INVESTIGATION"]
+  ];
+  const detection = Core.detectImportProfile(matrix);
+  assert.equal(detection.profile, "project_register");
+  assert.equal(detection.headerRow, 1);
+  assert.equal(detection.requiredMapped, detection.requiredTotal);
+  const parsed = Core.parseImport(matrix, detection, { fileName: "STS Register.xlsm", sheetName: "Project Register", now: "2026-07-18" });
+  assert.equal(parsed.accepted.length, 1);
+  const job = parsed.accepted[0].built.job;
+  assert.equal(job.projectName, "FITZGERALD ROAD, 56, ERMINGTON");
+  assert.equal(job.siteAddress, "FITZGERALD ROAD, 56, ERMINGTON");
+  assert.equal(job.projectType, "Geotechnical Investigation");
+  assert.equal(Core.registerProjectId(job.jobNumber), "register_30001");
+  assert.deepEqual(job.clientDetails, {
+    name: "Example Developments Pty Ltd", address: "Level 2, Sydney", phone: "02 9000 0000",
+    contactName: "Alex Client", email: "alex@example.test", code: "EXA001"
+  });
+  assert.equal(job.projectDetails.enteredBy, "MS");
+  assert.equal(job.projectDetails.dateReceived, "2019-09-25");
+});
+
+test("imports STS job requests and proposals without confusing contacts, companies or site components", () => {
+  const request = [
+    ["Project Number", "STS Number", "Codes", "Date Received", "Proposal NO.", "quote/rate $", "Location", "Site Address", "Latitude", "Longitude", "Work Required", "Entered By", "LIMs Work Order Number", "Client Name", "Client Job No.", "Nata", "Client Contact", "Client Number"],
+    [30002, "3001D", "G,L", "2019-10-01", "P19-1007", 1320, "NORTH BALGOWLAH", "CORAMBA STREET, 10", -33.78, 151.24, "GEOTECHNICAL INVESTIGATION", "JS", "WO-100", "Olive and Green Pty Ltd", "CLIENT-42", "Y", "James Whitfeld", "0412 000 000"]
+  ];
+  let detection = Core.detectImportProfile(request);
+  let parsed = Core.parseImport(request, detection, { now: "2026-07-18" });
+  assert.equal(parsed.accepted.length, 1);
+  let job = parsed.accepted[0].built.job;
+  assert.equal(job.projectName, "CORAMBA STREET, 10, NORTH BALGOWLAH");
+  assert.equal(job.clientDetails.contactName, "James Whitfeld");
+  assert.equal(job.clientDetails.clientJobNumber, "CLIENT-42");
+  assert.equal(job.projectDetails.limsWorkOrderNumber, "WO-100");
+  assert.equal(job.projectDetails.latitude, -33.78);
+
+  const proposal = [
+    ["PROPOSAL NUMBER", "DATE", "DESCRIPTION OF PROPOSAL", "STREET NUMBER", "HIGHLIGHT MEANS BY EMAIL STREET ADDRESS", "SUBURB", "COMPANY NAME", "CLIENT NAME", "CLIENT EMAIL ADDRESS", "Geotechnical Fee Ex GST", "APPROVED YES/NO", "Approved Date", "PROJECT NUMBER", "PREPARED BY:"],
+    ["P19-1001", "2019-09-25", "Bulk Sample Collection", 56, "Fitzgerald Road", "Ermington", "JN Consulting Group", "Brad Morgan", "brad@example.test", 1700, "Y", "2019-09-27", 30001, "MS"]
+  ];
+  detection = Core.detectImportProfile(proposal);
+  parsed = Core.parseImport(proposal, detection, { now: "2026-07-18" });
+  assert.equal(parsed.accepted.length, 1);
+  job = parsed.accepted[0].built.job;
+  assert.equal(job.siteAddress, "56 Fitzgerald Road, Ermington");
+  assert.equal(job.projectName, "56 Fitzgerald Road, Ermington");
+  assert.equal(job.client, "JN Consulting Group");
+  assert.equal(job.clientDetails.contactName, "Brad Morgan");
+  assert.equal(job.proposalDate, "2019-09-25");
+  assert.equal(job.acceptanceDate, "2019-09-27");
+  assert.equal(job.projectDetails.quotedRate, 1700);
+});
+
+test("ignores long formatted workbook tails and does not treat one-letter cells as headers", () => {
+  assert.equal(Core.headerMatchScore("N", Core.PROJECT_COLUMNS.find((column) => column.key === "client")), 0);
+  const matrix = [
+    ["Job No", "Client", "Street", "Suburb", "Project Description", "Client Email"],
+    [30010, "Example Client", "10 Smith Street", "Sydney", "Geotechnical Investigation", "client@example.test"],
+    ...Array.from({ length: 400 }, () => ["", "", "", "", "", ""]),
+    ["", "", "", "", "", "isolated-footer-artifact"]
+  ];
+  const detection = Core.detectImportProfile(matrix);
+  const parsed = Core.parseImport(matrix, detection, { now: "2026-07-18" });
+  assert.equal(detection.profile, "project_register");
+  assert.equal(parsed.rows.length, 1);
+  assert.equal(parsed.accepted.length, 1);
+});
+
+test("builds a single client profile from linked jobs while retaining the best available contact details", () => {
+  const clients = Core.clientDirectory([
+    { id: "job-1", jobNumber: "30001", client: "Example Client Pty Ltd", projectName: "One", updatedAt: "2026-01-01", clientDetails: { code: "EXA001", email: "contact@example.test" } },
+    { id: "job-2", jobNumber: "30002", client: "Example Client Pty Ltd", projectName: "Two", updatedAt: "2026-02-01", clientDetails: { phone: "02 9000 0000", contactName: "Alex Client" } },
+    { id: "job-3", jobNumber: "30003", client: "Another Client", projectName: "Three", updatedAt: "2026-03-01", clientDetails: {} }
+  ]);
+  assert.equal(clients.length, 2);
+  const example = clients.find((client) => client.code === "EXA001");
+  assert.equal(example.projects.length, 2);
+  assert.equal(example.email, "contact@example.test");
+  assert.equal(example.phone, "02 9000 0000");
+  assert.equal(example.contactName, "Alex Client");
+  assert.equal(Core.viewForRole("client"), "clients");
+});
+
+test("provides a restrained clients and projects workspace with a responsive portal view", () => {
+  const source = fs.readFileSync(path.join(root, "geologger", "geoflow-control.js"), "utf8");
+  const css = fs.readFileSync(path.join(root, "geologger", "geoflow-control.css"), "utf8");
+  assert.match(source, /Clients & Projects/);
+  assert.match(source, /data-control-client-search/);
+  assert.match(source, /Portal preview/);
+  assert.match(source, /Set up portal access/);
+  assert.match(source, /data-control-client-access-form/);
+  assert.match(source, /Save portal access/);
+  assert.match(source, /upsertPortalClient/);
+  assert.match(source, /Client and project details/);
+  assert.match(source, /registerOnly/);
+  assert.match(source, /allJobRows/);
+  assert.match(source, /session\.result\.accepted\.length >= 500/);
+  assert.match(source, /Core\.registerProjectId/);
+  assert.match(source, /publishDirectory/);
+  assert.match(css, /\.control-client-browser/);
+  assert.match(css, /\.control-client-access-editor/);
+  assert.match(css, /\.control-client-project-cards/);
+  assert.match(css, /@media \(max-width: 760px\)/);
+});
+
 test("scans deep worksheets and ranks the useful sheet instead of assuming the first", () => {
   const cover = [["STS workbook"], ["Prepared for issue"], ["No tabular data on this sheet"]];
   const register = Array.from({ length: 24 }, (_, index) => [index === 0 ? "Project delivery register" : ""]);

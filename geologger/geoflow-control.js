@@ -16,7 +16,7 @@
 
   const document = root && root.document;
   const VIEWS = Object.freeze([
-    ["tower", "layout-dashboard", "Control Tower"], ["my_work", "list-checks", "My Work"],
+    ["tower", "layout-dashboard", "Control Tower"], ["clients", "building-2", "Clients & Projects"], ["my_work", "list-checks", "My Work"],
     ["fieldwork", "hard-hat", "Fieldwork"], ["logs_lab", "flask-conical", "Logs & Lab"],
     ["reports", "files", "Reports"], ["review", "shield-check", "Review Queue"],
     ["invoice", "receipt-text", "Admin & Invoicing"], ["workload", "users", "Workload"],
@@ -35,6 +35,7 @@
     view: "tower", selectedJobId: "", detailTab: "overview", search: "",
     filters: { type: "ALL", owner: "ALL", risk: "ALL", sort: "due" },
     validationErrors: [], addTask: false, taskEditor: null, filterOpen: false, importSession: null, importBusy: false,
+    selectedClientId: "", clientSearch: "", clientMode: "profile", clientAccessEditor: false, returnView: "",
     connection: { status: "offline", lastSyncAt: "", revision: 0 }, liveReloading: false,
     renderToken: 0, installed: false
   };
@@ -99,16 +100,17 @@
     const role = currentRole().id;
     const byRole = {
       director: VIEWS.map(([id]) => id),
-      engineering_manager: ["tower", "my_work", "fieldwork", "logs_lab", "reports", "review", "workload", "bottlenecks", "overdue", "access", "audit"],
-      project_engineer: ["tower", "my_work", "fieldwork", "logs_lab", "reports", "review", "workload", "bottlenecks", "overdue", "audit"],
+      engineering_manager: ["tower", "clients", "my_work", "fieldwork", "logs_lab", "reports", "review", "workload", "bottlenecks", "overdue", "access", "audit"],
+      project_engineer: ["tower", "clients", "my_work", "fieldwork", "logs_lab", "reports", "review", "workload", "bottlenecks", "overdue", "audit"],
       field_engineer: ["my_work", "fieldwork", "logs_lab"],
       laboratory_staff: ["my_work", "logs_lab"],
-      admin: ["tower", "my_work", "fieldwork", "reports", "invoice", "workload", "bottlenecks", "overdue", "import", "access", "audit"],
-      client: ["my_work"]
+      admin: ["tower", "clients", "my_work", "fieldwork", "reports", "invoice", "workload", "bottlenecks", "overdue", "import", "access", "audit"],
+      client: ["clients"]
     };
     return byRole[role] || ["my_work"];
   }
-  function jobRows() { return state.snapshot.jobs.filter((job) => !job.archived && canAccessJob(job)); }
+  function allJobRows() { return state.snapshot.jobs.filter((job) => !job.archived && canAccessJob(job)); }
+  function jobRows() { return allJobRows().filter((job) => !job.registerOnly); }
   function rawEntitiesFor(jobId) {
     const result = {};
     DB.STORE_NAMES.forEach((name) => { result[name] = state.snapshot[name].filter((item) => item.jobId === jobId); });
@@ -171,7 +173,8 @@
     state.liveReloading = true;
     try {
       if (event && event.detail) state.connection = Object.assign({}, state.connection, event.detail);
-      state.snapshot = await DB.loadAll(); state.loaded = true; render();
+      const live = root.GeoFlowControlLive && root.GeoFlowControlLive.state && root.GeoFlowControlLive.state.local;
+      state.snapshot = live ? Core.clone(live) : await DB.loadAll(); state.loaded = true; render();
     } finally { state.liveReloading = false; }
   }
   function render() {
@@ -197,16 +200,20 @@
     const allowed = allowedViews();
     if (!allowed.includes(state.view)) state.view = allowed.includes(Core.viewForRole(role.id)) ? Core.viewForRole(role.id) : allowed[0];
     const rows = filteredJobs();
+    const clientWorkspace = state.view === "clients";
+    const heading = clientWorkspace ? role.id === "client" ? "STS GeoFlow Client Portal" : "Clients & Projects" : "STS GeoFlow Project Control Tower";
+    const eyebrow = clientWorkspace ? role.id === "client" ? "Project portal" : `Relationships / ${role.title}` : `Operations / ${role.title}`;
+    const intro = clientWorkspace ? role.id === "client" ? "Current status and approved deliverables for your assigned projects." : "Client contacts, project history and portal access in one clear workspace." : roleHomeLine(role.id);
     return `<main class="control-workspace" data-control-view="${attr(state.view)}">
       <header class="control-header">
-        <div><span class="control-eyebrow">Operations / ${esc(role.title)}</span><h1>STS GeoFlow Project Control Tower</h1><p>${esc(roleHomeLine(role.id))}</p></div>
+        <div><span class="control-eyebrow">${esc(eyebrow)}</span><h1>${esc(heading)}</h1><p>${esc(intro)}</p></div>
         <div class="control-header-actions">
           ${renderConnectionStatus()}
           ${allowed.includes("import") ? `<button type="button" class="control-button" data-control-view-go="import">${icon("file-up")}<span>Import Excel</span></button>` : ""}
           ${["director", "engineering_manager", "project_engineer", "admin"].includes(role.id) ? `<button type="button" class="control-button primary" data-control-new-project>${icon("plus")}<span>New Job</span></button>` : ""}
         </div>
       </header>
-      ${renderViewBar()}
+      ${allowed.length > 1 ? renderViewBar() : ""}
       ${role.id !== "client" && (state.view === "tower" || ["my_work", "fieldwork", "logs_lab", "reports", "review", "invoice", "overdue"].includes(state.view)) ? renderKpis() : ""}
       ${renderViewBody(rows)}
     </main>`;
@@ -233,7 +240,7 @@
 
   function renderViewBar() {
     const allowed = new Set(allowedViews());
-    const primaryIds = new Set(["tower", "my_work", "fieldwork", "logs_lab", "reports", "review"]);
+    const primaryIds = new Set(["tower", "clients", "my_work", "fieldwork", "logs_lab", "reports"]);
     const visible = VIEWS.filter(([id]) => allowed.has(id));
     const primary = visible.filter(([id]) => primaryIds.has(id));
     const secondary = visible.filter(([id]) => !primaryIds.has(id));
@@ -268,6 +275,7 @@
   }
 
   function renderViewBody(rows) {
+    if (state.view === "clients") return renderClientsWorkspace();
     if (state.view === "import") return renderImport();
     if (state.view === "workload") return renderWorkload();
     if (state.view === "bottlenecks") return renderBottlenecks();
@@ -275,6 +283,98 @@
     if (state.view === "audit") return renderAudit();
     const register = `<section class="control-register" aria-label="${attr(viewLabel(state.view))}">${renderToolbar(rows)}${renderJobTable(rows)}</section>`;
     return state.view === "tower" && currentRole().id !== "client" ? `${renderLiveFlow()}${register}` : register;
+  }
+
+  function portalUsersFor(client) {
+    const policy = accessPolicy();
+    if (!policy || !Array.isArray(policy.users)) return [];
+    const projects = new Set(client.projects.map((job) => job.projectId || job.id));
+    return policy.users.filter((user) => user.active !== false && user.role === "client" && [...projects].some((projectId) => {
+      const assignment = policy.projectAssignments && policy.projectAssignments[projectId] && policy.projectAssignments[projectId][user.id];
+      return assignment && assignment.active !== false;
+    }));
+  }
+
+  function clientProjectMatches(client, query) {
+    if (!query) return true;
+    return [client.name, client.code, client.address, client.phone, client.contactName, client.email,
+      ...client.projects.flatMap((job) => [job.jobNumber, job.projectName, job.siteAddress, job.projectType, job.projectDetails && job.projectDetails.stsNumber])]
+      .join(" ").toLowerCase().includes(query);
+  }
+
+  function renderClientsWorkspace() {
+    const role = currentRole().id; const isClient = role === "client"; const directory = Core.clientDirectory(allJobRows());
+    const query = state.clientSearch.trim().toLowerCase(); const filtered = directory.filter((client) => clientProjectMatches(client, query));
+    let selected = filtered.find((client) => client.id === state.selectedClientId)
+      || (query ? filtered[0] : directory.find((client) => client.id === state.selectedClientId))
+      || filtered[0] || directory[0];
+    if (selected) state.selectedClientId = selected.id;
+    const visible = filtered.slice(0, 100); const jobs = directory.reduce((sum, client) => sum + client.projects.length, 0);
+    const active = directory.reduce((sum, client) => sum + client.projects.filter((job) => !job.registerOnly && job.currentStageId !== "job_closed").length, 0);
+    const contactGaps = directory.filter((client) => !client.email && !client.phone).length;
+    if (!directory.length) return `<section class="control-client-empty">${icon("building-2")}<h2>${isClient ? "No projects are assigned" : "No client records yet"}</h2><p>${isClient ? "Your STS contact can assign approved projects to this portal." : "Import the STS Project Register to create client profiles and link their project history."}</p>${allowedViews().includes("import") ? `<button type="button" class="control-button primary" data-control-view-go="import">${icon("file-up")}<span>Import project register</span></button>` : ""}</section>`;
+    return `<section class="control-client-hub ${isClient ? "is-client" : ""}" data-client-mode="${attr(isClient ? "portal" : state.clientMode)}">
+      ${isClient ? "" : `<div class="control-client-metrics" aria-label="Client portfolio indicators"><div><span>Clients</span><strong>${directory.length}</strong></div><div><span>Linked projects</span><strong>${jobs}</strong></div><div><span>Active projects</span><strong>${active}</strong></div><div class="${contactGaps ? "attention" : ""}"><span>Contact gaps</span><strong>${contactGaps}</strong></div></div>`}
+      <div class="control-client-tools"><label>${icon("search")}<input type="search" data-control-client-search value="${attr(state.clientSearch)}" placeholder="Search client, contact, project or site" aria-label="Search clients and projects"></label><span><strong>${filtered.length}</strong> ${isClient ? "client account" : "clients"}${filtered.length === directory.length ? "" : ` of ${directory.length}`}</span></div>
+      <div class="control-client-browser">
+        ${isClient && directory.length === 1 ? "" : `<aside class="control-client-directory" aria-label="Client directory"><header><strong>${isClient ? "Accounts" : "Client directory"}</strong><span>${visible.length}${filtered.length > visible.length ? ` of ${filtered.length}` : ""}</span></header><div>${visible.map((client) => `<button type="button" class="${selected && selected.id === client.id ? "active" : ""}" data-control-client="${attr(client.id)}"><i>${icon("building-2")}</i><span><strong>${esc(client.name)}</strong><small>${esc(client.code || "No client code")} / ${client.projects.length} project${client.projects.length === 1 ? "" : "s"}</small></span>${icon("chevron-right")}</button>`).join("") || `<p>No clients match this search.</p>`}</div>${filtered.length > visible.length ? `<footer>Refine the search to view the remaining ${filtered.length - visible.length} clients.</footer>` : ""}</aside>`}
+        <section class="control-client-profile">${selected ? renderClientProfile(selected, isClient) : `<div class="control-state compact">${icon("search-x")}<strong>No matching client</strong><span>Clear or change the search.</span></div>`}</section>
+      </div>
+    </section>`;
+  }
+
+  function renderClientProfile(client, isClient) {
+    const portalMode = isClient || state.clientMode === "portal"; const users = portalUsersFor(client);
+    const mayManageAccess = ["director", "admin"].includes(currentRole().id);
+    const currentProjects = client.projects.filter((job) => !job.registerOnly && job.currentStageId !== "job_closed").length;
+    return `<header class="control-client-profile-header"><div><span class="control-eyebrow">${isClient ? "Client account" : client.code || "Client profile"}</span><h2>${esc(client.name)}</h2><p>${esc(client.address || "Address not recorded")}</p></div>${isClient ? "" : `<div class="control-client-mode" role="group" aria-label="Client workspace mode"><button type="button" data-control-client-mode="profile" class="${portalMode ? "" : "active"}">${icon("contact")}<span>Profile</span></button><button type="button" data-control-client-mode="portal" class="${portalMode ? "active" : ""}">${icon("eye")}<span>Portal preview</span></button></div>`}</header>
+      ${!isClient && state.clientAccessEditor ? renderClientAccessEditor(client, users) : ""}
+      ${portalMode ? renderClientPortal(client, isClient) : `<div class="control-client-contact"><dl>${fact("Primary contact", client.contactName)}${fact("Email", client.email)}${fact("Phone", client.phone)}${fact("Client code", client.code)}${fact("Address", client.address)}${fact("Last project update", formatDate(client.updatedAt))}</dl></div>
+      ${state.clientAccessEditor ? "" : `<section class="control-portal-access"><div>${icon(users.length ? "shield-check" : "user-round-plus")}<span><strong>${users.length ? `${users.length} portal user${users.length === 1 ? "" : "s"} assigned` : "Portal access not set up"}</strong><small>${users.length ? users.map((user) => user.email || user.name).join(" / ") : "Create a Client user and assign only the projects they may view."}</small></span></div>${mayManageAccess ? `<button type="button" class="control-button" data-control-client-access-open>${icon("user-cog")}<span>${users.length ? "Manage access" : "Set up portal access"}</span></button>` : ""}</section>`}
+      <section class="control-client-projects"><header><div><span class="control-eyebrow">Project history</span><h3>Linked projects</h3></div><span>${currentProjects} active / ${client.projects.length} total</span></header>${renderClientProjectTable(client.projects)}</section>`}`;
+  }
+
+  function renderClientAccessEditor(client, users) {
+    const user = users[0] || {}; const policy = accessPolicy();
+    return `<form class="control-client-access-editor" data-control-client-access-form data-client-id="${attr(client.id)}"><header><div>${icon("shield-check")}<span><strong>Client portal access</strong><small>${users.length ? "Update the primary portal contact and project visibility." : "Create a client login for this account."}</small></span></div><button type="button" class="control-icon-button" data-control-client-access-close title="Close" aria-label="Close portal access editor">${icon("x")}</button></header><div class="control-client-access-fields"><label><span>Contact name</span><input name="name" value="${attr(user.name || client.contactName || client.name)}" required></label><label><span>Email</span><input name="email" type="email" value="${attr(user.email || client.email)}" required></label></div><fieldset><legend>Projects visible in portal <b>${client.projects.length}</b></legend><div>${client.projects.map((job) => {
+      const assignment = user.id && policy && policy.projectAssignments && policy.projectAssignments[job.projectId || job.id] && policy.projectAssignments[job.projectId || job.id][user.id];
+      return `<label><input type="checkbox" name="projectId" value="${attr(job.projectId || job.id)}" ${!user.id || assignment && assignment.active !== false ? "checked" : ""}><span><strong>${esc(job.jobNumber || "Unnumbered")}</strong><small>${esc(job.projectName || job.siteAddress || "Unnamed project")}</small></span></label>`;
+    }).join("")}</div></fieldset><footer><button type="button" class="control-button" data-control-client-access-close>Cancel</button><button type="submit" class="control-button primary">${icon("shield-check")}<span>Save portal access</span></button></footer></form>`;
+  }
+
+  function saveClientPortalAccess(form) {
+    if (!root.GeoFlowAccess || !root.GeoFlowAccess.upsertPortalClient) { notify("Client portal access is unavailable.", "error"); return; }
+    const client = Core.clientDirectory(allJobRows()).find((item) => item.id === form.dataset.clientId);
+    if (!client) { notify("The selected client profile is unavailable.", "error"); return; }
+    const data = new FormData(form); const selected = new Set(data.getAll("projectId").map(Core.text));
+    try {
+      const user = root.GeoFlowAccess.upsertPortalClient({
+        name: Core.text(data.get("name")), email: Core.text(data.get("email")),
+        projects: client.projects.map((job) => ({
+          id: job.projectId || job.id, name: job.projectName, number: job.jobNumber,
+          recordKey: `__project_${job.projectId || job.id}__`, assigned: selected.has(job.projectId || job.id)
+        }))
+      });
+      state.clientAccessEditor = false; notify(`Portal access saved for ${user.name}.`, "success"); render();
+    } catch (error) { notify(error && error.message || "Client portal access could not be saved.", "error"); }
+  }
+
+  function renderClientProjectTable(projects) {
+    return `<div class="control-table-wrap"><table class="control-table client-projects"><thead><tr><th>Job / project</th><th>Work</th><th>STS reference</th><th>Stage / owner</th><th>Updated</th><th><span class="sr-only">Open</span></th></tr></thead><tbody>${projects.map((job) => {
+      const details = job.projectDetails || {}; const display = jobDisplay(job);
+      const workDetail = Core.slug(details.workRequired) !== Core.slug(job.projectType) ? details.workRequired : "";
+      const siteDetail = Core.slug(job.siteAddress) !== Core.slug(job.projectName) ? job.siteAddress : "";
+      return `<tr><td><strong>${esc(job.jobNumber || "Unnumbered")}</strong><span>${esc(job.projectName || "Unnamed project")}</span><small>${esc(siteDetail)}</small></td><td><strong>${esc(job.projectType)}</strong><small>${esc(workDetail)}</small></td><td>${esc(details.stsNumber || "-")}<small>${details.proposalNumber ? `Proposal ${esc(details.proposalNumber)}` : ""}</small></td><td><span class="control-stage">${esc(display.stage)}</span><small>${esc(display.owner || "Unassigned")}</small></td><td>${esc(formatDate(job.updatedAt))}</td><td><button type="button" class="control-icon-button" data-control-job="${attr(job.id)}" data-project-open="${attr(job.projectId || job.id)}" title="Open project details" aria-label="Open ${attr(job.jobNumber)} project details">${icon("chevron-right")}</button></td></tr>`;
+    }).join("")}</tbody></table></div><div class="control-client-project-cards">${projects.map((job) => `<button type="button" data-control-job="${attr(job.id)}" data-project-open="${attr(job.projectId || job.id)}"><span><strong>${esc(job.jobNumber)}</strong><small>${esc(job.projectType)}</small></span><b>${esc(job.projectName)}</b><small>${esc(job.siteAddress)}</small>${icon("chevron-right")}</button>`).join("")}</div>`;
+  }
+
+  function renderClientPortal(client, isClient) {
+    return `<section class="control-portal-preview"><header><div><span class="control-eyebrow">${isClient ? "Your projects" : "Client-visible view"}</span><h3>${client.projects.length} project${client.projects.length === 1 ? "" : "s"}</h3></div>${isClient ? "" : `<span>${icon("eye")} Internal preview</span>`}</header><div>${client.projects.map((job) => {
+      const summary = jobSummary(job); const display = jobDisplay(job);
+      const reports = rawEntitiesFor(job.id).reports.filter((report) => ["approved", "issued"].includes(Core.text(report.status).toLowerCase()));
+      const siteDetail = Core.slug(job.siteAddress) !== Core.slug(job.projectName) ? job.siteAddress || "Site not recorded" : "";
+      return `<button type="button" data-control-job="${attr(job.id)}" data-project-open="${attr(job.projectId || job.id)}"><span><strong>${esc(job.jobNumber)} / ${esc(job.projectName)}</strong><small>${esc(siteDetail)}</small></span><span><b>${esc(display.stage)}</b><small>Updated ${esc(formatDate(job.updatedAt))}</small></span><span>${miniProgress("Technical", summary.technical)}</span><span><b>${reports.length}</b><small>approved report${reports.length === 1 ? "" : "s"}</small></span>${icon("chevron-right")}</button>`;
+    }).join("")}</div></section>`;
   }
 
   function renderLiveFlow() {
@@ -325,6 +425,7 @@
     return Core.ownerMatchesUser(job, user);
   }
   function jobDisplay(job) {
+    if (job.registerOnly) return { stageId: "register", stage: "Project register", owner: "Reference record", action: "", due: "", capped: false };
     const limit = Core.visibleStageLimit(currentRole().id); const index = Core.STAGE_INDEX[job.currentStageId] ?? 0;
     if (index <= limit) return { stageId: job.currentStageId, stage: Core.STAGE_BY_ID[job.currentStageId]?.title || job.currentStageId, owner: job.currentOwner, action: job.nextAction, due: job.nextActionDue, capped: false };
     const boundary = Core.STAGES[limit];
@@ -525,10 +626,32 @@
         <label class="wide"><span>Blocking reason</span><textarea name="blockingReason" rows="3" ${canEdit ? "" : "disabled"}>${esc(job.blockingReason)}</textarea></label>
         ${canEdit ? `<button class="control-button" type="submit">${icon("save")}<span>Save status</span></button>` : ""}
       </form></section>
-      <section class="wide"><header><div><span class="control-eyebrow">Project record</span><h2>Key controls</h2></div></header><dl class="control-facts">${fact("Project manager", job.projectManager)}${fact("Field engineer", job.fieldEngineer)}${fact("Project engineer", job.projectEngineer)}${fact("Reviewer", job.reviewer)}${fact("Admin coordinator", job.adminCoordinator)}${fact("Purchase order", job.purchaseOrder)}${fact("Fieldwork due", formatDate(job.fieldworkDue))}${fact("Report due", formatDate(job.reportDue))}</dl></section></div>`;
+      <section class="wide"><header><div><span class="control-eyebrow">Project record</span><h2>Key controls</h2></div></header><dl class="control-facts">${fact("Project manager", job.projectManager)}${fact("Field engineer", job.fieldEngineer)}${fact("Project engineer", job.projectEngineer)}${fact("Reviewer", job.reviewer)}${fact("Admin coordinator", job.adminCoordinator)}${fact("Purchase order", job.purchaseOrder)}${fact("Fieldwork due", formatDate(job.fieldworkDue))}${fact("Report due", formatDate(job.reportDue))}</dl></section>${renderImportedDetails(job)}</div>`;
   }
 
   function fact(label, value) { return `<div><dt>${esc(label)}</dt><dd>${esc(value || "Not recorded")}</dd></div>`; }
+
+  function importedValue(key, value) {
+    if (Array.isArray(value)) return value.join(", ");
+    if (/date/i.test(key) && Core.toDate(value)) return formatDate(value);
+    return value;
+  }
+
+  function renderImportedDetails(job) {
+    const client = job.clientDetails || {}; const project = job.projectDetails || {};
+    const clientFields = [["Contact", "contactName"], ["Email", "email"], ["Phone", "phone"], ["Client code", "code"], ["Client address", "address"], ["Client job number", "clientJobNumber"]];
+    const projectFields = [
+      ["STS number", "stsNumber"], ["Codes", "codes"], ["Project date", "projectDate"], ["Date received", "dateReceived"],
+      ["Proposal number", "proposalNumber"], ["Location", "location"], ["Latitude", "latitude"], ["Longitude", "longitude"],
+      ["Work required", "workRequired"], ["Entered by", "enteredBy"], ["Sample numbers", "sampleNumbers"], ["Sampled by", "sampledBy"],
+      ["Fieldwork finish", "sampleOrFieldworkFinishDate"], ["Involved staff", "involvedStaff"], ["LIMS work order", "limsWorkOrderNumber"], ["NATA", "nata"]
+    ];
+    if (canFinance(job)) projectFields.push(["Quoted rate", "quotedRate"], ["Invoice percentage", "invoicePercentage"], ["Final invoice date", "finalInvoiceDate"]);
+    const clientFacts = clientFields.filter(([, key]) => Core.text(client[key])).map(([label, key]) => fact(label, importedValue(key, client[key]))).join("");
+    const projectFacts = projectFields.filter(([, key]) => Core.text(project[key])).map(([label, key]) => fact(label, importedValue(key, project[key]))).join("");
+    if (!clientFacts && !projectFacts) return "";
+    return `<section class="wide control-imported-details"><header><div><span class="control-eyebrow">Source register</span><h2>Client and project details</h2></div><span>${esc(job.importSource && job.importSource.sheetName || "Project record")}</span></header><div>${clientFacts ? `<section><h3>Client</h3><dl class="control-facts">${clientFacts}</dl></section>` : ""}${projectFacts ? `<section><h3>Project</h3><dl class="control-facts">${projectFacts}</dl></section>` : ""}</div></section>`;
+  }
 
   function renderWorkflowTab(job, entities, canEdit) {
     const tasks = entities.job_tasks.slice().sort((a, b) => String(a.dueDate).localeCompare(String(b.dueDate)));
@@ -661,9 +784,13 @@
 
   function renderImportPreview(result) {
     const project = result.profile === "project_register";
-    return `<div class="control-table-wrap import-preview"><table class="control-table"><thead><tr><th>Row</th><th>Status</th>${project ? "<th>Job number</th><th>Project</th><th>Client</th><th>Stage / owner</th><th>Next action / due</th>" : "<th>Pile</th><th>Type</th><th>Diameter</th><th>Length</th><th>Toe RL</th><th>Orientation</th>"}<th>Validation</th></tr></thead><tbody>${result.rows.slice(0, 100).map((row) => {
+    return `<div class="control-table-wrap import-preview"><table class="control-table"><thead><tr><th>Row</th><th>Status</th>${project ? "<th>Job number</th><th>Project / site</th><th>Client / contact</th><th>Work type</th><th>Stage / owner</th>" : "<th>Pile</th><th>Type</th><th>Diameter</th><th>Length</th><th>Toe RL</th><th>Orientation</th>"}<th>Validation</th></tr></thead><tbody>${result.rows.slice(0, 100).map((row) => {
       const validation = row.errors.length ? row.errors.join(" ") : row.warnings.length ? row.warnings.join(" ") : "Valid";
-      if (project) return `<tr class="${row.errors.length ? "rejected" : "accepted"}"><td>${row.sourceRow}</td><td><span class="control-status ${row.errors.length ? "error" : "ready"}">${row.errors.length ? "Rejected" : row.duplicate ? "Update" : "Accepted"}</span></td><td>${esc(row.input.jobNumber)}</td><td>${esc(row.input.projectName)}</td><td>${esc(row.input.client)}</td><td>${esc(Core.STAGE_BY_ID[row.built.job.currentStageId]?.title)}<small>${esc(row.built.job.currentOwner)}</small></td><td>${esc(row.built.job.nextAction)}<small>${esc(Core.isoDate(row.built.job.nextActionDue))}</small></td><td class="${row.warnings.length && !row.errors.length ? "has-warning" : ""}">${esc(validation)}</td></tr>`;
+      if (project) {
+        const site = Core.text(row.built.job.siteAddress);
+        const siteDetail = Core.slug(site) !== Core.slug(row.input.projectName) ? `<small>${esc(site)}</small>` : "";
+        return `<tr class="${row.errors.length ? "rejected" : "accepted"}"><td>${row.sourceRow}</td><td><span class="control-status ${row.errors.length ? "error" : "ready"}">${row.errors.length ? "Rejected" : row.duplicate ? "Update" : "Accepted"}</span></td><td>${esc(row.input.jobNumber)}</td><td>${esc(row.input.projectName)}${siteDetail}</td><td>${esc(row.input.client)}<small>${esc(row.built.job.clientDetails && (row.built.job.clientDetails.contactName || row.built.job.clientDetails.email) || "No contact recorded")}</small></td><td>${esc(row.built.job.projectType)}</td><td>${esc(Core.STAGE_BY_ID[row.built.job.currentStageId]?.title)}<small>${esc(row.built.job.currentOwner)}</small></td><td class="${row.warnings.length && !row.errors.length ? "has-warning" : ""}">${esc(validation)}</td></tr>`;
+      }
       return `<tr class="${row.errors.length ? "rejected" : "accepted"}"><td>${row.sourceRow}</td><td><span class="control-status ${row.errors.length ? "error" : "ready"}">${row.errors.length ? "Rejected" : "Accepted"}</span></td><td>${esc(importDisplay("pileNumber", row.input.pileNumber))}</td><td>${esc(importDisplay("pileType", row.input.pileType))}</td><td>${esc(importDisplay("pileDiameter", row.input.pileDiameter))}</td><td>${esc(importDisplay("pileLength", row.input.pileLength))}</td><td>${esc(importDisplay("toePileRl", row.input.toePileRl))}</td><td>${esc(importDisplay("projectionOrientation", row.input.projectionOrientation))}</td><td class="${row.warnings.length && !row.errors.length ? "has-warning" : ""}">${esc(validation)}</td></tr>`;
     }).join("")}</tbody></table>${result.rows.length > 100 ? `<p class="control-preview-note">Showing the first 100 of ${result.rows.length} rows.</p>` : ""}</div>`;
   }
@@ -818,21 +945,79 @@
     await runLiveOperation({ type: "assign_handover", projectId: job.projectId || job.id, jobId: job.id }, "Workflow closed.");
   }
 
+  function worksheetMatrix(sheet) {
+    const rows = root.XLSX.utils.sheet_to_json(sheet, { header: 1, defval: "", raw: true, blankrows: true });
+    let last = rows.length - 1;
+    while (last >= 0 && !(rows[last] || []).some((value) => Core.text(value))) last -= 1;
+    return rows.slice(0, last + 1);
+  }
+
+  function updateSheetAnalysis(session, sheetName, matrix) {
+    const analysis = Core.analyseWorkbook({ [sheetName]: matrix })[0];
+    const index = session.sheetAnalyses.findIndex((item) => item.sheetName === sheetName);
+    if (index >= 0) session.sheetAnalyses[index] = Object.assign({}, analysis, { sheetIndex: index });
+  }
+
+  function loadWorkbookMatrix(sourceData, sheetName) {
+    const workbook = root.XLSX.read(sourceData, { type: "array", cellDates: true, dense: false, sheets: [sheetName] });
+    if (!workbook.Sheets[sheetName]) throw new Error(`${sheetName} could not be read from the workbook.`);
+    return worksheetMatrix(workbook.Sheets[sheetName]);
+  }
+
+  function workbookCandidateSheets(sheetNames) {
+    const names = sheetNames || [];
+    const likely = names.filter((name) => /(project|job|proposal|register|schedule|pile|data|import)/i.test(name));
+    return (likely.length ? likely : names.slice(0, 8)).slice(0, 12);
+  }
+
+  function importSheetPriority(sheetName) {
+    const name = Core.slug(sheetName);
+    if (name === "project_register") return 160;
+    if (/job_request/.test(name)) return 70;
+    if (/pile.*schedule|schedule.*pile/.test(name)) return 70;
+    if (/proposal/.test(name) && !/dashboard/.test(name)) return 40;
+    if (/report/.test(name)) return -20;
+    return 0;
+  }
+
+  async function selectImportSheet(sheetName) {
+    const session = state.importSession;
+    if (!session || !session.sheetNames.includes(sheetName) || sheetName === session.sheetName) return;
+    const token = (session.loadToken || 0) + 1; session.loadToken = token; state.importBusy = true; render();
+    try {
+      await new Promise((resolve) => root.setTimeout(resolve, 0));
+      const matrix = session.matrices[sheetName] || loadWorkbookMatrix(session.sourceData, sheetName);
+      if (state.importSession !== session || session.loadToken !== token) return;
+      session.matrices[sheetName] = matrix; updateSheetAnalysis(session, sheetName, matrix);
+      session.sheetName = sheetName; session.profileMode = "auto"; session.headerRow = null; session.detection = null;
+      rebuildImport();
+    } catch (error) { notify(error && error.message || "The selected worksheet could not be read.", "error"); }
+    finally {
+      if (state.importSession === session && session.loadToken === token) { state.importBusy = false; render(); }
+    }
+  }
+
   async function readWorkbook(file) {
     if (!root.XLSX) { notify("Excel reader is unavailable.", "error"); return; }
     if (file.size > 64 * 1024 * 1024) { notify("This workbook is larger than 64 MB. Split it into smaller workbooks before importing.", "error"); return; }
     state.importBusy = true; render();
     try {
-      const workbook = root.XLSX.read(await file.arrayBuffer(), { type: "array", cellDates: true, dense: false });
-      const matrices = Object.fromEntries(workbook.SheetNames.map((name) => [name, root.XLSX.utils.sheet_to_json(workbook.Sheets[name], { header: 1, defval: "", raw: true, blankrows: true })]));
-      const sheetAnalyses = Core.analyseWorkbook(matrices);
-      const best = sheetAnalyses.filter((item) => item.rowCount).sort((a, b) => b.sheetRank - a.sheetRank || a.sheetIndex - b.sheetIndex)[0];
+      const sourceData = await file.arrayBuffer();
+      const inventory = root.XLSX.read(sourceData, { type: "array", bookSheets: true });
+      const candidateSheets = workbookCandidateSheets(inventory.SheetNames);
+      const previewWorkbook = root.XLSX.read(sourceData, { type: "array", cellDates: true, dense: false, sheetRows: 101, sheets: candidateSheets });
+      const previews = Object.fromEntries(candidateSheets.filter((name) => previewWorkbook.Sheets[name]).map((name) => [name, worksheetMatrix(previewWorkbook.Sheets[name])]));
+      const sheetAnalyses = Core.analyseWorkbook(previews);
+      const best = sheetAnalyses.filter((item) => item.rowCount)
+        .sort((a, b) => (b.sheetRank + importSheetPriority(b.sheetName)) - (a.sheetRank + importSheetPriority(a.sheetName)) || a.sheetIndex - b.sheetIndex)[0];
       if (!best) throw new Error("The workbook does not contain any readable worksheet rows.");
+      const matrix = loadWorkbookMatrix(sourceData, best.sheetName);
       state.importSession = {
-        fileName: file.name, workbook, matrices, sheetNames: workbook.SheetNames, sheetAnalyses,
+        fileName: file.name, sourceData, matrices: { [best.sheetName]: matrix }, sheetNames: inventory.SheetNames, sheetAnalyses,
         sheetName: best.sheetName, profileMode: "auto", headerRow: null, duplicateMode: "skip",
         targetJobId: "", detection: null, result: null
       };
+      updateSheetAnalysis(state.importSession, best.sheetName, matrix);
       rebuildImport();
     } catch (error) {
       const message = error && error.message || "Workbook could not be read.";
@@ -873,17 +1058,35 @@
         state.snapshot.activity_history.unshift(event); await DB.put("activity_history", event);
       } else {
         const put = { jobs: [], job_stages: [], job_tasks: [], activity_history: [] };
+        const registerOnly = session.result.profile === "project_register" && /register/i.test(session.sheetName) && session.result.accepted.length >= 500;
         session.result.accepted.forEach((row) => {
           const existing = state.snapshot.jobs.find((job) => Core.slug(job.jobNumber) === Core.slug(row.built.job.jobNumber));
           if (existing && session.duplicateMode === "update") {
-            const updated = Object.assign({}, existing, row.built.job, { id: existing.id, projectId: existing.projectId, createdAt: existing.createdAt, updatedAt: new Date().toISOString() });
+            const updated = Object.assign({}, existing, row.built.job, {
+              id: existing.id, projectId: existing.projectId, createdAt: existing.createdAt, updatedAt: new Date().toISOString(),
+              registerOnly: existing.registerOnly === false ? false : registerOnly
+            });
             put.jobs.push(updated);
           } else {
-            put.jobs.push(row.built.job); put.job_stages.push(...row.built.stages); put.job_tasks.push(row.built.task);
+            const job = registerOnly ? Object.assign({}, row.built.job, {
+              id: Core.registerProjectId(row.built.job.jobNumber), projectId: Core.registerProjectId(row.built.job.jobNumber),
+              registerOnly: true, workflowStatus: "register", currentOwnerId: "", currentOwner: "",
+              nextAction: "", nextActionDue: "", handoverStatus: ""
+            }) : row.built.job;
+            put.jobs.push(job);
+            if (!registerOnly) { put.job_stages.push(...row.built.stages); put.job_tasks.push(row.built.task); }
           }
-          put.activity_history.push({ id: Core.uid("audit"), jobId: existing && session.duplicateMode === "update" ? existing.id : row.built.job.id, taskId: "", stageId: row.built.job.currentStageId, actorId: currentUser().id, actorName: currentUser().name, at: new Date().toISOString(), action: existing ? "excel.job.updated" : "excel.job.imported", previousValue: "", newValue: row.built.job.currentStageId, reason: `${session.fileName}, row ${row.sourceRow}` });
+          if (!registerOnly) put.activity_history.push({ id: Core.uid("audit"), jobId: existing && session.duplicateMode === "update" ? existing.id : row.built.job.id, taskId: "", stageId: row.built.job.currentStageId, actorId: currentUser().id, actorName: currentUser().name, at: new Date().toISOString(), action: existing ? "excel.job.updated" : "excel.job.imported", previousValue: "", newValue: row.built.job.currentStageId, reason: `${session.fileName}, row ${row.sourceRow}` });
         });
-        await DB.transact({ put }); state.snapshot = await DB.loadAll();
+        await DB.transact({ put });
+        Object.entries(put).forEach(([store, rows]) => {
+          if (!rows.length) return;
+          const byId = new Map(state.snapshot[store].map((item) => [item.id, item]));
+          rows.forEach((item) => byId.set(item.id, item)); state.snapshot[store] = [...byId.values()];
+        });
+        if (registerOnly && root.GeoFlowControlLive && root.GeoFlowControlLive.publishDirectory) {
+          root.GeoFlowControlLive.publishDirectory(put.jobs).catch(() => notify("The client directory is saved locally and will retry Cloudflare sync when reconnected.", "warning"));
+        }
       }
       if (root.GeoFlowControlLive) root.GeoFlowControlLive.scheduleSync(state.snapshot);
       notify(`${session.result.accepted.length} row${session.result.accepted.length === 1 ? "" : "s"} imported and queued for shared sync.`, "success");
@@ -895,7 +1098,7 @@
   function exportRegister() {
     if (!canExport()) { notify("Project register export is not assigned to this role.", "error"); return; }
     if (!root.XLSX) { notify("Excel writer is unavailable.", "error"); return; }
-    const rows = jobRows(); const data = [Core.PROJECT_COLUMNS.map((column) => column.label), ...rows.map((job) => {
+    const rows = allJobRows(); const data = [Core.PROJECT_COLUMNS.map((column) => column.label), ...rows.map((job) => {
       const entities = entitiesFor(job.id); return Core.exportRow(job, Core.summariseJob(job, entities.job_stages, entities.job_tasks, new Date()));
     })];
     const sheet = root.XLSX.utils.aoa_to_sheet(data); sheet["!freeze"] = { xSplit: 0, ySplit: 1 };
@@ -917,6 +1120,8 @@
     host.addEventListener("submit", submitHandler);
     const search = host.querySelector("[data-control-search]");
     if (search) search.addEventListener("input", () => { state.search = search.value; render(); const next = page().querySelector("[data-control-search]"); if (next) { next.focus(); next.setSelectionRange(state.search.length, state.search.length); } });
+    const clientSearch = host.querySelector("[data-control-client-search]");
+    if (clientSearch) clientSearch.addEventListener("input", () => { state.clientSearch = clientSearch.value; state.clientAccessEditor = false; render(); const next = page().querySelector("[data-control-client-search]"); if (next) { next.focus(); next.setSelectionRange(state.clientSearch.length, state.clientSearch.length); } });
     const filters = host.querySelector("[data-control-filters]");
     if (filters) filters.addEventListener("toggle", () => { state.filterOpen = filters.open; });
   }
@@ -924,9 +1129,13 @@
   function clickHandler(event) {
     const target = event.target;
     const retry = target.closest("[data-control-retry]"); if (retry) { hydrate(true); return; }
-    const view = target.closest("[data-control-view-go]"); if (view) { state.view = view.dataset.controlViewGo; state.selectedJobId = ""; state.validationErrors = []; state.filterOpen = false; root.localStorage.setItem(`sts-control-view:${currentUser().id}`, state.view); setRoute(state.view); render(); return; }
-    const jobButton = target.closest("[data-control-job]"); if (jobButton) { event.preventDefault(); state.selectedJobId = jobButton.dataset.controlJob; state.detailTab = "overview"; state.taskEditor = null; state.validationErrors = []; setRoute("tower", state.selectedJobId); render(); return; }
-    const back = target.closest("[data-control-back]"); if (back) { state.selectedJobId = ""; state.taskEditor = null; state.validationErrors = []; setRoute(state.view || "tower"); render(); return; }
+    const view = target.closest("[data-control-view-go]"); if (view) { state.view = view.dataset.controlViewGo; state.selectedJobId = ""; state.returnView = ""; state.validationErrors = []; state.filterOpen = false; state.clientAccessEditor = false; root.localStorage.setItem(`sts-control-view:${currentUser().id}`, state.view); setRoute(state.view); render(); return; }
+    const clientButton = target.closest("[data-control-client]"); if (clientButton) { state.selectedClientId = clientButton.dataset.controlClient; state.clientMode = "profile"; state.clientAccessEditor = false; render(); return; }
+    const clientMode = target.closest("[data-control-client-mode]"); if (clientMode) { state.clientMode = clientMode.dataset.controlClientMode; render(); return; }
+    const clientAccessOpen = target.closest("[data-control-client-access-open]"); if (clientAccessOpen) { state.clientAccessEditor = true; state.clientMode = "profile"; render(); return; }
+    const clientAccessClose = target.closest("[data-control-client-access-close]"); if (clientAccessClose) { state.clientAccessEditor = false; render(); return; }
+    const jobButton = target.closest("[data-control-job]"); if (jobButton) { event.preventDefault(); state.returnView = state.view; state.selectedJobId = jobButton.dataset.controlJob; state.detailTab = "overview"; state.taskEditor = null; state.validationErrors = []; setRoute("tower", state.selectedJobId); render(); return; }
+    const back = target.closest("[data-control-back]"); if (back) { state.selectedJobId = ""; state.taskEditor = null; state.validationErrors = []; state.view = state.returnView || state.view || "tower"; state.returnView = ""; setRoute(state.view); render(); return; }
     const detailTab = target.closest("[data-control-detail-tab]"); if (detailTab) { state.detailTab = detailTab.dataset.controlDetailTab; render(); return; }
     const workspace = target.closest("[data-control-workspace]"); if (workspace) { if (typeof pjOpen === "function") pjOpen(workspace.dataset.controlWorkspace); return; }
     const clientReports = target.closest("[data-control-client-reports]"); if (clientReports) { if (typeof pjOpen === "function") { pjOpen(clientReports.dataset.controlClientReports); root.setTimeout(() => root.showTab("preview"), 0); } return; }
@@ -952,7 +1161,7 @@
     if (control.matches("[data-control-file]")) { const file = control.files && control.files[0]; if (file) readWorkbook(file); return; }
     const session = state.importSession;
     if (!session) return;
-    if (control.matches("[data-control-import-sheet]")) { session.sheetName = control.value; session.profileMode = "auto"; session.headerRow = null; session.detection = null; rebuildImport(); render(); return; }
+    if (control.matches("[data-control-import-sheet]")) { selectImportSheet(control.value); return; }
     if (control.matches("[data-control-import-profile]")) { session.profileMode = control.value; session.detection = null; rebuildImport(); render(); return; }
     if (control.matches("[data-control-import-header]")) { session.headerRow = Math.max(0, Number(control.value || 1) - 1); session.detection = null; rebuildImport(); render(); return; }
     if (control.matches("[data-control-import-duplicates]")) { session.duplicateMode = control.value; rebuildImport(); render(); return; }
@@ -962,7 +1171,8 @@
 
   function submitHandler(event) {
     const form = event.target;
-    if (form.matches("[data-control-action-form]")) { event.preventDefault(); handleActionForm(form); }
+    if (form.matches("[data-control-client-access-form]")) { event.preventDefault(); saveClientPortalAccess(form); }
+    else if (form.matches("[data-control-action-form]")) { event.preventDefault(); handleActionForm(form); }
     else if (form.matches("[data-control-health-form]")) { event.preventDefault(); handleHealthForm(form); }
     else if (form.matches("[data-control-commercial-form]")) { event.preventDefault(); handleCommercialForm(form); }
     else if (form.matches("[data-control-task-form]")) { event.preventDefault(); addTask(form); }
@@ -995,6 +1205,7 @@
     root.addEventListener("hashchange", () => { const route = routeState(); if (route.view || route.jobId) { state.view = route.view || state.view; state.selectedJobId = route.jobId; render(); } });
     root.addEventListener("geoflow:control-connection", (event) => { state.connection = Object.assign({}, state.connection, event.detail || {}); if (state.loaded) render(); });
     root.addEventListener("geoflow:control-live", reloadFromLive);
+    root.addEventListener("geoflow:control-directory", reloadFromLive);
     root.addEventListener("geoflow:access-ready", () => { if (root.GeoFlowControlLive && state.loaded) root.GeoFlowControlLive.scheduleSync(state.snapshot); });
     if (!applyRoute()) render();
     hydrate();

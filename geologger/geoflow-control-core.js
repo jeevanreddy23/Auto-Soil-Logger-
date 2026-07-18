@@ -87,10 +87,10 @@
 
   const PROJECT_COLUMNS = Object.freeze([
     column("jobNumber", "Job Number", true, ["job no", "job #", "job id", "job code", "job reference", "project number", "project no", "project id", "project code", "project reference", "sts project number", "reference no"]),
-    column("projectName", "Project Name", true, ["job name", "job title", "project title", "site", "site name", "project", "description"]),
+    column("projectName", "Project Name", true, ["job name", "job title", "project title", "site name"]),
     column("client", "Client", true, ["client name", "client organisation", "customer", "customer name", "company", "principal"]),
-    column("siteAddress", "Site Address", true, ["address", "project address", "property address", "street address", "site location", "location"]),
-    column("projectType", "Project Type", true, ["job type", "service", "service type", "work type", "scope type", "discipline", "investigation type"]),
+    column("siteAddress", "Site Address", true, ["address", "project address", "property address", "street address", "street", "site location", "location"]),
+    column("projectType", "Project Type", true, ["job type", "service", "service type", "work type", "scope type", "discipline", "investigation type", "project description", "work required", "description of proposal"]),
     column("proposalDate", "Proposal Date", false, ["quote date"]),
     column("acceptanceDate", "Acceptance Date", false, ["accepted date", "award date"]),
     column("purchaseOrder", "Purchase Order", false, ["po", "po number", "purchase order number"]),
@@ -168,6 +168,7 @@
   function clamp(value, min, max) { return Math.max(min, Math.min(max, Number(value) || 0)); }
   function uid(prefix) { return `${prefix}_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 8)}`; }
   function slug(value) { return text(value).toLowerCase().replace(/&/g, " and ").replace(/[^a-z0-9]+/g, "_").replace(/^_|_$/g, ""); }
+  function registerProjectId(jobNumber) { return `register_${slug(jobNumber).slice(0, 96)}`; }
   function normaliseHeader(value) { return slug(value).replace(/_+/g, "_"); }
 
   function normaliseProjectType(value) {
@@ -663,11 +664,11 @@
     const source = normaliseHeader(header);
     if (!source) return 0;
     const sourceTokens = source.split("_").filter(Boolean);
-    return [columnDef.label, columnDef.key, ...(columnDef.aliases || [])].reduce((best, value) => {
+    return [columnDef.label, columnDef.key, ...(columnDef.aliases || [])].reduce((best, value, index) => {
       const candidate = normaliseHeader(value);
       if (!candidate) return best;
-      if (source === candidate) return Math.max(best, 100);
-      if (candidate.length > 3 && (source.includes(candidate) || candidate.includes(source))) {
+      if (source === candidate) return Math.max(best, index < 2 ? 110 : 100);
+      if (source.length > 3 && candidate.length > 3 && (source.includes(candidate) || candidate.includes(source))) {
         const ratio = Math.min(source.length, candidate.length) / Math.max(source.length, candidate.length);
         return Math.max(best, 72 + Math.round(ratio * 18));
       }
@@ -708,6 +709,26 @@
     });
   }
 
+  function headerIncludes(headers, aliases) {
+    const candidates = (aliases || []).map(normaliseHeader).filter(Boolean);
+    return (headers || []).some((header) => {
+      const source = normaliseHeader(header);
+      return candidates.some((candidate) => source === candidate || (candidate.length > 5 && source.endsWith(`_${candidate}`)));
+    });
+  }
+
+  function requiredFieldMapped(columnDef, mapping, headers, profileId) {
+    if (Number(mapping[columnDef.key]) >= 0) return true;
+    if (profileId !== "project_register") return false;
+    if (columnDef.key === "projectName") {
+      return Number(mapping.siteAddress) >= 0 || headerIncludes(headers, ["site address", "street address", "street", "suburb", "location"]);
+    }
+    if (columnDef.key === "siteAddress") {
+      return headerIncludes(headers, ["site address", "street address", "street", "suburb", "location"]);
+    }
+    return false;
+  }
+
   function nonEmptyRowCount(rows, start) {
     return (rows || []).slice(start || 0).filter((row) => Array.isArray(row) && row.some((value) => text(value))).length;
   }
@@ -716,14 +737,14 @@
     const profile = IMPORT_PROFILES[profileId]; const mapping = suggestColumnMapping(headers, profile.columns);
     const mapped = profile.columns.filter((columnDef) => mapping[columnDef.key] >= 0);
     const required = profile.columns.filter((columnDef) => columnDef.required);
-    const requiredMapped = required.filter((columnDef) => mapping[columnDef.key] >= 0).length;
+    const requiredMapped = required.filter((columnDef) => requiredFieldMapped(columnDef, mapping, headers, profileId)).length;
     const quality = mapped.reduce((sum, columnDef) => sum + headerMatchScore(headers[mapping[columnDef.key]], columnDef), 0);
     const density = headers.filter((header) => text(header)).length;
     const dataStartRow = headerRow + headerDepth;
     const dataRows = nonEmptyRowCount(rows, dataStartRow);
     const coverage = required.length ? requiredMapped / required.length : 1;
-    const rankScore = coverage * 500 + mapped.length * 24 + quality / 12 + Math.min(dataRows, 250) / 10 + Math.min(density, 40) / 100 - (headerDepth - 1) / 1000;
-    const confidence = requiredMapped === required.length && mapped.length >= Math.min(5, profile.columns.length) ? "high" : mapped.length >= 2 && requiredMapped ? "medium" : "low";
+    const rankScore = requiredMapped * 120 + coverage * 140 + mapped.length * 24 + quality / 12 + Math.min(dataRows, 250) / 10 + Math.min(density, 40) / 100 - (headerDepth - 1) / 1000;
+    const confidence = requiredMapped === required.length && mapped.length >= Math.min(4, profile.columns.length) ? "high" : mapped.length >= 2 && requiredMapped ? "medium" : "low";
     return {
       profile: profileId, columns: profile.columns, headerRow, headerDepth, dataStartRow,
       headers: headers.map(text), mapping, score: mapped.length, mappedCount: mapped.length,
@@ -778,9 +799,9 @@
     const mapped = columns.filter((columnDef) => Number(next.mapping[columnDef.key]) >= 0);
     const required = columns.filter((columnDef) => columnDef.required);
     next.score = next.mappedCount = mapped.length;
-    next.requiredMapped = required.filter((columnDef) => Number(next.mapping[columnDef.key]) >= 0).length;
+    next.requiredMapped = required.filter((columnDef) => requiredFieldMapped(columnDef, next.mapping, next.headers, next.profile)).length;
     next.requiredTotal = required.length;
-    next.confidence = next.requiredMapped === required.length && mapped.length >= Math.min(5, columns.length) ? "high" : mapped.length >= 2 && next.requiredMapped ? "medium" : "low";
+    next.confidence = next.requiredMapped === required.length && mapped.length >= Math.min(4, columns.length) ? "high" : mapped.length >= 2 && next.requiredMapped ? "medium" : "low";
     const used = new Set(Object.values(next.mapping).map(Number).filter((index) => Number.isInteger(index) && index >= 0));
     next.unmappedHeaders = (next.headers || []).filter((header, index) => text(header) && !used.has(index));
     return next;
@@ -824,12 +845,105 @@
     return output;
   }
 
+  function importDataRows(matrix, dataStartRow, detection) {
+    const headerIndexes = (detection && detection.headers || []).map((header, index) => text(header) ? index : -1).filter((index) => index >= 0);
+    const output = []; let emptyRun = 0; let started = false;
+    for (let index = dataStartRow; index < (matrix || []).length; index += 1) {
+      const row = matrix[index] || [];
+      const populated = (headerIndexes.length ? headerIndexes : row.map((value, cell) => text(value) ? cell : -1).filter((cell) => cell >= 0))
+        .some((cell) => text(row[cell]));
+      if (!populated) {
+        emptyRun += 1;
+        if (started && emptyRun >= 250) break;
+        continue;
+      }
+      started = true; emptyRun = 0; output.push({ row, index });
+    }
+    return output;
+  }
+
+  function sourceColumnLookup(detection) {
+    return (detection && detection.headers || []).map((header, index) => ({ index, key: normaliseHeader(header) })).filter((item) => item.key);
+  }
+
+  function sourceField(row, lookup, aliases) {
+    const candidates = (aliases || []).map(normaliseHeader).filter(Boolean);
+    for (const exact of [true, false]) {
+      for (const candidate of candidates) {
+        const column = lookup.find((item) => exact ? item.key === candidate : candidate.length > 5 && item.key.endsWith(`_${candidate}`));
+        if (column && text(row && row[column.index])) return row[column.index];
+      }
+    }
+    return "";
+  }
+
+  function distinctParts(values) {
+    const seen = new Set();
+    return (values || []).map(text).filter((value) => {
+      const key = slug(value);
+      if (!key || seen.has(key)) return false;
+      seen.add(key); return true;
+    });
+  }
+
+  function compactDetails(entries) {
+    return Object.fromEntries(Object.entries(entries || {}).map(([key, value]) => [key, sourceValue(value)]).filter(([, value]) => text(value)));
+  }
+
+  function enrichProjectInput(input, row, lookup) {
+    const value = (aliases) => sourceField(row, lookup, aliases);
+    const streetNumber = value(["street number"]);
+    const street = value(["site address", "street address", "street"]);
+    const locality = value(["suburb", "location"]);
+    const streetLine = distinctParts([streetNumber, street]).join(" ");
+    const addressParts = distinctParts([streetLine, locality]);
+    const explicitProjectName = value(["project name", "project title", "job name", "job title", "site name"]);
+    const company = value(["company name", "client", "client organisation", "customer name"]);
+    const work = value(["project type", "project description", "work required", "description of proposal"]);
+    if (addressParts.length) input.siteAddress = addressParts.join(", ");
+    if (company) input.client = company;
+    if (work) input.projectType = work;
+    input.projectName = explicitProjectName || text(input.siteAddress) || text(input.projectName);
+    if (value(["proposal number"])) {
+      input.proposalDate = input.proposalDate || value(["date"]);
+      input.acceptanceDate = input.acceptanceDate || value(["approved date"]);
+    }
+    const clientDetails = compactDetails({
+      name: input.client,
+      address: value(["client address"]),
+      phone: value(["client phone number", "client number"]),
+      contactName: value(["contact name", "client contact", "client name"]),
+      email: value(["client email", "client email address"]),
+      code: value(["client code"]),
+      clientJobNumber: value(["client job no", "client job number"])
+    });
+    const involvedStaff = distinctParts([
+      value(["involve staff no 1", "involved staff no 1"]),
+      value(["involve staff no 2", "involved staff no 2"]),
+      value(["involve staff no 3", "involved staff no 3"])
+    ]);
+    const projectDetails = compactDetails({
+      stsNumber: value(["sts number"]), codes: value(["codes"]), projectDate: value(["project date"]),
+      dateReceived: value(["date recd", "date rec d", "date received"]), proposalNumber: value(["proposal no", "proposal number"]),
+      quotedRate: value(["quote rate", "geotechnical fee ex gst"]), invoicePercentage: value(["invoice percentage"]),
+      finalInvoiceDate: value(["final invoice date"]), location: locality, latitude: value(["latitude"]), longitude: value(["longitude"]),
+      workRequired: work, enteredBy: value(["entered by", "prepared by"]), sampleNumbers: value(["sample numbers"]),
+      sampledBy: value(["sampled by"]), sampleOrFieldworkFinishDate: value(["sample date field work finish date"]),
+      limsWorkOrderNumber: value(["lims work order number"]), nata: value(["nata"]), approved: value(["approved yes no"]),
+      approvedDate: value(["approved date"]), proposalOutcome: value(["not successful update reason", "not successful update"])
+    });
+    if (involvedStaff.length) projectDetails.involvedStaff = involvedStaff;
+    return { clientDetails, projectDetails };
+  }
+
   function parseProjectRows(matrix, detection, options) {
     const config = options || {}; const existing = new Set((config.existingJobNumbers || []).map((value) => slug(value)));
     const dataStartRow = Number.isInteger(detection.dataStartRow) ? detection.dataStartRow : detection.headerRow + 1;
-    const rows = (matrix || []).slice(dataStartRow);
-    return rows.map((row, index) => {
+    const rows = importDataRows(matrix, dataStartRow, detection); const lookup = sourceColumnLookup(detection);
+    return rows.map((record) => {
+      const row = record.row;
       const input = projectRowInput(row, detection.mapping);
+      const details = enrichProjectInput(input, row, lookup);
       const blank = !PROJECT_COLUMNS.some((columnDef) => text(input[columnDef.key]));
       if (blank) return null;
       const type = normaliseProjectType(input.projectType);
@@ -843,9 +957,11 @@
       const duplicate = existing.has(slug(input.jobNumber));
       if (duplicate && config.duplicateMode !== "update") errors.push("Duplicate job number.");
       const built = makeJob(input, config.now && toDate(config.now)?.toISOString());
-      const sourceRow = dataStartRow + index + 1; const extras = unmappedSourceValues(row, detection);
+      const sourceRow = record.index + 1; const extras = unmappedSourceValues(row, detection);
       built.job.importSource = importSource(detection, config, sourceRow);
       built.job.importExtras = extras;
+      if (Object.keys(details.clientDetails).length) built.job.clientDetails = details.clientDetails;
+      if (Object.keys(details.projectDetails).length) built.job.projectDetails = details.projectDetails;
       errors.push(...validateNextAction(built.job));
       const warnings = Object.keys(extras).length ? [`${Object.keys(extras).length} unmapped source column${Object.keys(extras).length === 1 ? "" : "s"} retained.`] : [];
       return { sourceRow, input, built, duplicate, errors: [...new Set(errors)], warnings };
@@ -855,14 +971,15 @@
   function parsePileRows(matrix, detection, options) {
     const config = options || {}; const jobId = text(config.jobId);
     const dataStartRow = Number.isInteger(detection.dataStartRow) ? detection.dataStartRow : detection.headerRow + 1;
-    return (matrix || []).slice(dataStartRow).map((row, index) => {
+    return importDataRows(matrix, dataStartRow, detection).map((record, index) => {
+      const row = record.row;
       const values = {};
       PILE_COLUMNS.forEach((columnDef) => { values[columnDef.key] = valueAt(row, detection.mapping, columnDef.key); });
       if (!PILE_COLUMNS.some((columnDef) => text(values[columnDef.key]))) return null;
       const errors = [];
       if (!jobId) errors.push("Select a target job for the pile schedule.");
       if (!text(values.pileNumber)) errors.push("Pile Number is required.");
-      const at = new Date().toISOString(); const sourceRow = dataStartRow + index + 1;
+      const at = new Date().toISOString(); const sourceRow = record.index + 1;
       const extras = unmappedSourceValues(row, detection); const source = importSource(detection, config, sourceRow);
       const warnings = Object.keys(extras).length ? [`${Object.keys(extras).length} unmapped source column${Object.keys(extras).length === 1 ? "" : "s"} retained.`] : [];
       return {
@@ -906,10 +1023,34 @@
     return PROJECT_COLUMNS.map((columnDef) => values[columnDef.key] == null ? "" : values[columnDef.key]);
   }
 
+  function clientDirectory(jobs) {
+    const rows = (jobs || []).filter((job) => job && text(job.client));
+    const codeByName = new Map();
+    rows.forEach((job) => {
+      const name = slug(job.client); const code = slug(job.clientDetails && job.clientDetails.code);
+      if (name && code) codeByName.set(name, code);
+    });
+    const groups = new Map();
+    rows.slice().sort((a, b) => String(a.updatedAt || "").localeCompare(String(b.updatedAt || ""))).forEach((job) => {
+      const nameKey = slug(job.client); const code = slug(job.clientDetails && job.clientDetails.code);
+      const id = `client_${code || codeByName.get(nameKey) || nameKey}`;
+      if (!groups.has(id)) groups.set(id, { id, name: text(job.client), code: "", address: "", phone: "", contactName: "", email: "", projects: [] });
+      const client = groups.get(id); const details = job.clientDetails || {};
+      client.name = text(job.client) || client.name;
+      ["code", "address", "phone", "contactName", "email"].forEach((field) => { if (text(details[field])) client[field] = text(details[field]); });
+      client.projects.push(clone(job));
+    });
+    return [...groups.values()].map((client) => {
+      client.projects.sort((a, b) => String(b.updatedAt || "").localeCompare(String(a.updatedAt || "")) || text(a.jobNumber).localeCompare(text(b.jobNumber), undefined, { numeric: true }));
+      client.updatedAt = client.projects[0] && client.projects[0].updatedAt || "";
+      return client;
+    }).sort((a, b) => a.name.localeCompare(b.name));
+  }
+
   function viewForRole(roleId) {
     return ({
       director: "tower", engineering_manager: "review", project_engineer: "my_work",
-      field_engineer: "fieldwork", laboratory_staff: "logs_lab", admin: "invoice", client: "my_work"
+      field_engineer: "fieldwork", laboratory_staff: "logs_lab", admin: "invoice", client: "clients"
     })[roleId] || "tower";
   }
 
@@ -929,13 +1070,13 @@
   return Object.freeze({
     VERSION, GROUPS, STAGES, STAGE_BY_ID, STAGE_INDEX, ROLE_STAGE_LIMITS, PROJECT_TYPES, PROJECT_COLUMNS, PILE_COLUMNS,
     IMPORT_PROFILES, SUPPORTED_WORKBOOK_EXTENSIONS, BLOCKER_CATEGORIES,
-    text, clone, clamp, uid, slug, normaliseHeader, normaliseProjectType, projectProfile, stageActive, normaliseStage,
+    text, clone, clamp, uid, slug, registerProjectId, normaliseHeader, normaliseProjectType, projectProfile, stageActive, normaliseStage,
     toDate, isoDate, addBusinessDays, daysBetween, createStages, effectiveStageWeights, stageCompletion, calculateProgress,
     ownerRoleForStage, visibleStageLimit, stageVisibleForRole, stageControllableByRole, roleTitle, ownerForStage, defaultTask,
     nextRequiredStage, completeTaskForHandover, assignHandover, makeJob, percentNumber, numberOrNull, normaliseRisk,
     normaliseInvoiceStatus, normaliseBlockerCategory, validateNextAction, validateStageCompletion, completeStage,
     stuckThreshold, deriveHealth, summariseJob, headerMatchScore, suggestColumnMapping, combineHeaderRows,
     detectImportProfile, analyseWorkbook, refreshImportDetection, unmappedSourceValues, parseProjectRows, parsePileRows,
-    parseImport, exportRow, viewForRole, ownerMatchesUser, jobInMyWork
+    parseImport, exportRow, clientDirectory, viewForRole, ownerMatchesUser, jobInMyWork
   });
 });

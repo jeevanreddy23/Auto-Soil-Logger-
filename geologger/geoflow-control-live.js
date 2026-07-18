@@ -20,10 +20,31 @@
     "handoverStatus", "handoverFromStageId", "handoverToStageId", "handoverReadyAt", "handoverReadyBy",
     "handoverNote", "lastHandover", "workflowStatus"
   ]);
+  const SYNC_BATCH_SIZE = 100;
+  const DIRECTORY_BATCH_SIZE = 50;
+  const PROJECTION_HASH_KEY = "sts-geoflow-control-projection-hashes-v2";
+
+  function loadProjectionHashes() {
+    try {
+      if (!root || !root.window || !root.localStorage) return new Map();
+      const values = JSON.parse(root.localStorage.getItem(PROJECTION_HASH_KEY) || "[]");
+      return new Map(Array.isArray(values) ? values.slice(0, 10000) : []);
+    } catch (error) { return new Map(); }
+  }
+
+  function saveProjectionHashes(hashes) {
+    try {
+      if (!root || !root.window || !root.localStorage) return;
+      root.localStorage.setItem(PROJECTION_HASH_KEY, JSON.stringify([...hashes].slice(-10000)));
+    }
+    catch (error) {}
+  }
+
   const state = {
     started: false, socket: null, status: "offline", lastSyncAt: "", lastRevision: 0,
     reconnectAttempt: 0, reconnectTimer: null, pollTimer: null, syncTimer: null,
-    local: DB.emptySnapshot(), pending: new Map(), applyQueue: Promise.resolve(), channel: null
+    local: DB.emptySnapshot(), pending: new Map(), applyQueue: Promise.resolve(), channel: null,
+    projectionHashes: loadProjectionHashes(), directoryPromise: null
   };
 
   function access() { return root && root.GeoFlowAccess; }
@@ -40,34 +61,47 @@
     catch (error) { return null; }
   }
 
-  function accessibleJobs(snapshot) {
+  function accessibleJobs(snapshot, includeRegister) {
     return (snapshot && snapshot.jobs || []).filter(job => {
+      if (job.registerOnly && !includeRegister) return false;
       try { return !access() || !access().canAccessProject || access().canAccessProject(job.projectId || job.id); }
       catch (error) { return true; }
     });
   }
 
-  function projectScope(snapshot) {
-    const user = actor(); const policy = accessPolicy(); const jobs = accessibleJobs(snapshot);
-    const projectIds = [...new Set(jobs.map(job => Core.text(job.projectId || job.id)).filter(Boolean))];
+  function projectScope(snapshot, includeRegister) {
+    const user = actor(); const policy = accessPolicy(); const jobs = accessibleJobs(snapshot, includeRegister);
+    const assigned = Object.entries(policy && policy.projectAssignments || {}).filter(([, assignments]) => {
+      const assignment = assignments && assignments[user.id]; return assignment && assignment.active !== false;
+    }).map(([projectId]) => Core.text(projectId));
+    const projectIds = [...new Set([...jobs.map(job => Core.text(job.projectId || job.id)), ...assigned].filter(Boolean))];
     const pmProjectIds = projectIds.filter(projectId => {
       const assignment = policy && policy.projectAssignments && policy.projectAssignments[projectId] && policy.projectAssignments[projectId][user.id];
       if (assignment && /project manager/i.test(Core.text(assignment.projectRole))) return true;
       const job = jobs.find(item => (item.projectId || item.id) === projectId);
       return Core.slug(job && job.projectManager) === Core.slug(user.name) || Core.text(job && job.projectManagerId) === user.id;
     });
-    return { projectIds, pmProjectIds };
+    return { projectIds, pmProjectIds, companyWide: ["director", "engineering_manager"].includes(user.role) };
   }
 
   function endpoint(snapshot, websocket) {
-    const user = actor(); const scope = projectScope(snapshot || state.local);
+    const user = actor(); const scope = projectScope(snapshot || state.local, false);
     const params = new URLSearchParams({ role: user.role, user: user.id, name: user.name });
-    if (scope.projectIds.length) params.set("projects", scope.projectIds.join(","));
+    if (!scope.companyWide && scope.projectIds.length) params.set("projects", scope.projectIds.join(","));
     if (scope.pmProjectIds.length) params.set("pm", scope.pmProjectIds.join(","));
     const path = `/api/v1/control/live?${params.toString()}`;
     if (!websocket) return path;
     const protocol = root.location.protocol === "https:" ? "wss:" : "ws:";
     return `${protocol}//${root.location.host}${path}`;
+  }
+
+  function directoryEndpoint(snapshot, values) {
+    const user = actor(); const scope = projectScope(snapshot || state.local, true);
+    const params = new URLSearchParams({ role: user.role, user: user.id, name: user.name });
+    if (!scope.companyWide && scope.projectIds.length) params.set("projects", scope.projectIds.join(","));
+    if (scope.pmProjectIds.length) params.set("pm", scope.pmProjectIds.join(","));
+    Object.entries(values || {}).forEach(([key, value]) => { if (value != null && value !== "") params.set(key, String(value)); });
+    return `/api/v1/control/directory?${params.toString()}`;
   }
 
   function requestHeaders(projectId, recordKey) {
@@ -98,8 +132,26 @@
     return projection;
   }
 
-  function projections(snapshot) {
-    return accessibleJobs(snapshot).map(job => projectProjection(snapshot, job));
+  function projectionHash(project) {
+    const value = JSON.stringify(project); let first = 0xdeadbeef ^ value.length; let second = 0x41c6ce57 ^ value.length;
+    for (let index = 0; index < value.length; index += 1) {
+      const code = value.charCodeAt(index);
+      first = Math.imul(first ^ code, 2654435761);
+      second = Math.imul(second ^ code, 1597334677);
+    }
+    first = Math.imul(first ^ first >>> 16, 2246822507) ^ Math.imul(second ^ second >>> 13, 3266489909);
+    second = Math.imul(second ^ second >>> 16, 2246822507) ^ Math.imul(first ^ first >>> 13, 3266489909);
+    return `${(second >>> 0).toString(16).padStart(8, "0")}${(first >>> 0).toString(16).padStart(8, "0")}`;
+  }
+
+  function projections(snapshot, changedOnly) {
+    const projects = accessibleJobs(snapshot, false).map(job => projectProjection(snapshot, job));
+    return changedOnly ? projects.filter(project => state.projectionHashes.get(project.projectId) !== projectionHash(project)) : projects;
+  }
+
+  function rememberProjections(projects) {
+    (projects || []).forEach(project => state.projectionHashes.set(project.projectId, projectionHash(project)));
+    saveProjectionHashes(state.projectionHashes);
   }
 
   function updateLocalRows(store, rows) {
@@ -135,8 +187,10 @@
       state.lastRevision = Number(payload.revision) || state.lastRevision;
       state.lastSyncAt = payload.updatedAt || new Date().toISOString();
       setStatus(state.socket && state.socket.readyState === 1 ? "live" : "polling", { lastSyncAt: state.lastSyncAt });
-      if (root && root.dispatchEvent && root.CustomEvent) root.dispatchEvent(new CustomEvent("geoflow:control-live", { detail: statusSnapshot() }));
-      if (state.channel) state.channel.postMessage({ type: "refresh", revision: state.lastRevision, at: state.lastSyncAt });
+      const affected = new Set(payload.projects.map(project => project.projectId));
+      rememberProjections(projections(state.local).filter(project => affected.has(project.projectId)));
+      if (payload.projects.length && root && root.dispatchEvent && root.CustomEvent) root.dispatchEvent(new CustomEvent("geoflow:control-live", { detail: statusSnapshot() }));
+      if (payload.projects.length && state.channel) state.channel.postMessage({ type: "refresh", revision: state.lastRevision, at: state.lastSyncAt });
     }).catch(error => setStatus("offline", { error: error && error.message || "Local workflow cache could not be updated." }));
     return state.applyQueue;
   }
@@ -170,7 +224,7 @@
       const socket = new WebSocket(endpoint(state.local, true)); state.socket = socket;
       socket.addEventListener("open", () => {
         state.reconnectAttempt = 0; root.clearTimeout(state.pollTimer); setStatus("live");
-        sendSocket({ type: "sync_projects", projects: projections(state.local) }).catch(() => schedulePoll());
+        if (actor().role !== "client") publishProjects(state.local, true, sendSocket).catch(() => schedulePoll());
       });
       socket.addEventListener("message", handleMessage);
       socket.addEventListener("close", () => { if (state.socket === socket) state.socket = null; setStatus("offline"); scheduleReconnect(); });
@@ -220,10 +274,74 @@
     return sendHttp(operation);
   }
 
+  async function publishProjects(snapshot, changedOnly, sender) {
+    const projects = projections(snapshot, changedOnly);
+    if (!projects.length) return { type: "operation_result", ok: true, result: { received: 0, synced: 0, changed: false } };
+    const aggregate = { received: 0, synced: 0, changed: false, batches: 0 };
+    let latest = null;
+    for (let offset = 0; offset < projects.length; offset += SYNC_BATCH_SIZE) {
+      const batch = projects.slice(offset, offset + SYNC_BATCH_SIZE);
+      latest = await (sender || perform)({ type: "sync_projects", projects: batch });
+      const result = latest && latest.result || {};
+      aggregate.received += Number(result.received) || batch.length;
+      aggregate.synced += Number(result.synced) || 0;
+      aggregate.changed = aggregate.changed || result.changed === true;
+      aggregate.batches += 1;
+      rememberProjections(batch);
+    }
+    return Object.assign({}, latest || {}, { type: "operation_result", ok: true, result: aggregate });
+  }
+
+  async function publishDirectory(jobs) {
+    const projects = (jobs || []).filter(job => job && job.registerOnly);
+    let stored = 0; let batches = 0;
+    for (let offset = 0; offset < projects.length; offset += DIRECTORY_BATCH_SIZE) {
+      const batch = projects.slice(offset, offset + DIRECTORY_BATCH_SIZE);
+      const response = await fetch(directoryEndpoint(state.local), {
+        method: "POST", headers: requestHeaders(), body: JSON.stringify({ projects: batch })
+      });
+      const payload = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(payload.message || `Client directory sync failed (${response.status}).`);
+      stored += Number(payload.stored) || 0; batches += 1;
+    }
+    return { ok: true, received: projects.length, stored, batches };
+  }
+
+  async function loadDirectory() {
+    if (state.directoryPromise) return state.directoryPromise;
+    state.directoryPromise = (async () => {
+      const records = []; let page = 0; let nextPage = 0; let safety = 0;
+      while (nextPage != null && safety < 100) {
+        const response = await fetch(directoryEndpoint(state.local, { page, limit: 200 }), { headers: requestHeaders() });
+        const payload = await response.json().catch(() => ({}));
+        if (!response.ok) throw new Error(payload.message || `Client directory refresh failed (${response.status}).`);
+        records.push(...(Array.isArray(payload.projects) ? payload.projects : []));
+        nextPage = payload.nextPage == null ? null : Number(payload.nextPage); page = nextPage; safety += 1;
+      }
+      const scope = projectScope(state.local, true);
+      const allowed = new Set(records.map(job => Core.text(job.projectId || job.id)));
+      const removed = scope.companyWide ? [] : (state.local.jobs || []).filter(job => job.registerOnly && !allowed.has(Core.text(job.projectId || job.id))).map(job => job.id);
+      if (records.length || removed.length) {
+        if (removed.length) { const removedIds = new Set(removed); state.local.jobs = (state.local.jobs || []).filter(job => !removedIds.has(job.id)); }
+        const byId = new Map((state.local.jobs || []).map(job => [job.id, job]));
+        records.forEach(job => {
+          const local = byId.get(job.id); const localAt = Date.parse(local && local.updatedAt || "") || 0; const remoteAt = Date.parse(job.updatedAt || "") || 0;
+          if (!local || remoteAt >= localAt) byId.set(job.id, Core.clone(job));
+        });
+        state.local.jobs = [...byId.values()];
+        if (removed.length) await DB.transact({ put: { jobs: records }, delete: { jobs: removed } });
+        else await DB.bulkPut("jobs", records);
+        if (root && root.dispatchEvent && root.CustomEvent) root.dispatchEvent(new CustomEvent("geoflow:control-directory", { detail: { records: records.length, removed: removed.length } }));
+      }
+      return records;
+    })().finally(() => { state.directoryPromise = null; });
+    return state.directoryPromise;
+  }
+
   function scheduleSync(snapshot) {
     if (snapshot) state.local = snapshot;
     root.clearTimeout(state.syncTimer);
-    state.syncTimer = root.setTimeout(() => perform({ type: "sync_projects", projects: projections(state.local) }).catch(error => setStatus("offline", { error: error.message })), 250);
+    state.syncTimer = root.setTimeout(() => publishProjects(state.local, true).catch(error => setStatus("offline", { error: error.message })), 900);
   }
 
   function start(snapshot) {
@@ -237,6 +355,9 @@
       });
     }
     openSocket();
+    if (["director", "engineering_manager", "project_engineer", "admin", "client"].includes(actor().role)) {
+      root.setTimeout(() => loadDirectory().catch(() => {}), 1200);
+    }
     root.setTimeout(() => {
       if (!state.socket || state.socket.readyState !== 1) scheduleSync(state.local);
     }, 1800);
@@ -285,6 +406,6 @@
     }).catch(() => {});
   });
 
-  const api = Object.freeze({ start, stop, perform, scheduleSync, uploadLabResult, status: statusSnapshot, projections, state });
+  const api = Object.freeze({ start, stop, perform, publishProjects, publishDirectory, loadDirectory, scheduleSync, uploadLabResult, status: statusSnapshot, projections, state });
   return api;
 });
