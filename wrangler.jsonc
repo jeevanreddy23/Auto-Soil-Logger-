@@ -7,7 +7,18 @@
     "directory": "geologger",
     "binding": "ASSETS"
   },
+  "vars": {
+    "ACCESS_ENFORCEMENT": "disabled"
+  },
   "kv_namespaces": [
     { "binding": "GEOFLOW", "id": "f9c604a7cd24492fb826a45f7ed1c28a" }
+  ],
+  "durable_objects": {
+    "bindings": [
+      { "name": "WORKFLOW", "class_name": "WorkflowCoordinator" }
+    ]
+  },
+  "migrations": [
+    { "tag": "workflow-v1", "new_sqlite_classes": ["WorkflowCoordinator"] }
   ]
 }

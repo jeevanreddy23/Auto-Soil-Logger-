@@ -316,9 +316,8 @@
 const NATIVE_APP = Boolean(window.Capacitor && typeof window.Capacitor.isNativePlatform === "function" && window.Capacitor.isNativePlatform());
 document.documentElement.classList.toggle("native-app", NATIVE_APP);
 if (!NATIVE_APP && "serviceWorker" in navigator) navigator.serviceWorker.register("sw.js").catch(()=>{});
-const SYNC_URL = NATIVE_APP
-  ? "https://autosoillogger.poreddyjeevanreddy.workers.dev/api/v1/geologger/logs"
-  : "/api/v1/geologger/logs";
+const API_BASE = NATIVE_APP ? "https://autosoillogger.poreddyjeevanreddy.workers.dev" : "";
+const SYNC_URL = API_BASE + "/api/v1/geologger/logs";
 const FIELD_ICONS = {
   home:"house", jobs:"briefcase-business", bh:"clipboard-pen-line", photos:"camera", sync:"refresh-cw",
   soil:"layers-3", spt:"gauge", sample:"package-plus", photo:"camera", water:"droplets", prog:"ruler",
@@ -408,7 +407,7 @@ const now = () => new Date().toISOString();
 /* ---- state ---- */
 let F = JSON.parse(localStorage.getItem("geoflow")||"null") || {
   project: { projectNumber:"", clientName:"", siteAddress:"", loggedBy:"" },
-  boreholes: [], logs: {}, activeBh: null, screen: "home", pending: 0, lastSync: null
+  boreholes: [], logs: {}, activeBh: null, screen: "home", pending: 0, lastSync: null, projectId: ""
 };
 if (!F.syncKey) F.syncKey = "__autosoil_project__";
 if (!F.role) F.role = "Technician";
@@ -422,8 +421,8 @@ function switchProject(key, meta){
   const raw = localStorage.getItem("geoflow-slot-"+key);
   const role = F.role;
   F = raw? JSON.parse(raw) : { project:{ projectNumber:meta?.number||"", clientName:meta?.client||"", siteAddress:meta?.address||"", loggedBy:"" },
-    boreholes:[], logs:{}, activeBh:null, screen:"jobs", pending:0, lastSync:null, syncKey:key };
-  F.syncKey = key; F.role = role;
+    boreholes:[], logs:{}, activeBh:null, screen:"jobs", pending:0, lastSync:null, syncKey:key, projectId:meta?.id||"" };
+  F.syncKey = key; F.projectId = meta?.id || F.projectId || ""; F.role = role;
   save(false); render();
   if (online()) doSync(false);
 }
@@ -471,17 +470,39 @@ async function doSync(manual){
   try {
     const key = localStorage.getItem("geologger-api-key")||"";
     const h = {"Content-Type":"application/json"}; if (key) h["X-Autosoil-Api-Key"]=key;
+    if (F.projectId) h["X-GeoFlow-Project"] = F.projectId;
+    if (F.syncKey) h["X-GeoFlow-Record-Key"] = F.syncKey;
+    let serverDirectory = false;
+    try {
+      const directoryResponse = await fetch(API_BASE + "/api/v1/projects", {headers:h});
+      if (directoryResponse.ok) {
+        const directory = await directoryResponse.json();
+        if (directory.enforcement === "cloudflare-rls") {
+          serverDirectory = true;
+          const previous = new Map(PROJECTS_CACHE.map(project => [project.key, project]));
+          PROJECTS_CACHE = (directory.projects||[]).map(project => Object.assign({}, previous.get(project.recordKey)||{}, {
+            id:project.id, key:project.recordKey, number:project.number||"(no number)", name:project.name||"", permissions:project.permissions||[]
+          }));
+          const current = PROJECTS_CACHE.find(project => project.key===F.syncKey);
+          if (current) { F.projectId=current.id; F.serverPermissions=current.permissions||[]; h["X-GeoFlow-Project"]=current.id; }
+          F.serverEnforcement = true;
+          localStorage.setItem("geoflow-remote-projects", JSON.stringify(PROJECTS_CACHE));
+        }
+      }
+    } catch(e) {}
     /* pull server project state and merge boreholes we don't have */
     const res = await fetch(SYNC_URL, {headers:h});
     let server = null;
     if (res.ok) { const data=await res.json();
       const all = data.boreholes||{};
       /* refresh remote project directory for the picker */
-      PROJECTS_CACHE = Object.entries(all)
-        .filter(([k,v])=>(k==="__autosoil_project__"||k.startsWith("__project_")) && v?.rows?.[0]?.project?.projectNumber)
-        .map(([k,v])=>{ const p=v?.rows?.[0]?.project||{};
-          return { key:k, number:p.projectNumber||"(no number)", name:p.projectName||"", client:p.clientName||"", address:p.siteAddress||"" }; });
-      localStorage.setItem("geoflow-remote-projects", JSON.stringify(PROJECTS_CACHE));
+      if (!serverDirectory) {
+        PROJECTS_CACHE = Object.entries(all)
+          .filter(([k,v])=>(k==="__autosoil_project__"||k.startsWith("__project_")) && v?.rows?.[0]?.project?.projectNumber)
+          .map(([k,v])=>{ const p=v?.rows?.[0]?.project||{};
+            return { key:k, number:p.projectNumber||"(no number)", name:p.projectName||"", client:p.clientName||"", address:p.siteAddress||"" }; });
+        localStorage.setItem("geoflow-remote-projects", JSON.stringify(PROJECTS_CACHE));
+      }
       server = all[F.syncKey]?.rows?.[0]||null;
     }
     if (server) {
@@ -657,6 +678,7 @@ function scrHome(){
                Driller:["prog","water","photo","spt","soil","sample"],
                Engineer:["soil","spt","sample","photo","water","prog"] }[F.role]||[];
   const QDEF = { soil:["◱","Soil"], spt:["▼","SPT"], sample:["◰","Sample"], photo:["📷","Photo"], water:["💧","Water"], prog:["⏱","Progress"] };
+  const canCreateProject = !F.serverEnforcement || (F.serverPermissions||[]).includes("projects.manage");
   /* recent jobs (other project workspaces) */
   const recent = PROJECTS_CACHE.filter(p=>p.key!==F.syncKey).slice(0,3);
   return `
@@ -668,7 +690,7 @@ function scrHome(){
     `<div class="card" style="border-color:#e0c26a;padding:10px 14px">
       ${F.scopeReq?.cbr && !sampleHasTest(/CBR|BULK/i)?'<div class="vwarn">⚠ CBR sample missing (scope)</div>':""}
       ${F.scopeReq?.ss && !sampleHasTest(/shrink/i)?'<div class="vwarn">⚠ Shrink-swell sample missing (scope)</div>':""}</div>`:""}
-  <button class="btn primary big block" id="newJob">＋ START NEW JOB<small>Create project &amp; boreholes</small></button>
+  ${canCreateProject?'<button class="btn primary big block" id="newJob">＋ START NEW JOB<small>Create project &amp; boreholes</small></button>':""}
   <button class="btn block" id="goUpdate">📋 Project update — end-of-day review</button>
   ${drafts}
   ${cont}
@@ -1097,7 +1119,7 @@ function wire(m, s){
 
   if (s==="home"){
     const gu=m.querySelector("#goUpdate"); if (gu) gu.addEventListener("click",()=>go("update"));
-    m.querySelector("#newJob").addEventListener("click",()=>{ const w=newWizDraft(); WIZ.push(w); saveWiz(); F.wizId=w.id; go("wizard"); });
+    m.querySelector("#newJob")?.addEventListener("click",()=>{ const w=newWizDraft(); WIZ.push(w); saveWiz(); F.wizId=w.id; go("wizard"); });
     m.querySelectorAll("[data-wiz]").forEach(b=>b.addEventListener("click",()=>{ F.wizId=b.dataset.wiz; go("wizard"); }));
     m.querySelectorAll("[data-wizdel]").forEach(b=>b.addEventListener("click",()=>{
       if (!confirm("Delete this job draft?")) return; WIZ=WIZ.filter(w=>w.id!==b.dataset.wizdel); saveWiz(); render(); }));

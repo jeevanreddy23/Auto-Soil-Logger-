@@ -242,7 +242,13 @@ const SYNC_URL = "/api/v1/geologger/logs";
 const syncHydratedKeys = new Set();
 const syncPulls = new Map();
 function apiKey(){ return localStorage.getItem("geologger-api-key")||""; }
-function syncHeaders(){ const h={"Content-Type":"application/json"}; if(apiKey()) h["X-Autosoil-Api-Key"]=apiKey(); return h; }
+function syncHeaders(){
+  const h={"Content-Type":"application/json"};
+  if(apiKey()) h["X-Autosoil-Api-Key"]=apiKey();
+  try { if (PJ && PJ.activePid) h["X-GeoFlow-Project"]=PJ.activePid; } catch(e) {}
+  try { const key=typeof pjSyncKey==="function"?pjSyncKey():""; if(key) h["X-GeoFlow-Record-Key"]=key; } catch(e) {}
+  return h;
+}
 function setSync(state,msg){ const el=document.getElementById("syncStatus"); el.style.color={ok:"var(--og-ok)",off:"var(--og-muted)",err:"var(--og-warn)"}[state]; el.innerHTML="&#9679; "+msg; }
 function activeSyncKey(){
   try { if (typeof pjSyncKey === "function") return pjSyncKey(); } catch(e) {}
@@ -1789,7 +1795,34 @@ if (S.activeTab==="corebox") renderCorebox();
 const DZ = { green:"#147447", dark:"#0B4938", ink:"#18201C", sec:"#68716C", meta:"#8A938E",
   border:"#DDE2DE", grid:"#ECEFEC",
   strata:{ FILL:"#d9d2c4", SOIL:"#e9ece8", RES:"#cdd8cf", XW:"#b9c9bd", HW:"#9db5a4", MW:"#7f9d88", SW:"#5f8a6f", FR:"#3f7355" } };
+const DZ_BOREHOLE_TONES = [
+  { line:"#2563EB", dark:"#1E40AF", soft:"#EFF6FF" },
+  { line:"#D94841", dark:"#A52A2A", soft:"#FFF1F0" },
+  { line:"#00897B", dark:"#00695C", soft:"#E7F8F5" },
+  { line:"#7C3AED", dark:"#5B21B6", soft:"#F4F0FF" },
+  { line:"#D97706", dark:"#9A5200", soft:"#FFF7E8" },
+  { line:"#007C91", dark:"#075A6A", soft:"#E8F7FA" },
+  { line:"#C2185B", dark:"#8E1545", soft:"#FFF0F6" },
+  { line:"#657A00", dark:"#4C5C00", soft:"#F5F8E8" },
+  { line:"#4338CA", dark:"#312E81", soft:"#F0F0FF" },
+  { line:"#C2410C", dark:"#8F2F0A", soft:"#FFF3ED" }
+];
+const DZ_BOREHOLE_DASHES = ["", "7 3", "2 2", "10 3 2 3", "1 3", "8 2", "4 3", "12 3 3 3", "6 2 1 2", "3 2"];
 let dzBh = "ALL";
+
+function dzBhIndex(id) {
+  const index = S.boreholes.findIndex(borehole => borehole.id === id);
+  return index < 0 ? 0 : index;
+}
+function dzBhTone(id) { return DZ_BOREHOLE_TONES[dzBhIndex(id) % DZ_BOREHOLE_TONES.length]; }
+function dzBhDash(id) { return DZ_BOREHOLE_DASHES[dzBhIndex(id) % DZ_BOREHOLE_DASHES.length]; }
+function dzBoreholeLegend(ids) {
+  if (!ids.length) return "";
+  return `<div class="dz-bh-legend" aria-label="Borehole colour key">${ids.map(id=>{
+    const tone=dzBhTone(id);
+    return `<span class="dz-bh-legend-item" style="--bh:${tone.line};--bh-dark:${tone.dark};--bh-soft:${tone.soft}"><i class="dz-bh-swatch" aria-hidden="true"></i>${esc(id)}</span>`;
+  }).join("")}</div>`;
+}
 
 function dzClassify(id) { // ordered strata per borehole
   const L = S.logs[id]; if (!L) return [];
@@ -1837,16 +1870,21 @@ function dzProfileSVG() {
   s+=dzAxisY(maxD, x0, top, h);
   ids.forEach((id,i)=>{
     const cx = x0+28+i*72;
-    s+=`<text x="${cx+cw/2}" y="${top-8}" font-size="11" font-weight="600" fill="${DZ.ink}" text-anchor="middle">${esc(id)}</text>`;
+    const tone=dzBhTone(id);
+    s+=`<g data-bh-series="${esc(id)}"><rect x="${cx-6}" y="${top-23}" width="${cw+12}" height="18" rx="9" fill="${tone.soft}" stroke="${tone.line}"/>
+      <text x="${cx+cw/2}" y="${top-10}" font-size="10.5" font-weight="700" fill="${tone.dark}" text-anchor="middle">${esc(id)}</text>
+      <rect x="${cx-3}" y="${top}" width="${cw+6}" height="${h}" rx="4" fill="${tone.soft}"/>`;
     const strata = dzClassify(id);
-    if (!strata.length) { s+=`<rect x="${cx}" y="${top}" width="${cw}" height="${h*0.04}" fill="none" stroke="${DZ.border}" stroke-dasharray="3 2"/>`; return; }
+    if (!strata.length) { s+=`<rect x="${cx}" y="${top}" width="${cw}" height="${h*0.04}" fill="none" stroke="${tone.line}" stroke-width="1.5" stroke-dasharray="4 3"/></g>`; return; }
     for (const seg of strata) {
       const y1=top+seg.f/maxD*h, y2=top+seg.t/maxD*h;
       s+=`<rect x="${cx}" y="${y1}" width="${cw}" height="${Math.max(1,y2-y1)}" fill="${DZ.strata[seg.cls]}" stroke="#18201C" stroke-width=".5">
           <title>${esc(id)}\n${dzFmt(seg.f)}–${dzFmt(seg.t)} m\n${esc(seg.label)}</title></rect>`;
     }
+    s+=`<rect x="${cx-3}" y="${top}" width="${cw+6}" height="${h}" rx="4" fill="none" stroke="${tone.line}" stroke-width="1.5"/>`;
     const rt=dzRockTop(id);
     if (rt!=null) s+=`<line x1="${cx-3}" y1="${top+rt/maxD*h}" x2="${cx+cw+3}" y2="${top+rt/maxD*h}" stroke="#9a7018" stroke-width="1.2" stroke-dasharray="4 2"/>`;
+    s+=`</g>`;
   });
   s+=`</svg>`;
   const leg = Object.entries({FILL:"Fill",SOIL:"Natural soil",RES:"Residual",XW:"XW",HW:"HW",MW:"MW",SW:"SW",FR:"FR"})
@@ -1859,14 +1897,16 @@ function dzDepthBarsSVG() {
   let s=`<svg class="dz-svg" viewBox="0 0 ${W} ${H}" style="width:100%">`;
   ids.forEach((id,i)=>{
     const y=14+i*rh, d=dzDepth(id), bw=(d/maxD)*(W-140);
-    s+=`<text x="52" y="${y+11}" font-size="11" fill="${DZ.ink}" text-anchor="end" font-weight="600">${esc(id)}</text>`;
+    const tone=dzBhTone(id);
+    s+=`<g data-bh-series="${esc(id)}"><circle cx="8" cy="${y+7}" r="4" fill="${tone.line}"/><text x="52" y="${y+11}" font-size="11" fill="${tone.dark}" text-anchor="end" font-weight="700">${esc(id)}</text>
+      <rect x="60" y="${y}" width="${W-140}" height="14" rx="3" fill="${tone.soft}"/>`;
     let x=60;
     for (const seg of dzClassify(id)) {
       const w=(seg.t-seg.f)/maxD*(W-140);
       s+=`<rect x="${x+(seg.f/maxD)*(W-140)}" y="${y}" width="${Math.max(0.5,w)}" height="14" fill="${DZ.strata[seg.cls]}"><title>${esc(id)} ${dzFmt(seg.f)}–${dzFmt(seg.t)} m — ${esc(seg.label)}</title></rect>`;
     }
-    s+=`<rect x="60" y="${y}" width="${Math.max(1,bw)}" height="14" fill="none" stroke="${DZ.border}"/>`;
-    s+=`<text x="${64+bw}" y="${y+11}" font-size="11" fill="${DZ.sec}">${dzFmt(d)} m</text>`;
+    s+=`<rect x="60" y="${y}" width="${Math.max(1,bw)}" height="14" rx="3" fill="none" stroke="${tone.line}" stroke-width="1.5"/>`;
+    s+=`<text x="${64+bw}" y="${y+11}" font-size="11" fill="${tone.dark}" font-weight="600">${dzFmt(d)} m</text></g>`;
   });
   s+=`<text x="60" y="${H-6}" font-size="10" fill="${DZ.meta}">Depth (m) →  stacked by stratigraphy</text></svg>`;
   return s;
@@ -1888,23 +1928,21 @@ function dzSptSVG() {
         <text x="${x}" y="${top+h+12}" font-size="9.5" fill="${DZ.sec}" text-anchor="middle">${n}</text>`; }
   s+=`<text x="${x0+cw/2}" y="${H-4}" font-size="10" fill="${DZ.meta}" text-anchor="middle">SPT N-value</text>`;
   const byBh={}; pts.forEach(p=>(byBh[p.id]=byBh[p.id]||[]).push(p));
-  const tones=["#147447","#5f8a6f","#9db5a4","#0B4938","#7f9d88"];
-  Object.entries(byBh).forEach(([id,list],bi)=>{
+  Object.entries(byBh).forEach(([id,list])=>{
     list.sort((a,b)=>a.d-b.d);
-    const col=tones[bi%tones.length];
+    const tone=dzBhTone(id), dash=dzBhDash(id);
     const line=list.filter(p=>p.n!=null).map(p=>`${x0+p.n/maxN*cw},${top+p.d/maxD*h}`).join(" ");
-    if (line.includes(" ")) s+=`<polyline points="${line}" fill="none" stroke="${col}" stroke-width="1.4" opacity=".8"/>`;
+    if (line.includes(" ")) s+=`<polyline data-bh-series="${esc(id)}" points="${line}" fill="none" stroke="${tone.line}" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" ${dash?`stroke-dasharray="${dash}"`:""}/>`;
     for (const p of list) {
       const y=top+p.d/maxD*h;
-      if (p.refusal||p.n==null) s+=`<text x="${x0+cw-8}" y="${y+3}" font-size="10" fill="#9a7018" font-weight="600" text-anchor="middle">R<title>${esc(id)} — ${dzFmt(p.d)} m — Refusal</title></text>`;
-      else s+=`<circle cx="${x0+p.n/maxN*cw}" cy="${y}" r="3.4" fill="${col}"><title>${esc(id)}\nDepth ${dzFmt(p.d)} m\nN = ${p.n}${p.raw.b1!==""?`\nBlows ${p.raw.b1},${p.raw.b2},${p.raw.b3}`:""}</title></circle>`;
+      if (p.refusal||p.n==null) s+=`<g data-bh-series="${esc(id)}"><circle cx="${x0+cw-8}" cy="${y}" r="7" fill="#FFF7E8" stroke="${tone.line}" stroke-width="1.5"/><text x="${x0+cw-8}" y="${y+3}" font-size="9" fill="#9A5200" font-weight="700" text-anchor="middle">R<title>${esc(id)} — ${dzFmt(p.d)} m — Refusal</title></text></g>`;
+      else s+=`<circle data-bh-series="${esc(id)}" cx="${x0+p.n/maxN*cw}" cy="${y}" r="4.4" fill="${tone.line}" stroke="#fff" stroke-width="1.6"><title>${esc(id)}\nDepth ${dzFmt(p.d)} m\nN = ${p.n}${p.raw.b1!==""?`\nBlows ${p.raw.b1},${p.raw.b2},${p.raw.b3}`:""}</title></circle>`;
     }
-    s+=`<text x="${x0+6}" y="${top+12+bi*12}" font-size="10" fill="${col}" font-weight="600">● ${esc(id)}</text>`;
   });
   s+=`</svg>`;
   const valid=pts.filter(p=>p.n!=null).map(p=>p.n).sort((a,b)=>a-b);
   const med=valid.length? valid[Math.floor(valid.length/2)] : "—";
-  return s+`<div style="font-size:11.5px;color:${DZ.sec};margin-top:4px">Tests: <b>${pts.length}</b> · Median N: <b>${med}</b> · Refusals: <b>${pts.filter(p=>p.refusal).length}</b> · Max valid N: <b>${valid.at(-1)??"—"}</b></div>`;
+  return s+dzBoreholeLegend(Object.keys(byBh))+`<div style="font-size:11.5px;color:${DZ.sec};margin-top:6px">Tests: <b>${pts.length}</b> · Median N: <b>${med}</b> · Refusals: <b>${pts.filter(p=>p.refusal).length}</b> · Max valid N: <b>${valid.at(-1)??"—"}</b></div>`;
 }
 function dzIs50SVG() {
   const ids=dzBhList(); const pts=[];
@@ -1922,9 +1960,10 @@ function dzIs50SVG() {
   s+=`<text x="${x0+cw/2}" y="${H-4}" font-size="10" fill="${DZ.meta}" text-anchor="middle">Is(50), MPa — ▲ axial</text>`;
   for (const p of pts) {
     const x=x0+p.v/maxV*cw, y=top+(p.d||0)/maxD*h;
-    s+=`<path d="M ${x} ${y-4} L ${x-4} ${y+3} L ${x+4} ${y+3} Z" fill="${DZ.green}"><title>${esc(p.id)}\nDepth ${dzFmt(p.d)} m\nIs(50) = ${p.v} MPa\n${esc(p.lith)}</title></path>`;
+    const tone=dzBhTone(p.id);
+    s+=`<path data-bh-series="${esc(p.id)}" d="M ${x} ${y-5} L ${x-5} ${y+4} L ${x+5} ${y+4} Z" fill="${tone.line}" stroke="#fff" stroke-width="1.3"><title>${esc(p.id)}\nDepth ${dzFmt(p.d)} m\nIs(50) = ${p.v} MPa\n${esc(p.lith)}</title></path>`;
   }
-  return s+`</svg><div style="font-size:11.5px;color:${DZ.sec};margin-top:4px">Samples: <b>${pts.length}</b> · Range: <b>${Math.min(...pts.map(p=>p.v))}–${Math.max(...pts.map(p=>p.v))} MPa</b></div>`;
+  return s+`</svg>`+dzBoreholeLegend([...new Set(pts.map(p=>p.id))])+`<div style="font-size:11.5px;color:${DZ.sec};margin-top:6px">Samples: <b>${pts.length}</b> · Range: <b>${Math.min(...pts.map(p=>p.v))}–${Math.max(...pts.map(p=>p.v))} MPa</b></div>`;
 }
 function dzCoverageSVG() {
   const ids=dzBhList(); if(!ids.length) return `<div class="dz-empty">No boreholes yet.</div>`;
@@ -1934,14 +1973,16 @@ function dzCoverageSVG() {
   let any=false;
   ids.forEach((id,i)=>{
     const y=12+i*rh;
-    s+=`<text x="50" y="${y+4}" font-size="11" font-weight="600" fill="${DZ.ink}" text-anchor="end">${esc(id)}</text>`;
-    s+=`<line x1="58" y1="${y}" x2="${58+(dzDepth(id)/maxD)*(W-110)}" y2="${y}" stroke="${DZ.border}" stroke-width="3"/>`;
+    const tone=dzBhTone(id);
+    s+=`<g data-bh-series="${esc(id)}"><circle cx="8" cy="${y}" r="4" fill="${tone.line}"/><text x="50" y="${y+4}" font-size="11" font-weight="700" fill="${tone.dark}" text-anchor="end">${esc(id)}</text>`;
+    s+=`<line x1="58" y1="${y}" x2="${58+(dzDepth(id)/maxD)*(W-110)}" y2="${y}" stroke="${tone.soft}" stroke-width="7" stroke-linecap="round"/><line x1="58" y1="${y}" x2="${58+(dzDepth(id)/maxD)*(W-110)}" y2="${y}" stroke="${tone.line}" stroke-width="1.5" stroke-linecap="round" opacity=".65"/>`;
     const L=S.logs[id]||{};
     for (const smp of (L.samples||[])) { const d=num(smp.from); if(d==null) continue; any=true;
-      s+=`<circle cx="${58+d/maxD*(W-110)}" cy="${y}" r="4" fill="${DZ.green}"><title>${esc(id)} — ${esc(smp.sid||"sample")} @ ${dzFmt(d)} m\n${esc(smp.tests||smp.stype||"sample")}</title></circle>`; }
+      s+=`<circle cx="${58+d/maxD*(W-110)}" cy="${y}" r="4.5" fill="${tone.line}" stroke="#fff" stroke-width="1.4"><title>${esc(id)} — ${esc(smp.sid||"sample")} @ ${dzFmt(d)} m\n${esc(smp.tests||smp.stype||"sample")}</title></circle>`; }
     for (const r of (L.rock||[])) { const v=num(r.is50); if(v==null) continue; any=true;
       const x=58+(num(r.from)||0)/maxD*(W-110);
-      s+=`<path d="M ${x} ${y-5} L ${x-4} ${y+3} L ${x+4} ${y+3} Z" fill="#9a7018"><title>${esc(id)} PLT @ ${dzFmt(num(r.from))} m — Is(50) ${v} MPa</title></path>`; }
+      s+=`<path d="M ${x} ${y-5} L ${x-4} ${y+3} L ${x+4} ${y+3} Z" fill="${tone.dark}" stroke="#fff" stroke-width="1.2"><title>${esc(id)} PLT @ ${dzFmt(num(r.from))} m — Is(50) ${v} MPa</title></path>`; }
+    s+=`</g>`;
   });
   s+=`<text x="58" y="${H-4}" font-size="10" fill="${DZ.meta}">Depth (m) → · ● sample · ▲ point load</text></svg>`;
   return any? s : `<div class="dz-empty">No laboratory-tested samples recorded yet.</div>`;
@@ -2003,8 +2044,9 @@ function renderDashboard() {
           (S.boreholes.map(b=>{ const d=dzDepth(b.id), pl=num(b.plannedDepth)||num(b.termDepth)||d;
             const pc=pl?Math.min(100,Math.round(d/pl*100)):0;
             const st = dzClassify(b.id).length? (num(b.termDepth)!=null?"Complete":"Logging") : "Data Entry";
-            return `<tr data-go="soil" data-bh="${esc(b.id)}"><td><b>${esc(b.id)}</b></td><td>${dzFmt(d)}</td><td>${pl?dzFmt(pl):"—"}</td>
-              <td><span class="dz-prog"><i style="width:${pc}%"></i></span> <span style="font-size:11px;color:${DZ.sec}">${pc}%</span></td>
+            const tone=dzBhTone(b.id);
+            return `<tr data-go="soil" data-bh="${esc(b.id)}" style="--bh:${tone.line};--bh-dark:${tone.dark};--bh-soft:${tone.soft}"><td><span class="dz-bh-key"><i aria-hidden="true"></i><b>${esc(b.id)}</b></span></td><td>${dzFmt(d)}</td><td>${pl?dzFmt(pl):"—"}</td>
+              <td><span class="dz-prog"><i style="width:${pc}%"></i></span> <span class="dz-progress-value">${pc}%</span></td>
               <td><span class="dz-pill ${st==="Complete"?"":"warn"}">${st}</span></td></tr>`; }).join("")||"")+`</tbody></table>`)}
         ${panel("Recent activity","current session",`<div class="dz-act">`+
           ids.slice(0,6).flatMap(id=>{ const L=S.logs[id]; const items=[];
@@ -2015,6 +2057,7 @@ function renderDashboard() {
       </div>
       <div class="dz-filter">Filters: <select id="dzBhSel"><option value="ALL" ${dzBh==="ALL"?"selected":""}>All boreholes</option>${ids.map(id=>`<option ${dzBh===id?"selected":""}>${esc(id)}</option>`).join("")}</select>
         <span style="color:${DZ.meta}">All analytics respond to this filter · depth axes increase downward</span></div>
+      ${dzBoreholeLegend(ids)}
       ${panel("Subsurface profile comparison","stratigraphy per borehole — hover intervals for approved descriptions", dzProfileSVG()+dzSummaryStrip())}
       <div class="dz-grid2">
         ${panel("Borehole depths","total investigated depth, stacked by stratigraphy", dzDepthBarsSVG())}
@@ -2372,6 +2415,20 @@ function cb3Remember(d) {
     roughness:d.roughness, shape:d.shape, infill:d.infill, infillHard:d.infillHard };
   localStorage.setItem("cb-defaults", JSON.stringify(CB_DEFAULTS));
 }
+function cb3AttributeText(value, preferredPart) {
+  const text = String(value||"").trim();
+  if (!text) return "";
+  const parts = text.split(" — ");
+  return parts[preferredPart] || parts[0] || text;
+}
+function cb3RequiredReviewFields(d) {
+  const group = CODE_INFO[d.code]?.group;
+  if (group === "joint") return ["orientation","shape","persistence","apertureThk","roughness","infill"];
+  if (group === "seam") return ["infill","infillHard"];
+  if (group === "zone") return ["weatherZone","strengthZone"];
+  return ["comments"];
+}
+function cb3MissingReviewFields(d) { return cb3RequiredReviewFields(d).filter(key=>String(d[key]??"").trim()===""); }
 function cb3Snapshot() { cb3Undo.push(JSON.stringify(cb().defects)); if (cb3Undo.length>25) cb3Undo.shift(); }
 function showTab(tab) { /* v3 override: hide side panels on corebox */
   S.activeTab = tab;
@@ -2522,7 +2579,7 @@ function renderCorebox() {
     return `<div class="fld2"><label>${l}</label><input data-ek="${k}" value="${esc(d[k]||"")}"></div>`; }
   function renderInspector(expanded) {
     const d = c.defects.find(x=>x.id===cb2Sel);
-    if (!d || cb3Mode==="scale") { insp.style.display="none"; return; }
+    if (!d || cb3Mode==="scale" || cb3Drawer) { insp.style.display="none"; return; }
     const info=CODE_INFO[d.code]||{}, g=info.group;
     const thk=num(d.to)!=null?Math.max(0,num(d.to)-num(d.from)):0;
     let core="";
@@ -2561,31 +2618,97 @@ function renderCorebox() {
   /* review drawer */
   function renderDrawer() {
     const dr = page.querySelector("#cb3drawer");
-    dr.style.display = cb3Drawer? "block":"none";
+    dr.style.display = cb3Drawer? "flex":"none";
     if (!cb3Drawer) return;
     const sorted=[...c.defects].sort((a,b)=>num(a.from)-num(b.from));
-    dr.innerHTML = `<div class="panel-header" style="background:var(--og-blue)"><span>Defect review — ${esc(S.activeBh)}</span><a id="drX" style="color:#fff;cursor:pointer">✕ close</a></div>
-      <div class="toolbar"><span class="hint">${sorted.length} annotations · click a row to select on image</span><span class="spacer"></span>
-        <button class="btn" id="drApprove">Approve all</button><button class="btn primary" id="drSync">Sync to rock log</button></div>
-      <table class="og"><thead><tr><th style="width:44px">Code</th><th style="width:64px">From</th><th style="width:64px">To</th><th style="width:56px">Orient.</th><th>Attributes</th><th style="width:60px">Status</th><th style="width:34px"></th></tr></thead><tbody>
-      ${sorted.map(d=>`<tr data-sel="${d.id}" style="cursor:pointer;${cb2Sel===d.id?"background:#dceaf5":""}">
-        <td style="padding:3px 6px"><b style="color:${CODE_INFO[d.code]?.color}">${d.code}</b></td>
-        <td class="num" style="padding:3px 6px">${num(d.from)?.toFixed(2)??""}</td>
-        <td class="num" style="padding:3px 6px">${num(d.to)!=null&&num(d.to)>num(d.from)?num(d.to).toFixed(2):"—"}</td>
-        <td style="padding:3px 6px">${esc(d.orientation!==""?d.orientation+"°":"")}</td>
-        <td style="padding:3px 6px;font-size:11px">${esc([d.persistence,d.apertureThk,d.roughness,d.infill].filter(v=>v&&v!=="None").map(v=>String(v).split(" — ")[0]).join(", "))}</td>
-        <td style="padding:3px 6px">${d.confirmed?'<span class="vok">✓</span>':"draft"}</td>
-        <td class="act"><button data-del2="${d.id}">🗑</button></td></tr>`).join("")}</tbody></table>`;
+    if (sorted.length && !sorted.some(d=>d.id===cb2Sel)) cb2Sel=sorted[0].id;
+    const selected=sorted.find(d=>d.id===cb2Sel)||null;
+    const completed=sorted.filter(d=>cb3MissingReviewFields(d).length===0).length;
+    const required=new Set(selected?cb3RequiredReviewFields(selected):[]);
+    const optionLists=CB_ATTRS.map(([key,,options])=>`<datalist id="dr-${key}-options">${options.filter(Boolean).map(option=>`<option value="${esc(option)}"></option>`).join("")}</datalist>`).join("");
+    const reviewField=([key,label,options])=>{
+      const value=selected?selected[key]||"":"";
+      const missing=required.has(key)&&String(value).trim()==="";
+      const attributes=key==="orientation"?'type="number" min="0" max="90" step="1" inputmode="decimal"':`type="text" list="dr-${key}-options"`;
+      return `<label class="cb3-review-field ${missing?"is-missing":""}"><span>${label}${required.has(key)?'<b aria-hidden="true">required</b>':""}</span><input data-dr-key="${key}" ${attributes} value="${esc(value)}" placeholder="${missing?"Enter or choose a value":"Optional"}"></label>`;
+    };
+    const selectedInfo=selected?(CODE_INFO[selected.code]||{}):{};
+    dr.innerHTML = `<div class="cb3-review-head">
+      <div class="panel-header" style="background:var(--og-blue)"><span>Defect review — ${esc(S.activeBh)}</span><button type="button" id="drX" class="cb3-review-close" aria-label="Close defect review">× <span>Close</span></button></div>
+      <div class="toolbar"><span class="hint"><b>${completed}</b> complete · <b>${sorted.length-completed}</b> need details</span><span class="spacer"></span>
+        <button class="btn" type="button" id="drApprove">Approve complete</button><button class="btn primary" type="button" id="drSync">Sync to rock log</button></div>
+    </div>
+    <div class="cb3-review-workspace">
+      <aside class="cb3-review-list-pane">
+        <div class="cb3-review-list-head"><div><strong>Annotations</strong><span>${sorted.length} on image</span></div><input id="drSearch" type="search" placeholder="Filter code, depth or detail" aria-label="Filter defect annotations"></div>
+        <div class="cb3-review-list" role="listbox" aria-label="Defect annotations">
+          ${sorted.length?sorted.map(d=>{
+            const info=CODE_INFO[d.code]||{};
+            const missing=cb3MissingReviewFields(d);
+            const detail=[d.orientation!==""&&d.orientation!=null?`${d.orientation}°`:"",d.shape,d.persistence,d.apertureThk,d.roughness,d.infill,d.comments].filter(v=>v&&v!=="None").map(v=>cb3AttributeText(v,0)).join(" · ");
+            const interval=`${num(d.from)?.toFixed(2)??"—"}${num(d.to)!=null&&num(d.to)>num(d.from)?`–${num(d.to).toFixed(2)}`:""} m`;
+            const search=esc(`${d.code} ${interval} ${detail}`.toLowerCase());
+            return `<button type="button" role="option" aria-selected="${cb2Sel===d.id}" class="cb3-review-row ${cb2Sel===d.id?"is-selected":""}" data-sel="${d.id}" data-search="${search}" style="--defect:${info.color||"#475569"}">
+              <span class="cb3-review-code">${esc(d.code)}</span><span class="cb3-review-depth">${interval}</span>
+              <span class="cb3-review-summary">${esc(detail||"Details not entered")}</span>
+              <span class="cb3-review-state ${missing.length?"needs-detail":d.confirmed?"reviewed":"ready"}">${missing.length?`${missing.length} blank`:d.confirmed?"Reviewed":"Ready"}</span>
+            </button>`;
+          }).join(""):`<div class="cb3-review-empty">No annotations to review.</div>`}
+        </div>
+      </aside>
+      <section class="cb3-review-editor-pane">
+        ${selected?`<form id="drForm" autocomplete="off">
+          <header class="cb3-review-editor-head" style="--defect:${selectedInfo.color||"#475569"}"><div><span class="cb3-review-code">${esc(selected.code)}</span><div><h3>${esc(selectedInfo.name||"Defect")}</h3><p>${num(selected.from)?.toFixed(2)??"—"} m · ${cb3MissingReviewFields(selected).length?`${cb3MissingReviewFields(selected).length} required fields blank`:"Required details complete"}</p></div></div></header>
+          <div class="cb3-review-form-body">
+            <fieldset><legend>Location and classification</legend><div class="cb3-review-grid">
+              <label class="cb3-review-field"><span>Defect code</span><select data-dr-key="code">${Object.keys(CODE_INFO).filter(code=>!["VD","PL","CU","IR"].includes(code)).map(code=>`<option value="${esc(code)}" ${code===selected.code?"selected":""}>${esc(code)} — ${esc(CODE_INFO[code].name)}</option>`).join("")}</select></label>
+              <label class="cb3-review-field"><span>From depth (m)<b aria-hidden="true">required</b></span><input data-dr-key="from" type="number" step="0.01" inputmode="decimal" value="${esc(selected.from)}"></label>
+              <label class="cb3-review-field"><span>To depth (m)</span><input data-dr-key="to" type="number" step="0.01" inputmode="decimal" value="${num(selected.to)!=null&&num(selected.to)>num(selected.from)?esc(selected.to):""}" placeholder="Point defect"></label>
+              <label class="cb3-review-check"><input data-dr-key="countRqd" type="checkbox" ${selected.countRqd!==false?"checked":""}><span>Count towards RQD assessment</span></label>
+            </div></fieldset>
+            <fieldset><legend>Orientation and defect details</legend><div class="cb3-review-grid">${CB_ATTRS.slice(0,8).map(reviewField).join("")}</div></fieldset>
+            <fieldset><legend>Zone and grouped-defect details</legend><div class="cb3-review-grid">${CB_ATTRS.slice(8).map(reviewField).join("")}
+              <label class="cb3-review-field"><span>Number of defects</span><input data-dr-key="count" type="number" min="1" step="1" inputmode="numeric" value="${esc(selected.count||"")}" placeholder="Optional"></label>
+              <label class="cb3-review-field"><span>Spacing</span><input data-dr-key="spacing" value="${esc(selected.spacing||"")}" placeholder="e.g. 40–60 mm"></label>
+            </div></fieldset>
+            <fieldset><legend>Notes</legend><label class="cb3-review-field cb3-review-comments ${required.has("comments")&&!selected.comments?"is-missing":""}"><span>Comments${required.has("comments")?'<b aria-hidden="true">required</b>':""}</span><textarea data-dr-key="comments" rows="4" placeholder="Type factual observations, mineral coating, staining or handling notes">${esc(selected.comments||"")}</textarea></label></fieldset>
+          </div>
+          <footer class="cb3-review-actions"><button class="btn danger" type="button" id="drDelete">Delete</button><span class="spacer"></span><button class="btn" type="button" id="drSaveDraft">Save draft</button><button class="btn primary" type="submit" id="drSaveReview">Save &amp; mark reviewed</button></footer>
+          ${optionLists}
+        </form>`:`<div class="cb3-review-empty">Select an annotation to enter its details.</div>`}
+      </section>
+    </div>`;
     dr.querySelector("#drX").onclick=()=>{ cb3Drawer=false; renderDrawer(); };
-    dr.querySelector("#drApprove").onclick=()=>{ c.defects.forEach(d=>d.confirmed=true); save(); renderDrawer(); };
-    dr.querySelector("#drSync").onclick=()=>{ syncCoreboxMetrics(); cb3Drawer=false; renderCorebox(); };
-    dr.querySelectorAll("[data-sel]").forEach(tr=>tr.addEventListener("click",e=>{
-      if (e.target.closest("[data-del2]")) return;
-      cb2Sel=tr.dataset.sel; drawOverlays(); renderDrawer();
-    }));
-    dr.querySelectorAll("[data-del2]").forEach(b=>b.addEventListener("click",()=>{
-      cb3Snapshot(); const i=c.defects.findIndex(d=>d.id===b.dataset.del2); if(i>=0)c.defects.splice(i,1); save(); renderDrawer(); drawOverlays();
-    }));
+    const editor=dr.querySelector("#drForm");
+    function applyEditor(d,mode) {
+      if (!d || !editor) return;
+      cb3Snapshot();
+      editor.querySelectorAll("[data-dr-key]").forEach(input=>{
+        const key=input.dataset.drKey;
+        if (input.type==="checkbox") d[key]=input.checked;
+        else if (["from","to","count"].includes(key)) d[key]=input.value===""?"":parseFloat(input.value);
+        else d[key]=input.value.trim();
+      });
+      if (num(d.from)!=null && num(d.to)==null) d.to=d.from;
+      const missing=cb3MissingReviewFields(d);
+      if (mode==="review") d.confirmed=missing.length===0;
+      else if (mode==="draft") d.confirmed=false;
+      else if (missing.length) d.confirmed=false;
+      cb3Remember(d); save();
+      setStatus(mode==="review"&&missing.length?`Saved ${d.code} as draft — ${missing.length} required fields remain`:`Saved ${d.code} defect details`);
+    }
+    const saveEditor=mode=>{ applyEditor(selected,mode); drawOverlays(); renderDrawer(); };
+    if (editor) editor.addEventListener("submit",event=>{ event.preventDefault(); saveEditor("review"); });
+    const saveDraft=dr.querySelector("#drSaveDraft"); if (saveDraft) saveDraft.onclick=()=>saveEditor("draft");
+    const deleteCurrent=dr.querySelector("#drDelete"); if (deleteCurrent) deleteCurrent.onclick=()=>{
+      cb3Snapshot(); const index=c.defects.findIndex(d=>d.id===selected.id); if(index>=0)c.defects.splice(index,1); cb2Sel=null; save(); drawOverlays(); renderDrawer();
+    };
+    dr.querySelector("#drApprove").onclick=()=>{ c.defects.forEach(d=>{ if(!cb3MissingReviewFields(d).length)d.confirmed=true; }); save(); renderDrawer(); };
+    dr.querySelector("#drSync").onclick=()=>{ applyEditor(selected,"preserve"); syncCoreboxMetrics(); cb3Drawer=false; renderCorebox(); };
+    dr.querySelectorAll("[data-sel]").forEach(row=>row.addEventListener("click",()=>{ cb2Sel=row.dataset.sel; drawOverlays(); renderDrawer(); }));
+    const search=dr.querySelector("#drSearch"); if (search) search.addEventListener("input",()=>{
+      const query=search.value.trim().toLowerCase(); dr.querySelectorAll("[data-search]").forEach(row=>{ row.hidden=query&&!row.dataset.search.includes(query); });
+    });
   }
 
   /* wiring */
@@ -2908,10 +3031,10 @@ function syncCoreboxMetrics(silent) {
       row.rockType = row.rockType || (unit? unit.rockType : "");
       row.defectType = typeMap[d.code]||"Joint";
       row.defectAngle = d.orientation||"";
-      row.defectRough = (d.roughness||"").split(" — ")[1]||"";
+      row.defectRough = cb3AttributeText(d.roughness,1);
       row.defectInfill = d.infill && d.infill!=="None" ? d.infill.toLowerCase() : "";
-      row.defectAperture = (d.apertureThk||"").split(" — ")[1]||"";
-      row.defectPersist = (d.persistence||"").split(" — ")[0]||"";
+      row.defectAperture = cb3AttributeText(d.apertureThk||d.aperture,1);
+      row.defectPersist = cb3AttributeText(d.persistence,0);
       if (["MJ","JS","BP-M"].includes(d.code)) {
         /* grouped-defect wording: "MJ: 5 joints over 0.30 m, spacing 40–60 mm, 0–10°, PL–RO, CL" */
         const span = t>f ? (t-f) : 0;
@@ -2920,12 +3043,12 @@ function syncCoreboxMetrics(silent) {
           + (span? ` over ${span.toFixed(2)} m` : "")
           + (d.spacing? `, spacing ${d.spacing}` : "")
           + (d.orientation? `, ${d.orientation}°` : "")
-          + (d.shape? `, ${String(d.shape).split(" — ")[0]}` : "")
-          + ((d.roughness||"").split(" — ")[0]? `–${String(d.roughness).split(" — ")[0]}` : "")
+          + (d.shape? `, ${cb3AttributeText(d.shape,0)}` : "")
+          + (d.roughness? `–${cb3AttributeText(d.roughness,0)}` : "")
           + (d.infill && d.infill!=="None"? `, ${d.infill}` : "")
           + (d.comments? ` — ${d.comments}` : "") + " (corebox)";
       } else
-      row.remarks = `${d.code}${d.shape?" "+String(d.shape).split(" — ")[0]:""}${d.comments?" — "+d.comments:""} (corebox)`;
+      row.remarks = `${d.code}${d.shape?" "+cb3AttributeText(d.shape,0):""}${d.comments?" — "+d.comments:""} (corebox)`;
     }
     L.rock.sort((a,b)=>(num(a.from)??999)-(num(b.from)??999));
     localStorage.setItem("autosoil-logger", JSON.stringify(S));
@@ -6305,6 +6428,9 @@ table.og td.auto { background:#f0f7f3 !important; }
 }
 </style>
 <link rel="stylesheet" href="geoflow-premium.css">
+<link rel="stylesheet" href="geoflow-tower.css">
+<link rel="stylesheet" href="geoflow-access.css">
+<link rel="stylesheet" href="geoflow-control.css">
 <link rel="stylesheet" href="geoflow-scope.css">
 <link rel="stylesheet" href="geoflow-motion.css">
 <script src="vendor/lucide.min.js"></script>
@@ -6388,9 +6514,16 @@ paintIcons();
 })();
 </script>
 <script src="geoflow-ui-core.js"></script>
+<script src="geoflow-control-core.js"></script>
+<script src="geoflow-control-db.js"></script>
 <script src="geoflow-premium.js"></script>
 <script src="geoflow-reports.js"></script>
+<script src="geoflow-tower.js"></script>
 <script src="geoflow-scope.js"></script>
 <script src="geoflow-motion.js"></script>
+<script src="geoflow-access-core.js"></script>
+<script src="geoflow-access.js"></script>
+<script src="geoflow-control-live.js"></script>
+<script src="geoflow-control.js"></script>
 </body>
 </html>

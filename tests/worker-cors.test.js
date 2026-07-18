@@ -26,7 +26,10 @@ test("allows Capacitor preflight requests to the Cloudflare API", async () => {
   assert.equal(response.status, 204);
   assert.equal(response.headers.get("Access-Control-Allow-Origin"), "https://localhost");
   assert.match(response.headers.get("Access-Control-Allow-Methods"), /POST/);
+  assert.match(response.headers.get("Access-Control-Allow-Methods"), /PUT/);
   assert.match(response.headers.get("Access-Control-Allow-Headers"), /X-Autosoil-Api-Key/i);
+  assert.match(response.headers.get("Access-Control-Allow-Headers"), /X-GeoFlow-Project/i);
+  assert.equal(response.headers.get("Access-Control-Allow-Credentials"), "true");
 });
 
 test("rejects unlisted cross-origin preflight requests", async () => {

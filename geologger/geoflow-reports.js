@@ -26,6 +26,7 @@
   let previewState = null;
 
   function app() { return root.GeoFlowPremium || {}; }
+  function access() { return root.GeoFlowAccess || null; }
   function state() { return typeof S !== "undefined" ? S : { project: {}, boreholes: [], logs: {} }; }
   function escapeHtml(value) { return app().escapeHtml ? app().escapeHtml(value) : String(value == null ? "" : value).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;"); }
   function icon(name) { return app().icon ? app().icon(name) : `<i data-lucide="${escapeHtml(name)}" aria-hidden="true"></i>`; }
@@ -58,6 +59,23 @@
     return Number.isNaN(date.getTime()) ? "-" : date.toLocaleString(undefined, { dateStyle: "medium", timeStyle: "short" });
   }
   function statusClass(status) { return String(status || "draft").toLowerCase().replace(/\s+/g, "-"); }
+  function reportWorkflow(row) {
+    const layer = access();
+    if (layer) return layer.reportWorkflow(row.id);
+    return { status: row.approval ? "Approved" : "Draft", preparedBy: null, reviewedBy: null, approvedBy: row.approval || null, history: [] };
+  }
+  function reportWorkflowActions(row) {
+    const layer = access();
+    return layer ? layer.reportActions(row.id) : row.status === "Ready" && !row.blockers.length ? ["approve"] : [];
+  }
+  function workflowActor(stage) { return stage && (stage.name || stage.by) || "-"; }
+  function workflowMarkup(flow) {
+    return `<div class="sts-report-workflow" aria-label="Report approval workflow">
+      <div><span>Prepared</span><strong>${escapeHtml(workflowActor(flow.preparedBy))}</strong><small>${escapeHtml(formatDate(flow.preparedBy && flow.preparedBy.at))}</small></div>
+      <div><span>Reviewed</span><strong>${escapeHtml(workflowActor(flow.reviewedBy))}</strong><small>${escapeHtml(formatDate(flow.reviewedBy && flow.reviewedBy.at))}</small></div>
+      <div><span>Approved</span><strong>${escapeHtml(workflowActor(flow.approvedBy))}</strong><small>${escapeHtml(formatDate(flow.approvedBy && flow.approvedBy.at))}</small></div>
+    </div>`;
+  }
   function selectedRow(rows) { return rows.find((row) => row.id === selectedId) || rows[0] || null; }
   function setSelected(row) {
     if (!row) return;
@@ -82,7 +100,7 @@
         generatedDate: row.file && (row.file.ts || row.file.generatedDate) || meta.generatedDate || null,
         meta
       });
-    });
+    }).filter((row) => !access() || access().canViewReport(row.id));
   }
 
   function categoryCount(category) {
@@ -106,6 +124,7 @@
     filesError = "";
     if (isVisible() && !previewState) renderReports({ preserveLoad: true });
     try {
+      if (access() && access().hydrateReportWorkflows) await access().hydrateReportWorkflows();
       const response = await fetch(`/api/v1/files?project=${encodeURIComponent(projectKey())}`, {
         headers: headers(), signal: fileController.signal
       });
@@ -171,8 +190,16 @@
 
   function detailsMarkup(row) {
     if (!row) return `<aside class="sts-report-details"><div class="sts-empty">${icon("panel-right")}<div><strong>Select a report</strong><span>Details and actions will appear here.</span></div></div></aside>`;
-    const approved = row.approval;
-    const canApprove = row.status === "Ready" && !row.blockers.length;
+    const flow = reportWorkflow(row);
+    const actions = reportWorkflowActions(row);
+    const approved = flow.approvedBy || row.approval;
+    const layer = access();
+    const canPrepare = !layer || actions.includes("prepare");
+    const canSubmit = row.status === "Ready" && actions.includes("submit");
+    const canReview = actions.includes("review");
+    const canRequestChanges = actions.includes("request_changes");
+    const canApprove = row.status === "Ready" && !row.blockers.length && actions.includes("approve");
+    const canShare = row.file && (!layer || layer.can("reports.share")) && (flow.status === "Approved" || row.approval);
     return `<aside class="sts-report-details" aria-label="Selected report details">
       <h3>${escapeHtml(row.name)}</h3>
       <div class="meta">${escapeHtml(row.template)}</div>
@@ -182,16 +209,21 @@
         <div><dt>Revision</dt><dd>${escapeHtml(row.revision)}</dd></div>
         <div><dt>Validation</dt><dd>${row.blockers.length ? `${row.blockers.length} blocker${row.blockers.length === 1 ? "" : "s"}` : "No blockers"}</dd></div>
         <div><dt>Generated</dt><dd>${escapeHtml(formatDate(row.generatedDate))}</dd></div>
-        <div><dt>Approved</dt><dd>${approved ? `${escapeHtml(approved.by)} | ${escapeHtml(formatDate(approved.at))}` : "Not approved"}</dd></div>
+        <div><dt>Workflow</dt><dd><span class="sts-workflow-status ${statusClass(flow.status)}">${escapeHtml(flow.status)}</span></dd></div>
+        <div><dt>Approved</dt><dd>${approved ? `${escapeHtml(approved.name || approved.by)} | ${escapeHtml(formatDate(approved.at))}` : "Not approved"}</dd></div>
       </dl>
+      ${workflowMarkup(flow)}
       <div class="sts-report-actions">
         <button class="sts-button primary" type="button" data-report-action="preview">${icon("eye")} Preview</button>
-        <button class="sts-button" type="button" data-report-action="generate">${icon(row.file ? "refresh-cw" : "file-plus-2")} ${row.file ? "Regenerate" : "Generate"}</button>
+        <button class="sts-button" type="button" data-report-action="generate" ${canPrepare ? "" : "disabled"}>${icon(row.file ? "refresh-cw" : "file-plus-2")} ${row.file ? "Regenerate" : "Generate"}</button>
         <button class="sts-button" type="button" data-report-action="download">${icon("download")} Download</button>
         <button class="sts-button" type="button" data-report-action="open" ${row.file ? "" : "disabled"}>${icon("external-link")} Open saved PDF</button>
-        <button class="sts-button" type="button" data-report-action="share" ${row.file ? "" : "disabled"}>${icon("share-2")} Share route</button>
+        <button class="sts-button" type="button" data-report-action="share" ${canShare ? "" : "disabled"}>${icon("share-2")} Share approved</button>
+        <button class="sts-button" type="button" data-report-action="submit" ${canSubmit ? "" : "disabled"}>${icon("send")} Submit for review</button>
+        <button class="sts-button" type="button" data-report-action="review" ${canReview ? "" : "disabled"}>${icon("scan-search")} Mark reviewed</button>
+        <button class="sts-button" type="button" data-report-action="request_changes" ${canRequestChanges ? "" : "disabled"}>${icon("message-square-warning")} Request changes</button>
         <button class="sts-button" type="button" data-report-action="approve" ${canApprove ? "" : "disabled"}>${icon("badge-check")} Approve</button>
-        <button class="sts-button ${row.meta.archived ? "" : "danger"}" type="button" data-report-action="archive">${icon(row.meta.archived ? "archive-restore" : "archive")} ${row.meta.archived ? "Restore" : "Archive"}</button>
+        <button class="sts-button ${row.meta.archived ? "" : "danger"}" type="button" data-report-action="archive" ${layer && !layer.can("reports.prepare") ? "disabled" : ""}>${icon(row.meta.archived ? "archive-restore" : "archive")} ${row.meta.archived ? "Restore" : "Archive"}</button>
       </div>
       ${row.blockers.length ? `<button class="sts-button" id="stsReviewReportIssues" type="button" style="width:100%;margin-top:8px">${icon("triangle-alert")} Review validation blockers</button>` : ""}
     </aside>`;
@@ -228,11 +260,12 @@
     if (selected && selectedId !== selected.id) selectedId = selected.id;
     const ready = rows.filter((row) => row.status === "Ready").length;
     const blocked = rows.filter((row) => row.blockers.length).length;
+    const canGenerateSelected = selected && (!access() || reportWorkflowActions(selected).includes("prepare"));
     page.innerHTML = `<div class="sts-page sts-reports-page">
       <header class="sts-page-header"><div class="sts-title-group"><div class="sts-eyebrow">Project output</div><h2>Reports</h2>
         <p>${ready} report${ready === 1 ? " is" : "s are"} ready. ${blocked ? `${blocked} require validation review before approval.` : "No report approval blockers are present."}</p></div>
         <div class="sts-page-actions"><button class="sts-button" id="stsValidateReports" type="button">${icon("shield-check")} Validate project</button>
-        <button class="sts-button primary" id="stsGenerateSelected" type="button" ${selected ? "" : "disabled"}>${icon("file-plus-2")} Generate selected</button></div></header>
+        <button class="sts-button primary" id="stsGenerateSelected" type="button" ${canGenerateSelected ? "" : "disabled"}>${icon("file-plus-2")} Generate selected</button></div></header>
       <div class="sts-reports">${categoryMarkup()}${listMarkup(rows, selected)}${detailsMarkup(selected)}</div>
     </div>`;
     page.querySelector("#stsValidateReports")?.addEventListener("click", () => app().openValidationDrawer && app().openValidationDrawer());
@@ -257,6 +290,13 @@
 
   async function generateAndSave(row) {
     const stayInPreview = Boolean(previewState && previewState.row.id === row.id);
+    const layer = access();
+    try {
+      if (layer) {
+        layer.assertReportAction(row.id, "prepare");
+        if (!layer.reportActions(row.id).includes("prepare")) throw new Error(`A ${layer.reportWorkflow(row.id).status} report cannot be regenerated. Start a new revision first.`);
+      }
+    } catch (error) { notify(error.message, "error"); throw error; }
     activity[row.id] = { status: "Generating", message: "" };
     if (!stayInPreview) renderReports({ preserveLoad: true });
     try {
@@ -265,7 +305,7 @@
       const source = state();
       source.reportMeta = source.reportMeta || {};
       source.reportMeta[row.boreholeId] = Object.assign({}, source.reportMeta[row.boreholeId], {
-        generatedBy: source.project.loggedBy || "Current user",
+        generatedBy: layer && layer.currentUser ? layer.currentUser().name : source.project.loggedBy || "Current user",
         generatedDate: item.at,
         archived: false
       });
@@ -274,6 +314,7 @@
         body: JSON.stringify({ project: projectKey(), id: row.id, name: `log-${row.boreholeId}.pdf`, kind: "report-pdf", data })
       });
       if (!response.ok) throw new Error(response.status === 401 ? "Cloudflare save requires the project API key." : `Cloudflare save failed (${response.status}).`);
+      if (layer) await layer.transitionReport(row.id, "prepare");
       delete activity[row.id];
       saveState();
       notify(`${row.name} generated and saved to Cloudflare.`, "success");
@@ -342,18 +383,39 @@
     catch (error) { root.prompt("Report route", url); }
   }
 
-  function approve(row) {
+  async function approve(row) {
     if (row.blockers.length || row.status !== "Ready") return;
     const source = state();
     source.reportApprovals = source.reportApprovals || {};
     source.reportMeta = source.reportMeta || {};
-    const by = source.project.approvedBy || source.project.checkedBy || source.project.loggedBy || "Current user";
-    source.reportApprovals[row.boreholeId] = { by, at: new Date().toISOString(), revision: row.revision };
+    const layer = access();
+    let workflow = null;
+    try { if (layer) workflow = await layer.transitionReport(row.id, "approve"); }
+    catch (error) { notify(error.message, "error"); return; }
+    const by = workflow && workflow.approvedBy && workflow.approvedBy.name || source.project.approvedBy || source.project.checkedBy || source.project.loggedBy || "Current user";
+    source.reportApprovals[row.boreholeId] = { by, userId: workflow && workflow.approvedBy && workflow.approvedBy.id || "", at: workflow && workflow.approvedBy && workflow.approvedBy.at || new Date().toISOString(), revision: row.revision };
     source.reportMeta[row.boreholeId] = Object.assign({}, source.reportMeta[row.boreholeId], { revision: row.revision });
     saveState();
     notify(`${row.name} approved as ${row.revision}.`, "success");
     if (previewState) openPreview(Object.assign({}, row, { approval: source.reportApprovals[row.boreholeId] }), true);
     else renderReports({ preserveLoad: true });
+  }
+
+  async function workflowAction(row, action) {
+    const layer = access();
+    if (!layer) return;
+    if (action === "submit" && row.status !== "Ready") { notify("Generate and save the report before submitting it for review.", "warning"); return; }
+    let note = "";
+    if (action === "request_changes") {
+      note = root.prompt("Reason for requesting changes:", "");
+      if (note == null) return;
+    }
+    try {
+      const workflow = await layer.transitionReport(row.id, action, note);
+      notify(`${row.name}: ${workflow.status}.`, "success");
+      if (previewState) { previewState.row = rowsForCategory().find((candidate) => candidate.id === row.id) || row; renderPreviewScreen(); }
+      else renderReports({ preserveLoad: true });
+    } catch (error) { notify(error.message, "error"); }
   }
 
   function toggleArchive(row) {
@@ -372,6 +434,7 @@
     if (action === "download") return downloadReport(row);
     if (action === "open") return openStoredReport(row);
     if (action === "share") return shareRoute(row);
+    if (["submit", "review", "request_changes"].includes(action)) return workflowAction(row, action);
     if (action === "approve") return approve(row);
     if (action === "archive") return toggleArchive(row);
   }
@@ -408,7 +471,12 @@
     const page = activePage();
     const current = previewState;
     const row = current.row;
-    const canApprove = !row.blockers.length && row.status === "Ready";
+    const flow = reportWorkflow(row);
+    const actions = reportWorkflowActions(row);
+    const nextAction = row.status === "Ready" && actions.includes("submit") ? "submit" : actions.includes("review") ? "review" : !row.blockers.length && row.status === "Ready" && actions.includes("approve") ? "approve" : "";
+    const nextLabel = { submit: "Submit for review", review: "Mark reviewed", approve: "Approve" }[nextAction] || flow.status;
+    const nextIcon = { submit: "send", review: "scan-search", approve: "badge-check" }[nextAction] || "shield-check";
+    const canRegenerate = !access() || actions.includes("prepare");
     page.innerHTML = `<div class="sts-page"><div class="sts-report-preview">
       <div class="sts-pdf-toolbar">
         <button class="sts-icon-button" id="stsPreviewBack" type="button" title="Back to reports" aria-label="Back to reports">${icon("arrow-left")}</button>
@@ -422,8 +490,9 @@
         <span style="font-size:10.5px;min-width:38px;text-align:center">${current.zoom}%</span>
         <button class="sts-icon-button" id="stsZoomIn" type="button" title="Zoom in" aria-label="Zoom in">${icon("zoom-in")}</button>
         <button class="sts-button" id="stsPreviewDownload" type="button">${icon("download")} Download</button>
-        <button class="sts-button" id="stsPreviewRegenerate" type="button">${icon("refresh-cw")} Regenerate</button>
-        <button class="sts-button primary" id="stsPreviewApprove" type="button" ${canApprove ? "" : "disabled"}>${icon("badge-check")} Approve</button>
+        <button class="sts-button" id="stsPreviewRegenerate" type="button" ${canRegenerate ? "" : "disabled"}>${icon("refresh-cw")} Regenerate</button>
+        <span class="sts-workflow-status ${statusClass(flow.status)}">${escapeHtml(flow.status)}</span>
+        <button class="sts-button primary" id="stsPreviewWorkflow" type="button" data-workflow-action="${escapeHtml(nextAction)}" ${nextAction ? "" : "disabled"}>${icon(nextIcon)} ${escapeHtml(nextLabel)}</button>
       </div>
       <div class="sts-pdf-stage"><aside class="sts-pdf-review">${previewIssueMarkup(row)}</aside>
         <iframe id="stsPdfFrame" title="PDF preview for ${escapeHtml(row.name)}" src="${escapeHtml(previewUrl())}"></iframe></div>
@@ -440,7 +509,11 @@
     page.querySelector("#stsPreviewRegenerate").addEventListener("click", async () => {
       try { await generateAndSave(row); } catch (error) {}
     });
-    page.querySelector("#stsPreviewApprove").addEventListener("click", () => approve(row));
+    page.querySelector("#stsPreviewWorkflow").addEventListener("click", async (event) => {
+      const action = event.currentTarget.dataset.workflowAction;
+      if (action === "approve") await approve(row);
+      else if (action) await workflowAction(row, action);
+    });
     page.querySelectorAll("[data-preview-issue]").forEach((button) => button.addEventListener("click", () => {
       const issue = Core.collectValidation(state()).find((entry) => entry.id === button.dataset.previewIssue);
       if (issue && app().navigateToIssue) app().navigateToIssue(issue);

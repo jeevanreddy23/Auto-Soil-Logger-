@@ -1,0 +1,198 @@
+{
+  "project": {
+    "projectNumber": "32917/9295D-G",
+    "projectName": "Marsden Park Tower T17",
+    "clientName": "Endeavour Energy",
+    "siteAddress": "161 Advance Street",
+    "suburb": "Marsden Park",
+    "state": "NSW",
+    "loggedBy": "J. Reddy",
+    "checkedBy": "M. Chen",
+    "coordSystem": "MGA2020 Zone 56",
+    "groundRL": 43.2,
+    "towerId": "Tower T17",
+    "towerType": "Monopole",
+    "foundationType": "Bored pier",
+    "reviewStatus": "Engineering review pending",
+    "updated": "2026-07-15T10:20:00Z",
+    "competentRockRule": {
+      "maxWeathering": "SW",
+      "minimumStrength": "M",
+      "minimumRqd": 50,
+      "label": "SW or better, M strength, RQD >= 50%"
+    }
+  },
+  "boreholes": [
+    {
+      "id": "BH01",
+      "towerId": "Tower T17",
+      "plannedDepth": 12,
+      "termDepth": 10.5,
+      "termReason": "Target depth",
+      "rl": 43.2,
+      "easting": 312000.4,
+      "northing": 6251001.2,
+      "samplesReq": true,
+      "sptReq": true,
+      "coreReq": true,
+      "standpipeReq": true,
+      "checked": true
+    },
+    {
+      "id": "BH02",
+      "towerId": "Tower T17",
+      "plannedDepth": 12,
+      "termDepth": 11.2,
+      "termReason": "Target depth",
+      "rl": 42.85,
+      "easting": 312016.8,
+      "northing": 6251004.6,
+      "samplesReq": true,
+      "sptReq": true,
+      "coreReq": true,
+      "standpipeReq": true,
+      "approved": true
+    },
+    {
+      "id": "BH03",
+      "towerId": "Tower T17",
+      "plannedDepth": 10,
+      "termDepth": 8.8,
+      "termReason": "Practical refusal",
+      "rl": 43.45,
+      "easting": 312014.2,
+      "northing": 6250988.9,
+      "samplesReq": true,
+      "sptReq": true,
+      "coreReq": false,
+      "standpipeReq": false
+    },
+    {
+      "id": "BH04",
+      "towerId": "Tower T17",
+      "plannedDepth": 10,
+      "termDepth": 9.6,
+      "termReason": "Target depth",
+      "rl": 42.6,
+      "easting": 311997.2,
+      "northing": 6250987.8,
+      "samplesReq": true,
+      "sptReq": true,
+      "coreReq": true,
+      "standpipeReq": true,
+      "reviewed": true
+    }
+  ],
+  "logs": {
+    "BH01": {
+      "soil": [
+        { "from": 0, "to": 0.5, "material": "FILL", "fillNatural": "FILL", "description": "FILL: gravelly sandy CLAY", "status": "Reviewed" },
+        { "from": 0.5, "to": 1.1, "material": "TOPSOIL", "description": "TOPSOIL: silty CLAY", "status": "Reviewed" },
+        { "from": 1.1, "to": 3.2, "material": "CLAY", "origin": "residual", "description": "Residual CLAY, stiff", "status": "Reviewed" }
+      ],
+      "rock": [
+        { "from": 3.2, "to": 4.5, "rockType": "SHALE", "weathering": "HW", "strength": "L", "description": "SHALE, highly weathered", "tcr": 78, "scr": 41, "rqd": 18, "status": "Reviewed" },
+        { "from": 4.5, "to": 6, "rockType": "SHALE", "weathering": "MW", "strength": "M", "description": "SHALE, moderately weathered", "tcr": 91, "scr": 70, "rqd": 44, "is50": 0.62, "status": "Reviewed" },
+        { "from": 6, "to": 8, "rockType": "SHALE", "weathering": "SW", "strength": "H", "description": "SHALE, slightly weathered", "tcr": 98, "scr": 91, "rqd": 76, "is50": 1.46, "status": "Reviewed" },
+        { "from": 8, "to": 10.5, "rockType": "SHALE", "weathering": "FR", "strength": "H", "description": "SHALE, fresh", "tcr": 100, "scr": 96, "rqd": 88, "is50": 1.92, "status": "Reviewed" }
+      ],
+      "spt": [
+        { "depth": 1.5, "b1": 4, "b2": 6, "b3": 8, "status": "Reviewed" },
+        { "depth": 3, "b1": 8, "b2": 12, "b3": 15, "status": "Reviewed" },
+        { "depth": 4.5, "refusal": true, "remarks": "50/80 mm", "status": "Reviewed" }
+      ],
+      "dcp": [],
+      "samples": [
+        { "sid": "BH01-S1", "from": 1.5, "to": 1.95, "stype": "SPT split spoon", "tests": "Atterberg, PSD", "status": "Reviewed" }
+      ],
+      "groundwater": [
+        { "state": "Encountered", "depth": 2.7, "stabilisedDepth": 2.4, "date": "2026-07-12", "time": "15:20", "status": "Reviewed" }
+      ],
+      "gw": {},
+      "corebox": {
+        "img": null,
+        "defects": [
+          { "from": 7.2, "to": 7.35, "code": "FZ", "orientation": 38, "comments": "Fracture zone with iron staining", "significant": true, "confirmed": true }
+        ]
+      }
+    },
+    "BH02": {
+      "soil": [
+        { "from": 0, "to": 1.4, "material": "FILL", "fillNatural": "FILL", "description": "FILL: sandy gravel", "status": "Approved" },
+        { "from": 1.4, "to": 4.1, "material": "CLAY", "origin": "residual", "description": "Residual silty CLAY", "status": "Approved" }
+      ],
+      "rock": [
+        { "from": 4.1, "to": 5.6, "rockType": "SILTSTONE", "weathering": "HW", "strength": "L", "tcr": 73, "scr": 38, "rqd": 12, "status": "Approved" },
+        { "from": 5.6, "to": 7.4, "rockType": "SILTSTONE", "weathering": "MW", "strength": "M", "tcr": 88, "scr": 67, "rqd": 46, "is50": 0.55, "status": "Approved" },
+        { "from": 7.4, "to": 11.2, "rockType": "SILTSTONE", "weathering": "SW", "strength": "H", "tcr": 97, "scr": 90, "rqd": 70, "is50": 1.22, "status": "Approved" }
+      ],
+      "spt": [
+        { "depth": 1.5, "b1": 5, "b2": 7, "b3": 9, "status": "Approved" },
+        { "depth": 3, "b1": 9, "b2": 14, "b3": 17, "status": "Approved" },
+        { "depth": 4.5, "hammerBounce": true, "status": "Approved" }
+      ],
+      "dcp": [],
+      "samples": [
+        { "sid": "BH02-S1", "from": 3, "to": 3.45, "stype": "SPT split spoon", "tests": "Atterberg", "status": "Approved" }
+      ],
+      "groundwater": [
+        { "state": "Not encountered", "date": "2026-07-12", "status": "Approved" }
+      ],
+      "gw": {},
+      "corebox": { "img": null, "defects": [] }
+    },
+    "BH03": {
+      "soil": [
+        { "from": 0, "to": 2.1, "material": "FILL", "fillNatural": "FILL", "description": "FILL: clayey SAND" },
+        { "from": 2.1, "to": 5, "material": "CLAY", "origin": "residual", "description": "Residual CLAY" }
+      ],
+      "rock": [
+        { "from": 5, "to": 8.8, "rockType": "SHALE", "weathering": "HW", "strength": "L" }
+      ],
+      "spt": [
+        { "depth": 1.5, "b1": 3, "b2": 5, "b3": 6 },
+        { "depth": 3, "b1": 6, "b2": 8, "b3": 10 },
+        { "depth": 5, "refusal": true }
+      ],
+      "dcp": [],
+      "samples": [
+        { "sid": "BH03-S1", "from": 3, "to": 3.45, "stype": "SPT split spoon", "tests": "Atterberg" }
+      ],
+      "groundwater": [],
+      "gw": {},
+      "corebox": { "img": null, "defects": [] }
+    },
+    "BH04": {
+      "soil": [
+        { "from": 0, "to": 0.3, "material": "TOPSOIL", "description": "TOPSOIL", "status": "Reviewed" },
+        { "from": 0.3, "to": 0.9, "material": "FILL", "fillNatural": "FILL", "description": "FILL: sandy CLAY", "status": "Reviewed" },
+        { "from": 0.9, "to": 2.6, "material": "CLAY", "origin": "residual", "description": "Residual CLAY", "status": "Reviewed" }
+      ],
+      "rock": [
+        { "from": 2.6, "to": 4.2, "rockType": "SHALE", "weathering": "HW", "strength": "L", "tcr": 80, "scr": 52, "rqd": 25, "status": "Reviewed" },
+        { "from": 4.2, "to": 6.4, "rockType": "SHALE", "weathering": "SW", "strength": "M", "tcr": 95, "scr": 84, "rqd": 63, "is50": 1.1, "status": "Reviewed" },
+        { "from": 6.4, "to": 9.6, "rockType": "SHALE", "weathering": "FR", "strength": "H", "tcr": 100, "scr": 97, "rqd": 91, "is50": 2.1, "status": "Reviewed" }
+      ],
+      "spt": [
+        { "depth": 1.5, "b1": 6, "b2": 9, "b3": 11, "status": "Reviewed" },
+        { "depth": 2.5, "b1": 10, "b2": 15, "b3": 18, "status": "Reviewed" }
+      ],
+      "dcp": [],
+      "samples": [
+        { "sid": "BH04-S1", "from": 1.5, "to": 1.95, "stype": "SPT split spoon", "tests": "Atterberg", "status": "Reviewed" }
+      ],
+      "groundwater": [
+        { "state": "Standing water", "depth": 3.1, "stabilisedDepth": 2.8, "date": "2026-07-13", "status": "Reviewed" }
+      ],
+      "gw": {},
+      "corebox": { "img": null, "defects": [] }
+    }
+  },
+  "activeBh": "BH01",
+  "activeTab": "dashboard",
+  "labStatus": {
+    "BH01-S1": "Returned",
+    "BH02-S1": "Submitted",
+    "BH04-S1": "Returned"
+  }
+}
