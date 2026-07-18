@@ -48,6 +48,12 @@
   };
 
   function access() { return root && root.GeoFlowAccess; }
+  function directorySharingEnabled() {
+    const hostname = Core.text(root && root.location && root.location.hostname).toLowerCase();
+    if (hostname === "localhost" || hostname === "127.0.0.1" || hostname === "::1") return true;
+    const service = access();
+    return Boolean(service && service.isServerEnforced && service.isServerEnforced());
+  }
   function actor() {
     try {
       const user = access() && access().currentUser ? access().currentUser() : null;
@@ -294,6 +300,7 @@
 
   async function publishDirectory(jobs) {
     const projects = (jobs || []).filter(job => job && job.registerOnly);
+    if (!directorySharingEnabled()) return { ok: false, skipped: true, received: projects.length, stored: 0, batches: 0 };
     let stored = 0; let batches = 0;
     for (let offset = 0; offset < projects.length; offset += DIRECTORY_BATCH_SIZE) {
       const batch = projects.slice(offset, offset + DIRECTORY_BATCH_SIZE);
@@ -308,6 +315,7 @@
   }
 
   async function loadDirectory() {
+    if (!directorySharingEnabled()) return [];
     if (state.directoryPromise) return state.directoryPromise;
     state.directoryPromise = (async () => {
       const records = []; let page = 0; let nextPage = 0; let safety = 0;
@@ -355,7 +363,7 @@
       });
     }
     openSocket();
-    if (["director", "engineering_manager", "project_engineer", "admin", "client"].includes(actor().role)) {
+    if (directorySharingEnabled() && ["director", "engineering_manager", "project_engineer", "admin", "client"].includes(actor().role)) {
       root.setTimeout(() => loadDirectory().catch(() => {}), 1200);
     }
     root.setTimeout(() => {
@@ -406,6 +414,12 @@
     }).catch(() => {});
   });
 
-  const api = Object.freeze({ start, stop, perform, publishProjects, publishDirectory, loadDirectory, scheduleSync, uploadLabResult, status: statusSnapshot, projections, state });
+  if (root && root.addEventListener) root.addEventListener("geoflow:access-ready", () => {
+    if (state.started && directorySharingEnabled() && ["director", "engineering_manager", "project_engineer", "admin", "client"].includes(actor().role)) {
+      loadDirectory().catch(() => {});
+    }
+  });
+
+  const api = Object.freeze({ start, stop, perform, publishProjects, publishDirectory, loadDirectory, directorySharingEnabled, scheduleSync, uploadLabResult, status: statusSnapshot, projections, state });
   return api;
 });

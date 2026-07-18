@@ -6,6 +6,10 @@ const path = require("node:path");
 const Live = require("../geologger/geoflow-control-live.js");
 const root = path.resolve(__dirname, "..");
 
+test("does not request a shared client directory without local development or server-enforced access", () => {
+  assert.equal(Live.directorySharingEnabled(), false);
+});
+
 test("builds project-scoped workflow projections without mixing records between jobs", () => {
   const snapshot = {
     jobs: [
