@@ -18,6 +18,12 @@ test("loads the premium UI modules after the existing application shell", () => 
   assert.ok(premiumIndex < reportsIndex);
 });
 
+test("protects technical colours from browser dark-theme rewriting", () => {
+  assert.match(html, /<meta name="color-scheme" content="only light">/);
+  assert.match(html, /<meta name="darkreader-lock">/);
+  assert.match(css, /color-scheme: only light/);
+});
+
 test("keeps heavy report generation behind an explicit preview or generate action", () => {
   const renderBody = reports.slice(reports.indexOf("function renderReports"), reports.indexOf("function ensureGenerated"));
   assert.doesNotMatch(renderBody, /buildPdf\s*\(/);
