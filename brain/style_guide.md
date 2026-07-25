@@ -21,7 +21,7 @@ When a new consultant log is added to the reference folder:
 | Frame | x 17 → 196; header top y 17 |
 | Header rows | title block 17–37, meta rows 37–49–59 (grid lines at 37 and 49) |
 | Column band | 59–77 (cored band lines only span 60–118 and 124–196) |
-| Log body | 77 → 271; depth scale 19.2308 mm per metre (10 m per sheet) |
+| Log body | 77 → 271; depth scale **19.4000 mm per metre** (exactly 10.00 m per sheet) |
 | Footer | notes row 271–274, legend row 274–280 (cell dividers at x 64/111/157), nothing below 280 |
 | Stroke weights | columns/grid 0.132 mm; frame/majors 0.26 mm; ticks 0.09 mm |
 
@@ -80,6 +80,21 @@ Safe auto-repairs (always reported on doc.__validation): N recomputed from incre
 reversed defect intervals swapped; RQD clamped to TCR.
 DRAFT watermark until Review By is recorded. Report Ready is deterministic arithmetic —
 never model judgement.
+
+## Open discrepancy — engine vs measurement (raised 2026-07-25)
+
+The depth scale above was re-measured from all 18 reference logs and is **19.4000 mm/m** on
+every one of them (slope from 19 depth labels per sheet, identical to 4 dp; depth 0 lands at
+y 77.17). The engine still carries `SC = 1000/52` = 19.2308 mm/m in `index.html` (pdf-v3,
+~line 3232) and `loggen.html`. That places 10.00 m at y 269.31 instead of 271.00 — a 1.7 mm
+error at the foot of every sheet, growing linearly with depth. **Not yet applied to the
+engine** — measured geometry is permission-gated. Apply as a single constant change in both
+files, then re-measure a generated log against a reference before closing this out.
+
+Also raised: `log-TP1.pdf` is a copy of BH8-Cored (its body carries BH8 sample IDs and SPT
+rows, and it uses the borehole templates), so **no genuine test-pit reference exists** in the
+set. The TEST PIT LOG / PIT ID / Excavation Contractor / Pit Dimensions template is
+unverified and should be labelled a proposal until STS supplies a real test-pit log.
 
 ## Change log
 
