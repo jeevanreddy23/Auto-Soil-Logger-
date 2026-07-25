@@ -112,7 +112,8 @@
 if ("serviceWorker" in navigator) navigator.serviceWorker.register("sw.js").catch(()=>{});
 /* In the packaged Android app (Capacitor) the page origin is https://localhost, where a
    relative /api path can never reach the backend — point natively-served copies at the Worker. */
-const API_BASE = (["https:","capacitor:"].includes(location.protocol) && ["localhost","127.0.0.1"].includes(location.hostname))
+const API_BASE = (location.protocol==="file:" ||
+  (["https:","capacitor:"].includes(location.protocol) && ["localhost","127.0.0.1"].includes(location.hostname)))
   ? "https://autosoillogger.poreddyjeevanreddy.workers.dev" : "";
 const SYNC_URL = API_BASE + "/api/v1/geologger/logs";
 const MATERIALS = ["TOPSOIL","FILL","CLAY","Silty CLAY","Sandy CLAY","Gravelly CLAY","SILT","Sandy SILT","Clayey SILT","SAND","Silty SAND","Clayey SAND","Gravelly SAND","GRAVEL","Sandy GRAVEL","Clayey GRAVEL","Residual soil","Extremely weathered rock","SANDSTONE","SHALE","SILTSTONE"];
@@ -190,7 +191,9 @@ function curDepth(id){ const l=F.logs[id]||blankLogs(); const b=F.boreholes.find
     ...(l.drilling||[]).map(d=>num(d.to)||0), num(b.progressDepth)||0, 0); }
 
 /* ---- description generator (AS 1726, STS format) ---- */
-const GRAN = m => /SAND|GRAVEL/i.test(m) && !/CLAY|SILT/.test((m||"").split(" ")[0]);
+/* primary soil = the LAST soil noun: "Sandy CLAY" → CLAY (cohesive), "Clayey SAND" → SAND (granular).
+   The old first-word test misclassified Sandy CLAY as granular (wrong descriptor set + scope prompts). */
+const GRAN = m => { const p=(String(m||"").toUpperCase().match(/\b(CLAY|SILT|SAND|GRAVEL)\b/g)||[]).pop(); return p==="SAND"||p==="GRAVEL"; };
 function soilDesc(r){
   if (!r.material) return "";
   const parts=[]; if (r.plasticity) parts.push(r.plasticity); if (r.colour) parts.push(r.colour);

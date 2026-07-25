@@ -4,6 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <meta name="color-scheme" content="only light">
+<meta name="darkreader-lock">
 <link rel="icon" href="favicon.svg" type="image/svg+xml">
 <title>STS GeoFlow — Geotechnical Project Delivery</title>
 <script src="vendor/xlsx.full.min.js"></script>
@@ -242,7 +243,13 @@ const SYNC_URL = "/api/v1/geologger/logs";
 const syncHydratedKeys = new Set();
 const syncPulls = new Map();
 function apiKey(){ return localStorage.getItem("geologger-api-key")||""; }
-function syncHeaders(){ const h={"Content-Type":"application/json"}; if(apiKey()) h["X-Autosoil-Api-Key"]=apiKey(); return h; }
+function syncHeaders(){
+  const h={"Content-Type":"application/json"};
+  if(apiKey()) h["X-Autosoil-Api-Key"]=apiKey();
+  try { if (PJ && PJ.activePid) h["X-GeoFlow-Project"]=PJ.activePid; } catch(e) {}
+  try { const key=typeof pjSyncKey==="function"?pjSyncKey():""; if(key) h["X-GeoFlow-Record-Key"]=key; } catch(e) {}
+  return h;
+}
 function setSync(state,msg){ const el=document.getElementById("syncStatus"); el.style.color={ok:"var(--og-ok)",off:"var(--og-muted)",err:"var(--og-warn)"}[state]; el.innerHTML="&#9679; "+msg; }
 function activeSyncKey(){
   try { if (typeof pjSyncKey === "function") return pjSyncKey(); } catch(e) {}
@@ -1789,7 +1796,34 @@ if (S.activeTab==="corebox") renderCorebox();
 const DZ = { green:"#147447", dark:"#0B4938", ink:"#18201C", sec:"#68716C", meta:"#8A938E",
   border:"#DDE2DE", grid:"#ECEFEC",
   strata:{ FILL:"#d9d2c4", SOIL:"#e9ece8", RES:"#cdd8cf", XW:"#b9c9bd", HW:"#9db5a4", MW:"#7f9d88", SW:"#5f8a6f", FR:"#3f7355" } };
+const DZ_BOREHOLE_TONES = [
+  { line:"#2563EB", dark:"#1E40AF", soft:"#EFF6FF" },
+  { line:"#D94841", dark:"#A52A2A", soft:"#FFF1F0" },
+  { line:"#00897B", dark:"#00695C", soft:"#E7F8F5" },
+  { line:"#7C3AED", dark:"#5B21B6", soft:"#F4F0FF" },
+  { line:"#D97706", dark:"#9A5200", soft:"#FFF7E8" },
+  { line:"#007C91", dark:"#075A6A", soft:"#E8F7FA" },
+  { line:"#C2185B", dark:"#8E1545", soft:"#FFF0F6" },
+  { line:"#657A00", dark:"#4C5C00", soft:"#F5F8E8" },
+  { line:"#4338CA", dark:"#312E81", soft:"#F0F0FF" },
+  { line:"#C2410C", dark:"#8F2F0A", soft:"#FFF3ED" }
+];
+const DZ_BOREHOLE_DASHES = ["", "7 3", "2 2", "10 3 2 3", "1 3", "8 2", "4 3", "12 3 3 3", "6 2 1 2", "3 2"];
 let dzBh = "ALL";
+
+function dzBhIndex(id) {
+  const index = S.boreholes.findIndex(borehole => borehole.id === id);
+  return index < 0 ? 0 : index;
+}
+function dzBhTone(id) { return DZ_BOREHOLE_TONES[dzBhIndex(id) % DZ_BOREHOLE_TONES.length]; }
+function dzBhDash(id) { return DZ_BOREHOLE_DASHES[dzBhIndex(id) % DZ_BOREHOLE_DASHES.length]; }
+function dzBoreholeLegend(ids) {
+  if (!ids.length) return "";
+  return `<div class="dz-bh-legend" aria-label="Borehole colour key">${ids.map(id=>{
+    const tone=dzBhTone(id);
+    return `<span class="dz-bh-legend-item" style="--bh:${tone.line};--bh-dark:${tone.dark};--bh-soft:${tone.soft}"><i class="dz-bh-swatch" aria-hidden="true"></i>${esc(id)}</span>`;
+  }).join("")}</div>`;
+}
 
 function dzClassify(id) { // ordered strata per borehole
   const L = S.logs[id]; if (!L) return [];
@@ -1837,16 +1871,21 @@ function dzProfileSVG() {
   s+=dzAxisY(maxD, x0, top, h);
   ids.forEach((id,i)=>{
     const cx = x0+28+i*72;
-    s+=`<text x="${cx+cw/2}" y="${top-8}" font-size="11" font-weight="600" fill="${DZ.ink}" text-anchor="middle">${esc(id)}</text>`;
+    const tone=dzBhTone(id);
+    s+=`<g data-bh-series="${esc(id)}"><rect x="${cx-6}" y="${top-23}" width="${cw+12}" height="18" rx="9" fill="${tone.soft}" stroke="${tone.line}"/>
+      <text x="${cx+cw/2}" y="${top-10}" font-size="10.5" font-weight="700" fill="${tone.dark}" text-anchor="middle">${esc(id)}</text>
+      <rect x="${cx-3}" y="${top}" width="${cw+6}" height="${h}" rx="4" fill="${tone.soft}"/>`;
     const strata = dzClassify(id);
-    if (!strata.length) { s+=`<rect x="${cx}" y="${top}" width="${cw}" height="${h*0.04}" fill="none" stroke="${DZ.border}" stroke-dasharray="3 2"/>`; return; }
+    if (!strata.length) { s+=`<rect x="${cx}" y="${top}" width="${cw}" height="${h*0.04}" fill="none" stroke="${tone.line}" stroke-width="1.5" stroke-dasharray="4 3"/></g>`; return; }
     for (const seg of strata) {
       const y1=top+seg.f/maxD*h, y2=top+seg.t/maxD*h;
       s+=`<rect x="${cx}" y="${y1}" width="${cw}" height="${Math.max(1,y2-y1)}" fill="${DZ.strata[seg.cls]}" stroke="#18201C" stroke-width=".5">
           <title>${esc(id)}\n${dzFmt(seg.f)}–${dzFmt(seg.t)} m\n${esc(seg.label)}</title></rect>`;
     }
+    s+=`<rect x="${cx-3}" y="${top}" width="${cw+6}" height="${h}" rx="4" fill="none" stroke="${tone.line}" stroke-width="1.5"/>`;
     const rt=dzRockTop(id);
     if (rt!=null) s+=`<line x1="${cx-3}" y1="${top+rt/maxD*h}" x2="${cx+cw+3}" y2="${top+rt/maxD*h}" stroke="#9a7018" stroke-width="1.2" stroke-dasharray="4 2"/>`;
+    s+=`</g>`;
   });
   s+=`</svg>`;
   const leg = Object.entries({FILL:"Fill",SOIL:"Natural soil",RES:"Residual",XW:"XW",HW:"HW",MW:"MW",SW:"SW",FR:"FR"})
@@ -1859,14 +1898,16 @@ function dzDepthBarsSVG() {
   let s=`<svg class="dz-svg" viewBox="0 0 ${W} ${H}" style="width:100%">`;
   ids.forEach((id,i)=>{
     const y=14+i*rh, d=dzDepth(id), bw=(d/maxD)*(W-140);
-    s+=`<text x="52" y="${y+11}" font-size="11" fill="${DZ.ink}" text-anchor="end" font-weight="600">${esc(id)}</text>`;
+    const tone=dzBhTone(id);
+    s+=`<g data-bh-series="${esc(id)}"><circle cx="8" cy="${y+7}" r="4" fill="${tone.line}"/><text x="52" y="${y+11}" font-size="11" fill="${tone.dark}" text-anchor="end" font-weight="700">${esc(id)}</text>
+      <rect x="60" y="${y}" width="${W-140}" height="14" rx="3" fill="${tone.soft}"/>`;
     let x=60;
     for (const seg of dzClassify(id)) {
       const w=(seg.t-seg.f)/maxD*(W-140);
       s+=`<rect x="${x+(seg.f/maxD)*(W-140)}" y="${y}" width="${Math.max(0.5,w)}" height="14" fill="${DZ.strata[seg.cls]}"><title>${esc(id)} ${dzFmt(seg.f)}–${dzFmt(seg.t)} m — ${esc(seg.label)}</title></rect>`;
     }
-    s+=`<rect x="60" y="${y}" width="${Math.max(1,bw)}" height="14" fill="none" stroke="${DZ.border}"/>`;
-    s+=`<text x="${64+bw}" y="${y+11}" font-size="11" fill="${DZ.sec}">${dzFmt(d)} m</text>`;
+    s+=`<rect x="60" y="${y}" width="${Math.max(1,bw)}" height="14" rx="3" fill="none" stroke="${tone.line}" stroke-width="1.5"/>`;
+    s+=`<text x="${64+bw}" y="${y+11}" font-size="11" fill="${tone.dark}" font-weight="600">${dzFmt(d)} m</text></g>`;
   });
   s+=`<text x="60" y="${H-6}" font-size="10" fill="${DZ.meta}">Depth (m) →  stacked by stratigraphy</text></svg>`;
   return s;
@@ -1888,23 +1929,21 @@ function dzSptSVG() {
         <text x="${x}" y="${top+h+12}" font-size="9.5" fill="${DZ.sec}" text-anchor="middle">${n}</text>`; }
   s+=`<text x="${x0+cw/2}" y="${H-4}" font-size="10" fill="${DZ.meta}" text-anchor="middle">SPT N-value</text>`;
   const byBh={}; pts.forEach(p=>(byBh[p.id]=byBh[p.id]||[]).push(p));
-  const tones=["#147447","#5f8a6f","#9db5a4","#0B4938","#7f9d88"];
-  Object.entries(byBh).forEach(([id,list],bi)=>{
+  Object.entries(byBh).forEach(([id,list])=>{
     list.sort((a,b)=>a.d-b.d);
-    const col=tones[bi%tones.length];
+    const tone=dzBhTone(id), dash=dzBhDash(id);
     const line=list.filter(p=>p.n!=null).map(p=>`${x0+p.n/maxN*cw},${top+p.d/maxD*h}`).join(" ");
-    if (line.includes(" ")) s+=`<polyline points="${line}" fill="none" stroke="${col}" stroke-width="1.4" opacity=".8"/>`;
+    if (line.includes(" ")) s+=`<polyline data-bh-series="${esc(id)}" points="${line}" fill="none" stroke="${tone.line}" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" ${dash?`stroke-dasharray="${dash}"`:""}/>`;
     for (const p of list) {
       const y=top+p.d/maxD*h;
-      if (p.refusal||p.n==null) s+=`<text x="${x0+cw-8}" y="${y+3}" font-size="10" fill="#9a7018" font-weight="600" text-anchor="middle">R<title>${esc(id)} — ${dzFmt(p.d)} m — Refusal</title></text>`;
-      else s+=`<circle cx="${x0+p.n/maxN*cw}" cy="${y}" r="3.4" fill="${col}"><title>${esc(id)}\nDepth ${dzFmt(p.d)} m\nN = ${p.n}${p.raw.b1!==""?`\nBlows ${p.raw.b1},${p.raw.b2},${p.raw.b3}`:""}</title></circle>`;
+      if (p.refusal||p.n==null) s+=`<g data-bh-series="${esc(id)}"><circle cx="${x0+cw-8}" cy="${y}" r="7" fill="#FFF7E8" stroke="${tone.line}" stroke-width="1.5"/><text x="${x0+cw-8}" y="${y+3}" font-size="9" fill="#9A5200" font-weight="700" text-anchor="middle">R<title>${esc(id)} — ${dzFmt(p.d)} m — Refusal</title></text></g>`;
+      else s+=`<circle data-bh-series="${esc(id)}" cx="${x0+p.n/maxN*cw}" cy="${y}" r="4.4" fill="${tone.line}" stroke="#fff" stroke-width="1.6"><title>${esc(id)}\nDepth ${dzFmt(p.d)} m\nN = ${p.n}${p.raw.b1!==""?`\nBlows ${p.raw.b1},${p.raw.b2},${p.raw.b3}`:""}</title></circle>`;
     }
-    s+=`<text x="${x0+6}" y="${top+12+bi*12}" font-size="10" fill="${col}" font-weight="600">● ${esc(id)}</text>`;
   });
   s+=`</svg>`;
   const valid=pts.filter(p=>p.n!=null).map(p=>p.n).sort((a,b)=>a-b);
   const med=valid.length? valid[Math.floor(valid.length/2)] : "—";
-  return s+`<div style="font-size:11.5px;color:${DZ.sec};margin-top:4px">Tests: <b>${pts.length}</b> · Median N: <b>${med}</b> · Refusals: <b>${pts.filter(p=>p.refusal).length}</b> · Max valid N: <b>${valid.at(-1)??"—"}</b></div>`;
+  return s+dzBoreholeLegend(Object.keys(byBh))+`<div style="font-size:11.5px;color:${DZ.sec};margin-top:6px">Tests: <b>${pts.length}</b> · Median N: <b>${med}</b> · Refusals: <b>${pts.filter(p=>p.refusal).length}</b> · Max valid N: <b>${valid.at(-1)??"—"}</b></div>`;
 }
 function dzIs50SVG() {
   const ids=dzBhList(); const pts=[];
@@ -1922,9 +1961,10 @@ function dzIs50SVG() {
   s+=`<text x="${x0+cw/2}" y="${H-4}" font-size="10" fill="${DZ.meta}" text-anchor="middle">Is(50), MPa — ▲ axial</text>`;
   for (const p of pts) {
     const x=x0+p.v/maxV*cw, y=top+(p.d||0)/maxD*h;
-    s+=`<path d="M ${x} ${y-4} L ${x-4} ${y+3} L ${x+4} ${y+3} Z" fill="${DZ.green}"><title>${esc(p.id)}\nDepth ${dzFmt(p.d)} m\nIs(50) = ${p.v} MPa\n${esc(p.lith)}</title></path>`;
+    const tone=dzBhTone(p.id);
+    s+=`<path data-bh-series="${esc(p.id)}" d="M ${x} ${y-5} L ${x-5} ${y+4} L ${x+5} ${y+4} Z" fill="${tone.line}" stroke="#fff" stroke-width="1.3"><title>${esc(p.id)}\nDepth ${dzFmt(p.d)} m\nIs(50) = ${p.v} MPa\n${esc(p.lith)}</title></path>`;
   }
-  return s+`</svg><div style="font-size:11.5px;color:${DZ.sec};margin-top:4px">Samples: <b>${pts.length}</b> · Range: <b>${Math.min(...pts.map(p=>p.v))}–${Math.max(...pts.map(p=>p.v))} MPa</b></div>`;
+  return s+`</svg>`+dzBoreholeLegend([...new Set(pts.map(p=>p.id))])+`<div style="font-size:11.5px;color:${DZ.sec};margin-top:6px">Samples: <b>${pts.length}</b> · Range: <b>${Math.min(...pts.map(p=>p.v))}–${Math.max(...pts.map(p=>p.v))} MPa</b></div>`;
 }
 function dzCoverageSVG() {
   const ids=dzBhList(); if(!ids.length) return `<div class="dz-empty">No boreholes yet.</div>`;
@@ -1934,14 +1974,16 @@ function dzCoverageSVG() {
   let any=false;
   ids.forEach((id,i)=>{
     const y=12+i*rh;
-    s+=`<text x="50" y="${y+4}" font-size="11" font-weight="600" fill="${DZ.ink}" text-anchor="end">${esc(id)}</text>`;
-    s+=`<line x1="58" y1="${y}" x2="${58+(dzDepth(id)/maxD)*(W-110)}" y2="${y}" stroke="${DZ.border}" stroke-width="3"/>`;
+    const tone=dzBhTone(id);
+    s+=`<g data-bh-series="${esc(id)}"><circle cx="8" cy="${y}" r="4" fill="${tone.line}"/><text x="50" y="${y+4}" font-size="11" font-weight="700" fill="${tone.dark}" text-anchor="end">${esc(id)}</text>`;
+    s+=`<line x1="58" y1="${y}" x2="${58+(dzDepth(id)/maxD)*(W-110)}" y2="${y}" stroke="${tone.soft}" stroke-width="7" stroke-linecap="round"/><line x1="58" y1="${y}" x2="${58+(dzDepth(id)/maxD)*(W-110)}" y2="${y}" stroke="${tone.line}" stroke-width="1.5" stroke-linecap="round" opacity=".65"/>`;
     const L=S.logs[id]||{};
     for (const smp of (L.samples||[])) { const d=num(smp.from); if(d==null) continue; any=true;
-      s+=`<circle cx="${58+d/maxD*(W-110)}" cy="${y}" r="4" fill="${DZ.green}"><title>${esc(id)} — ${esc(smp.sid||"sample")} @ ${dzFmt(d)} m\n${esc(smp.tests||smp.stype||"sample")}</title></circle>`; }
+      s+=`<circle cx="${58+d/maxD*(W-110)}" cy="${y}" r="4.5" fill="${tone.line}" stroke="#fff" stroke-width="1.4"><title>${esc(id)} — ${esc(smp.sid||"sample")} @ ${dzFmt(d)} m\n${esc(smp.tests||smp.stype||"sample")}</title></circle>`; }
     for (const r of (L.rock||[])) { const v=num(r.is50); if(v==null) continue; any=true;
       const x=58+(num(r.from)||0)/maxD*(W-110);
-      s+=`<path d="M ${x} ${y-5} L ${x-4} ${y+3} L ${x+4} ${y+3} Z" fill="#9a7018"><title>${esc(id)} PLT @ ${dzFmt(num(r.from))} m — Is(50) ${v} MPa</title></path>`; }
+      s+=`<path d="M ${x} ${y-5} L ${x-4} ${y+3} L ${x+4} ${y+3} Z" fill="${tone.dark}" stroke="#fff" stroke-width="1.2"><title>${esc(id)} PLT @ ${dzFmt(num(r.from))} m — Is(50) ${v} MPa</title></path>`; }
+    s+=`</g>`;
   });
   s+=`<text x="58" y="${H-4}" font-size="10" fill="${DZ.meta}">Depth (m) → · ● sample · ▲ point load</text></svg>`;
   return any? s : `<div class="dz-empty">No laboratory-tested samples recorded yet.</div>`;
@@ -2003,8 +2045,9 @@ function renderDashboard() {
           (S.boreholes.map(b=>{ const d=dzDepth(b.id), pl=num(b.plannedDepth)||num(b.termDepth)||d;
             const pc=pl?Math.min(100,Math.round(d/pl*100)):0;
             const st = dzClassify(b.id).length? (num(b.termDepth)!=null?"Complete":"Logging") : "Data Entry";
-            return `<tr data-go="soil" data-bh="${esc(b.id)}"><td><b>${esc(b.id)}</b></td><td>${dzFmt(d)}</td><td>${pl?dzFmt(pl):"—"}</td>
-              <td><span class="dz-prog"><i style="width:${pc}%"></i></span> <span style="font-size:11px;color:${DZ.sec}">${pc}%</span></td>
+            const tone=dzBhTone(b.id);
+            return `<tr data-go="soil" data-bh="${esc(b.id)}" style="--bh:${tone.line};--bh-dark:${tone.dark};--bh-soft:${tone.soft}"><td><span class="dz-bh-key"><i aria-hidden="true"></i><b>${esc(b.id)}</b></span></td><td>${dzFmt(d)}</td><td>${pl?dzFmt(pl):"—"}</td>
+              <td><span class="dz-prog"><i style="width:${pc}%"></i></span> <span class="dz-progress-value">${pc}%</span></td>
               <td><span class="dz-pill ${st==="Complete"?"":"warn"}">${st}</span></td></tr>`; }).join("")||"")+`</tbody></table>`)}
         ${panel("Recent activity","current session",`<div class="dz-act">`+
           ids.slice(0,6).flatMap(id=>{ const L=S.logs[id]; const items=[];
@@ -2015,6 +2058,7 @@ function renderDashboard() {
       </div>
       <div class="dz-filter">Filters: <select id="dzBhSel"><option value="ALL" ${dzBh==="ALL"?"selected":""}>All boreholes</option>${ids.map(id=>`<option ${dzBh===id?"selected":""}>${esc(id)}</option>`).join("")}</select>
         <span style="color:${DZ.meta}">All analytics respond to this filter · depth axes increase downward</span></div>
+      ${dzBoreholeLegend(ids)}
       ${panel("Subsurface profile comparison","stratigraphy per borehole — hover intervals for approved descriptions", dzProfileSVG()+dzSummaryStrip())}
       <div class="dz-grid2">
         ${panel("Borehole depths","total investigated depth, stacked by stratigraphy", dzDepthBarsSVG())}
@@ -2372,6 +2416,20 @@ function cb3Remember(d) {
     roughness:d.roughness, shape:d.shape, infill:d.infill, infillHard:d.infillHard };
   localStorage.setItem("cb-defaults", JSON.stringify(CB_DEFAULTS));
 }
+function cb3AttributeText(value, preferredPart) {
+  const text = String(value||"").trim();
+  if (!text) return "";
+  const parts = text.split(" — ");
+  return parts[preferredPart] || parts[0] || text;
+}
+function cb3RequiredReviewFields(d) {
+  const group = CODE_INFO[d.code]?.group;
+  if (group === "joint") return ["orientation","shape","persistence","apertureThk","roughness","infill"];
+  if (group === "seam") return ["infill","infillHard"];
+  if (group === "zone") return ["weatherZone","strengthZone"];
+  return ["comments"];
+}
+function cb3MissingReviewFields(d) { return cb3RequiredReviewFields(d).filter(key=>String(d[key]??"").trim()===""); }
 function cb3Snapshot() { cb3Undo.push(JSON.stringify(cb().defects)); if (cb3Undo.length>25) cb3Undo.shift(); }
 function showTab(tab) { /* v3 override: hide side panels on corebox */
   S.activeTab = tab;
@@ -2522,7 +2580,7 @@ function renderCorebox() {
     return `<div class="fld2"><label>${l}</label><input data-ek="${k}" value="${esc(d[k]||"")}"></div>`; }
   function renderInspector(expanded) {
     const d = c.defects.find(x=>x.id===cb2Sel);
-    if (!d || cb3Mode==="scale") { insp.style.display="none"; return; }
+    if (!d || cb3Mode==="scale" || cb3Drawer) { insp.style.display="none"; return; }
     const info=CODE_INFO[d.code]||{}, g=info.group;
     const thk=num(d.to)!=null?Math.max(0,num(d.to)-num(d.from)):0;
     let core="";
@@ -2561,31 +2619,97 @@ function renderCorebox() {
   /* review drawer */
   function renderDrawer() {
     const dr = page.querySelector("#cb3drawer");
-    dr.style.display = cb3Drawer? "block":"none";
+    dr.style.display = cb3Drawer? "flex":"none";
     if (!cb3Drawer) return;
     const sorted=[...c.defects].sort((a,b)=>num(a.from)-num(b.from));
-    dr.innerHTML = `<div class="panel-header" style="background:var(--og-blue)"><span>Defect review — ${esc(S.activeBh)}</span><a id="drX" style="color:#fff;cursor:pointer">✕ close</a></div>
-      <div class="toolbar"><span class="hint">${sorted.length} annotations · click a row to select on image</span><span class="spacer"></span>
-        <button class="btn" id="drApprove">Approve all</button><button class="btn primary" id="drSync">Sync to rock log</button></div>
-      <table class="og"><thead><tr><th style="width:44px">Code</th><th style="width:64px">From</th><th style="width:64px">To</th><th style="width:56px">Orient.</th><th>Attributes</th><th style="width:60px">Status</th><th style="width:34px"></th></tr></thead><tbody>
-      ${sorted.map(d=>`<tr data-sel="${d.id}" style="cursor:pointer;${cb2Sel===d.id?"background:#dceaf5":""}">
-        <td style="padding:3px 6px"><b style="color:${CODE_INFO[d.code]?.color}">${d.code}</b></td>
-        <td class="num" style="padding:3px 6px">${num(d.from)?.toFixed(2)??""}</td>
-        <td class="num" style="padding:3px 6px">${num(d.to)!=null&&num(d.to)>num(d.from)?num(d.to).toFixed(2):"—"}</td>
-        <td style="padding:3px 6px">${esc(d.orientation!==""?d.orientation+"°":"")}</td>
-        <td style="padding:3px 6px;font-size:11px">${esc([d.persistence,d.apertureThk,d.roughness,d.infill].filter(v=>v&&v!=="None").map(v=>String(v).split(" — ")[0]).join(", "))}</td>
-        <td style="padding:3px 6px">${d.confirmed?'<span class="vok">✓</span>':"draft"}</td>
-        <td class="act"><button data-del2="${d.id}">🗑</button></td></tr>`).join("")}</tbody></table>`;
+    if (sorted.length && !sorted.some(d=>d.id===cb2Sel)) cb2Sel=sorted[0].id;
+    const selected=sorted.find(d=>d.id===cb2Sel)||null;
+    const completed=sorted.filter(d=>cb3MissingReviewFields(d).length===0).length;
+    const required=new Set(selected?cb3RequiredReviewFields(selected):[]);
+    const optionLists=CB_ATTRS.map(([key,,options])=>`<datalist id="dr-${key}-options">${options.filter(Boolean).map(option=>`<option value="${esc(option)}"></option>`).join("")}</datalist>`).join("");
+    const reviewField=([key,label,options])=>{
+      const value=selected?selected[key]||"":"";
+      const missing=required.has(key)&&String(value).trim()==="";
+      const attributes=key==="orientation"?'type="number" min="0" max="90" step="1" inputmode="decimal"':`type="text" list="dr-${key}-options"`;
+      return `<label class="cb3-review-field ${missing?"is-missing":""}"><span>${label}${required.has(key)?'<b aria-hidden="true">required</b>':""}</span><input data-dr-key="${key}" ${attributes} value="${esc(value)}" placeholder="${missing?"Enter or choose a value":"Optional"}"></label>`;
+    };
+    const selectedInfo=selected?(CODE_INFO[selected.code]||{}):{};
+    dr.innerHTML = `<div class="cb3-review-head">
+      <div class="panel-header" style="background:var(--og-blue)"><span>Defect review — ${esc(S.activeBh)}</span><button type="button" id="drX" class="cb3-review-close" aria-label="Close defect review">× <span>Close</span></button></div>
+      <div class="toolbar"><span class="hint"><b>${completed}</b> complete · <b>${sorted.length-completed}</b> need details</span><span class="spacer"></span>
+        <button class="btn" type="button" id="drApprove">Approve complete</button><button class="btn primary" type="button" id="drSync">Sync to rock log</button></div>
+    </div>
+    <div class="cb3-review-workspace">
+      <aside class="cb3-review-list-pane">
+        <div class="cb3-review-list-head"><div><strong>Annotations</strong><span>${sorted.length} on image</span></div><input id="drSearch" type="search" placeholder="Filter code, depth or detail" aria-label="Filter defect annotations"></div>
+        <div class="cb3-review-list" role="listbox" aria-label="Defect annotations">
+          ${sorted.length?sorted.map(d=>{
+            const info=CODE_INFO[d.code]||{};
+            const missing=cb3MissingReviewFields(d);
+            const detail=[d.orientation!==""&&d.orientation!=null?`${d.orientation}°`:"",d.shape,d.persistence,d.apertureThk,d.roughness,d.infill,d.comments].filter(v=>v&&v!=="None").map(v=>cb3AttributeText(v,0)).join(" · ");
+            const interval=`${num(d.from)?.toFixed(2)??"—"}${num(d.to)!=null&&num(d.to)>num(d.from)?`–${num(d.to).toFixed(2)}`:""} m`;
+            const search=esc(`${d.code} ${interval} ${detail}`.toLowerCase());
+            return `<button type="button" role="option" aria-selected="${cb2Sel===d.id}" class="cb3-review-row ${cb2Sel===d.id?"is-selected":""}" data-sel="${d.id}" data-search="${search}" style="--defect:${info.color||"#475569"}">
+              <span class="cb3-review-code">${esc(d.code)}</span><span class="cb3-review-depth">${interval}</span>
+              <span class="cb3-review-summary">${esc(detail||"Details not entered")}</span>
+              <span class="cb3-review-state ${missing.length?"needs-detail":d.confirmed?"reviewed":"ready"}">${missing.length?`${missing.length} blank`:d.confirmed?"Reviewed":"Ready"}</span>
+            </button>`;
+          }).join(""):`<div class="cb3-review-empty">No annotations to review.</div>`}
+        </div>
+      </aside>
+      <section class="cb3-review-editor-pane">
+        ${selected?`<form id="drForm" autocomplete="off">
+          <header class="cb3-review-editor-head" style="--defect:${selectedInfo.color||"#475569"}"><div><span class="cb3-review-code">${esc(selected.code)}</span><div><h3>${esc(selectedInfo.name||"Defect")}</h3><p>${num(selected.from)?.toFixed(2)??"—"} m · ${cb3MissingReviewFields(selected).length?`${cb3MissingReviewFields(selected).length} required fields blank`:"Required details complete"}</p></div></div></header>
+          <div class="cb3-review-form-body">
+            <fieldset><legend>Location and classification</legend><div class="cb3-review-grid">
+              <label class="cb3-review-field"><span>Defect code</span><select data-dr-key="code">${Object.keys(CODE_INFO).filter(code=>!["VD","PL","CU","IR"].includes(code)).map(code=>`<option value="${esc(code)}" ${code===selected.code?"selected":""}>${esc(code)} — ${esc(CODE_INFO[code].name)}</option>`).join("")}</select></label>
+              <label class="cb3-review-field"><span>From depth (m)<b aria-hidden="true">required</b></span><input data-dr-key="from" type="number" step="0.01" inputmode="decimal" value="${esc(selected.from)}"></label>
+              <label class="cb3-review-field"><span>To depth (m)</span><input data-dr-key="to" type="number" step="0.01" inputmode="decimal" value="${num(selected.to)!=null&&num(selected.to)>num(selected.from)?esc(selected.to):""}" placeholder="Point defect"></label>
+              <label class="cb3-review-check"><input data-dr-key="countRqd" type="checkbox" ${selected.countRqd!==false?"checked":""}><span>Count towards RQD assessment</span></label>
+            </div></fieldset>
+            <fieldset><legend>Orientation and defect details</legend><div class="cb3-review-grid">${CB_ATTRS.slice(0,8).map(reviewField).join("")}</div></fieldset>
+            <fieldset><legend>Zone and grouped-defect details</legend><div class="cb3-review-grid">${CB_ATTRS.slice(8).map(reviewField).join("")}
+              <label class="cb3-review-field"><span>Number of defects</span><input data-dr-key="count" type="number" min="1" step="1" inputmode="numeric" value="${esc(selected.count||"")}" placeholder="Optional"></label>
+              <label class="cb3-review-field"><span>Spacing</span><input data-dr-key="spacing" value="${esc(selected.spacing||"")}" placeholder="e.g. 40–60 mm"></label>
+            </div></fieldset>
+            <fieldset><legend>Notes</legend><label class="cb3-review-field cb3-review-comments ${required.has("comments")&&!selected.comments?"is-missing":""}"><span>Comments${required.has("comments")?'<b aria-hidden="true">required</b>':""}</span><textarea data-dr-key="comments" rows="4" placeholder="Type factual observations, mineral coating, staining or handling notes">${esc(selected.comments||"")}</textarea></label></fieldset>
+          </div>
+          <footer class="cb3-review-actions"><button class="btn danger" type="button" id="drDelete">Delete</button><span class="spacer"></span><button class="btn" type="button" id="drSaveDraft">Save draft</button><button class="btn primary" type="submit" id="drSaveReview">Save &amp; mark reviewed</button></footer>
+          ${optionLists}
+        </form>`:`<div class="cb3-review-empty">Select an annotation to enter its details.</div>`}
+      </section>
+    </div>`;
     dr.querySelector("#drX").onclick=()=>{ cb3Drawer=false; renderDrawer(); };
-    dr.querySelector("#drApprove").onclick=()=>{ c.defects.forEach(d=>d.confirmed=true); save(); renderDrawer(); };
-    dr.querySelector("#drSync").onclick=()=>{ syncCoreboxMetrics(); cb3Drawer=false; renderCorebox(); };
-    dr.querySelectorAll("[data-sel]").forEach(tr=>tr.addEventListener("click",e=>{
-      if (e.target.closest("[data-del2]")) return;
-      cb2Sel=tr.dataset.sel; drawOverlays(); renderDrawer();
-    }));
-    dr.querySelectorAll("[data-del2]").forEach(b=>b.addEventListener("click",()=>{
-      cb3Snapshot(); const i=c.defects.findIndex(d=>d.id===b.dataset.del2); if(i>=0)c.defects.splice(i,1); save(); renderDrawer(); drawOverlays();
-    }));
+    const editor=dr.querySelector("#drForm");
+    function applyEditor(d,mode) {
+      if (!d || !editor) return;
+      cb3Snapshot();
+      editor.querySelectorAll("[data-dr-key]").forEach(input=>{
+        const key=input.dataset.drKey;
+        if (input.type==="checkbox") d[key]=input.checked;
+        else if (["from","to","count"].includes(key)) d[key]=input.value===""?"":parseFloat(input.value);
+        else d[key]=input.value.trim();
+      });
+      if (num(d.from)!=null && num(d.to)==null) d.to=d.from;
+      const missing=cb3MissingReviewFields(d);
+      if (mode==="review") d.confirmed=missing.length===0;
+      else if (mode==="draft") d.confirmed=false;
+      else if (missing.length) d.confirmed=false;
+      cb3Remember(d); save();
+      setStatus(mode==="review"&&missing.length?`Saved ${d.code} as draft — ${missing.length} required fields remain`:`Saved ${d.code} defect details`);
+    }
+    const saveEditor=mode=>{ applyEditor(selected,mode); drawOverlays(); renderDrawer(); };
+    if (editor) editor.addEventListener("submit",event=>{ event.preventDefault(); saveEditor("review"); });
+    const saveDraft=dr.querySelector("#drSaveDraft"); if (saveDraft) saveDraft.onclick=()=>saveEditor("draft");
+    const deleteCurrent=dr.querySelector("#drDelete"); if (deleteCurrent) deleteCurrent.onclick=()=>{
+      cb3Snapshot(); const index=c.defects.findIndex(d=>d.id===selected.id); if(index>=0)c.defects.splice(index,1); cb2Sel=null; save(); drawOverlays(); renderDrawer();
+    };
+    dr.querySelector("#drApprove").onclick=()=>{ c.defects.forEach(d=>{ if(!cb3MissingReviewFields(d).length)d.confirmed=true; }); save(); renderDrawer(); };
+    dr.querySelector("#drSync").onclick=()=>{ applyEditor(selected,"preserve"); syncCoreboxMetrics(); cb3Drawer=false; renderCorebox(); };
+    dr.querySelectorAll("[data-sel]").forEach(row=>row.addEventListener("click",()=>{ cb2Sel=row.dataset.sel; drawOverlays(); renderDrawer(); }));
+    const search=dr.querySelector("#drSearch"); if (search) search.addEventListener("input",()=>{
+      const query=search.value.trim().toLowerCase(); dr.querySelectorAll("[data-search]").forEach(row=>{ row.hidden=query&&!row.dataset.search.includes(query); });
+    });
   }
 
   /* wiring */
@@ -2908,10 +3032,10 @@ function syncCoreboxMetrics(silent) {
       row.rockType = row.rockType || (unit? unit.rockType : "");
       row.defectType = typeMap[d.code]||"Joint";
       row.defectAngle = d.orientation||"";
-      row.defectRough = (d.roughness||"").split(" — ")[1]||"";
+      row.defectRough = cb3AttributeText(d.roughness,1);
       row.defectInfill = d.infill && d.infill!=="None" ? d.infill.toLowerCase() : "";
-      row.defectAperture = (d.apertureThk||"").split(" — ")[1]||"";
-      row.defectPersist = (d.persistence||"").split(" — ")[0]||"";
+      row.defectAperture = cb3AttributeText(d.apertureThk||d.aperture,1);
+      row.defectPersist = cb3AttributeText(d.persistence,0);
       if (["MJ","JS","BP-M"].includes(d.code)) {
         /* grouped-defect wording: "MJ: 5 joints over 0.30 m, spacing 40–60 mm, 0–10°, PL–RO, CL" */
         const span = t>f ? (t-f) : 0;
@@ -2920,12 +3044,12 @@ function syncCoreboxMetrics(silent) {
           + (span? ` over ${span.toFixed(2)} m` : "")
           + (d.spacing? `, spacing ${d.spacing}` : "")
           + (d.orientation? `, ${d.orientation}°` : "")
-          + (d.shape? `, ${String(d.shape).split(" — ")[0]}` : "")
-          + ((d.roughness||"").split(" — ")[0]? `–${String(d.roughness).split(" — ")[0]}` : "")
+          + (d.shape? `, ${cb3AttributeText(d.shape,0)}` : "")
+          + (d.roughness? `–${cb3AttributeText(d.roughness,0)}` : "")
           + (d.infill && d.infill!=="None"? `, ${d.infill}` : "")
           + (d.comments? ` — ${d.comments}` : "") + " (corebox)";
       } else
-      row.remarks = `${d.code}${d.shape?" "+String(d.shape).split(" — ")[0]:""}${d.comments?" — "+d.comments:""} (corebox)`;
+      row.remarks = `${d.code}${d.shape?" "+cb3AttributeText(d.shape,0):""}${d.comments?" — "+d.comments:""} (corebox)`;
     }
     L.rock.sort((a,b)=>(num(a.from)??999)-(num(b.from)??999));
     localStorage.setItem("autosoil-logger", JSON.stringify(S));
@@ -3105,7 +3229,10 @@ function buildPdf(bhId) {
   if (coreStart!=null && coredRock.length) { const w0=Math.floor(coreStart/10)*10; for (let d=w0; d<maxD-0.001; d+=10) rockWins.push(d); }
   const totalSheets = materialPages + rockWins.length || 1;
   const RL0 = num(B.rl)??num(P.groundRL);
-  const HY=17, HH=42, bandY=59, bandH=18, bodyY=77, bodyB=271, SC=1000/52;
+  /* SC measured 2026-07-25 from the issued reference set: depth labels give 19.4000 mm/m on
+     every log, putting y=77 at 0.00 m and y=271 at exactly 10.00 m. The previous 1000/52
+     (19.2308) placed 10 m at y 269.31 — a 1.7 mm drift at the foot of every sheet. */
+  const HY=17, HH=42, bandY=59, bandH=18, bodyY=77, bodyB=271, SC=19.4;
   const GW = gwDepth(P,B);
   let sheet = 0, qaLogo = false;
   /* Use a PDF-native face on every sheet; embedded Carlito was unreliable in multi-page renderers. */
@@ -6305,6 +6432,9 @@ table.og td.auto { background:#f0f7f3 !important; }
 }
 </style>
 <link rel="stylesheet" href="geoflow-premium.css">
+<link rel="stylesheet" href="geoflow-tower.css">
+<link rel="stylesheet" href="geoflow-access.css">
+<link rel="stylesheet" href="geoflow-control.css">
 <link rel="stylesheet" href="geoflow-scope.css">
 <link rel="stylesheet" href="geoflow-motion.css">
 <script src="vendor/lucide.min.js"></script>
@@ -6388,9 +6518,858 @@ paintIcons();
 })();
 </script>
 <script src="geoflow-ui-core.js"></script>
+<script src="geoflow-control-core.js"></script>
+<script src="geoflow-control-db.js"></script>
 <script src="geoflow-premium.js"></script>
 <script src="geoflow-reports.js"></script>
+<script src="geoflow-tower.js"></script>
 <script src="geoflow-scope.js"></script>
 <script src="geoflow-motion.js"></script>
+<script src="geoflow-access-core.js"></script>
+<script src="geoflow-access.js"></script>
+<script src="geoflow-control-live.js"></script>
+<script src="geoflow-control.js"></script>
+<script id="v21-tenx">
+"use strict";
+/* ============ v21: 10x layer — theme accents · long section · AGS4 export · client share ============ */
+(function(){
+const E=s=>String(s??"").replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/"/g,"&quot;");
+const MC=m=>{ try{ const c=matColor(m); if (c) return c; }catch(e){} return "#d9c8a0"; };
+const css=`
+  #page-section .ls-tools{ display:flex; gap:8px; align-items:center; margin:0 0 10px; flex-wrap:wrap; }
+  #page-section .ls-btn{ border:1px solid #cbd5e1; background:#fff; border-radius:8px; padding:7px 14px; font-size:12.5px; font-weight:600; cursor:pointer; color:#0f172a; }
+  #page-section .ls-btn.pri{ background:#1d4ed8; border-color:#1d4ed8; color:#fff; }
+  #page-section .ls-wrap{ background:#fff; border:1px solid #e2e8f0; border-radius:12px; padding:14px; overflow:auto; }
+  #shareBar21 button, .ags-btn21{ border:1px solid #cbd5e1; background:#fff; border-radius:8px; padding:8px 14px; font-size:12.5px; font-weight:600; cursor:pointer; }
+`;
+const st=document.createElement("style"); st.id="v21-theme"; st.textContent=css; document.head.appendChild(st);
+const host21=document.querySelector(".content");
+if (host21 && !document.getElementById("page-section")){ const dv=document.createElement("div"); dv.className="tabpage"; dv.id="page-section"; host21.appendChild(dv); }
+/* co-guarded: "section" only enters TABS when its page div exists (base showTab has no null-check) */
+if (typeof TABS!=="undefined" && document.getElementById("page-section") && !TABS.includes("section")) TABS.push("section");
+function secDepth(id){ const l=(S.logs||{})[id]||{}; const b=S.boreholes.find(x=>x.id===id)||{};
+  return Math.max(...((l.soil||[]).map(r=>parseFloat(r.to)||0)), ...((l.rock||[]).map(r=>parseFloat(r.to)||0)), parseFloat(b.termDepth)||0, 0); }
+function buildSectionSVG(){
+  const bhs=S.boreholes.filter(b=>secDepth(b.id)>0);
+  if (!bhs.length) return null;
+  const maxD=Math.max(...bhs.map(b=>secDepth(b.id)),1);
+  const step=maxD>18?2:1, PXM=maxD>25?18:26;
+  const top=64,left=64,colW=54,gap=150,H=top+maxD*PXM+50,Wd=left+bhs.length*gap+40;
+  const uniq=[]; const seen=new Set();
+  let s=`<svg xmlns="http://www.w3.org/2000/svg" width="${Wd}" height="${H}" viewBox="0 0 ${Wd} ${H}" font-family="Inter,Arial,sans-serif">`;
+  s+=`<defs><pattern id="rockhatch" width="7" height="7" patternTransform="rotate(45)" patternUnits="userSpaceOnUse"><rect width="7" height="7" fill="#cdd8e2"/><line x1="0" y1="0" x2="0" y2="7" stroke="#8fa3b5" stroke-width="1.4"/></pattern></defs>`;
+  s+=`<rect width="${Wd}" height="${H}" fill="#ffffff"/>`;
+  s+=`<text x="${left}" y="24" font-size="15" font-weight="700" fill="#0f172a">${E(S.project?.projectNumber||"")} — Long section (ground-level datum)</text>`;
+  s+=`<text x="${left}" y="40" font-size="10.5" fill="#64748b">Generated by STS GeoFlow · ${new Date().toISOString().slice(0,10)} · equal borehole spacing (not to horizontal scale)</text>`;
+  for (let d=0; d<=maxD+0.01; d+=step){ const y=top+d*PXM;
+    s+=`<line x1="${left-6}" y1="${y}" x2="${Wd-20}" y2="${y}" stroke="#eef2f6" stroke-width="1"/>`;
+    s+=`<text x="${left-10}" y="${y+3}" font-size="9.5" fill="#94a3b8" text-anchor="end">${d.toFixed(0)} m</text>`; }
+  bhs.forEach((b,i)=>{
+    const x=left+i*gap+30; const l=(S.logs||{})[b.id]||{}; const dTot=secDepth(b.id);
+    s+=`<text x="${x+colW/2}" y="${top-10}" font-size="11.5" font-weight="700" fill="#0f172a" text-anchor="middle">${E(b.id)}</text>`;
+    const rows=[...(l.soil||[]).map(r=>({f:parseFloat(r.from)||0,t:parseFloat(r.to)||0,m:r.material||"",d:r.description||"",rock:false})),
+                ...(l.rock||[]).map(r=>({f:parseFloat(r.from)||0,t:parseFloat(r.to)||0,m:r.rockType||"ROCK",d:r.description||"",rock:true}))]
+      .filter(r=>r.t>r.f).sort((a,b2)=>a.f-b2.f);
+    for (const r of rows){
+      const y=top+r.f*PXM, h=(r.t-r.f)*PXM;
+      s+=`<rect x="${x}" y="${y}" width="${colW}" height="${h}" fill="${r.rock?"url(#rockhatch)":MC(r.m)}" stroke="#334155" stroke-width="0.8"><title>${E(b.id)} ${r.f}–${r.t} m — ${E(r.d||r.m)}</title></rect>`;
+      if (r.m && !seen.has(r.m)){ seen.add(r.m); uniq.push({m:r.m,rock:r.rock}); }
+      if (h>=12) s+=`<text x="${x+colW+4}" y="${y+Math.min(h/2+3,12)}" font-size="8.5" fill="#475569">${E(String(r.m).slice(0,16))}</text>`;
+    }
+    for (const t of (l.spt||[])){ const dd=parseFloat(t.depth); if (isNaN(dd)) continue; const y=top+dd*PXM;
+      s+=`<line x1="${x-8}" y1="${y}" x2="${x}" y2="${y}" stroke="#b91c1c" stroke-width="1.2"/>`;
+      s+=`<text x="${x-10}" y="${y+3}" font-size="8.5" fill="#b91c1c" text-anchor="end">N=${E(t.refusal?"R":(t.n||"–"))}</text>`; }
+    const yb=top+dTot*PXM;
+    s+=`<line x1="${x-4}" y1="${yb}" x2="${x+colW+4}" y2="${yb}" stroke="#0f172a" stroke-width="1.6"/>`;
+    s+=`<text x="${x+colW/2}" y="${yb+12}" font-size="9" fill="#0f172a" text-anchor="middle">${dTot.toFixed(2)} m</text>`;
+  });
+  let lx=left, ly=H-14;
+  for (const u of uniq.slice(0,10)){
+    s+=`<rect x="${lx}" y="${ly-9}" width="12" height="10" fill="${u.rock?"url(#rockhatch)":MC(u.m)}" stroke="#334155" stroke-width="0.6"/>`;
+    s+=`<text x="${lx+16}" y="${ly}" font-size="9" fill="#334155">${E(String(u.m).slice(0,18))}</text>`;
+    lx+=16+Math.min(String(u.m).length,18)*5.2+18;
+  }
+  return s+"</svg>";
+}
+function renderSection(){
+  const el=document.getElementById("page-section"); if (!el) return;
+  const svg=buildSectionSVG();
+  el.innerHTML=`<h2 style="font-size:19px;margin:6px 0 12px">Long section</h2>
+    <div class="ls-tools">
+      <button class="ls-btn pri" id="lsDl">⇩ Download SVG</button>
+      <button class="ls-btn" id="lsRe">↻ Refresh</button>
+      <span style="font-size:11.5px;color:#64748b">Drawn from logged strata — SPT N left of each column, termination depth below. Hover a unit for its description.</span>
+    </div>
+    ${svg?`<div class="ls-wrap" id="lsWrap">${svg}</div>`:`<div class="sc-card" style="padding:18px;font-size:13px;color:#5a6675">No logged intervals yet — the section draws itself as soil/rock intervals are logged.</div>`}`;
+  const dl=el.querySelector("#lsDl"); if (dl) dl.addEventListener("click",()=>{
+    const s2=buildSectionSVG(); if (!s2) return alert("Nothing to export yet.");
+    const a=document.createElement("a"); a.href=URL.createObjectURL(new Blob([s2],{type:"image/svg+xml"}));
+    a.download=(S.project?.projectNumber||"project")+"-long-section.svg"; a.click(); });
+  const re=el.querySelector("#lsRe"); if (re) re.addEventListener("click",renderSection);
+}
+window.__section21=buildSectionSVG;
+const Q=v=>'"'+String(v??"").replace(/"/g,'""')+'"';
+function agsRows(){
+  const out=[]; const P=S.project||{};
+  const push=(...a)=>out.push(a.map(Q).join(","));
+  push("GROUP","PROJ"); push("HEADING","PROJ_ID","PROJ_NAME","PROJ_LOC","PROJ_CLNT","PROJ_ENG","PROJ_MEMO");
+  push("UNIT","","","","","",""); push("TYPE","X","X","X","X","X","X");
+  push("DATA",P.projectNumber||"",P.projectName||"",P.siteAddress||"",P.clientName||"",P.loggedBy||"","Exported by STS GeoFlow");
+  out.push("");
+  push("GROUP","LOCA"); push("HEADING","LOCA_ID","LOCA_TYPE","LOCA_FDEP","LOCA_NATE","LOCA_NATN","LOCA_GL","LOCA_REM");
+  push("UNIT","","","m","m","m","m",""); push("TYPE","X","X","2DP","2DP","2DP","2DP","X");
+  const locaType=b2=>{ if (/^TP/i.test(b2.id)) return "TP";
+    const lg=(S.logs||{})[b2.id]||{}; const hasR=(lg.rock||[]).length>0, hasS=(lg.soil||[]).length>0;
+    if (/pit|excavat/i.test(String(P.drillingMethod||""))) return "TP";
+    return hasR&&hasS? "CP+RC" : hasR? "RC" : "CP"; };
+  for (const b of S.boreholes) push("DATA",b.id,locaType(b),secDepth(b.id).toFixed(2),b.easting||P.easting||"",b.northing||P.northing||"",(b.rl!=null&&b.rl!==""&&isFinite(+b.rl))?(+b.rl).toFixed(2):"",b.termReason||"");
+  out.push("");
+  push("GROUP","GEOL"); push("HEADING","LOCA_ID","GEOL_TOP","GEOL_BASE","GEOL_DESC","GEOL_LEG","GEOL_GEOL");
+  push("UNIT","","m","m","","",""); push("TYPE","X","2DP","2DP","X","X","X");
+  for (const b of S.boreholes){ const l=(S.logs||{})[b.id]||{};
+    for (const r of (l.soil||[])) if (r.to!==""&&r.to!=null) push("DATA",b.id,(+r.from||0).toFixed(2),(+r.to||0).toFixed(2),r.description||r.material||"","",r.material||"");
+    for (const r of (l.rock||[])) if (r.to!==""&&r.to!=null) push("DATA",b.id,(+r.from||0).toFixed(2),(+r.to||0).toFixed(2),r.description||[r.rockType,r.weathering,r.strength].filter(Boolean).join(", "),"",r.rockType||""); }
+  out.push("");
+  push("GROUP","ISPT"); push("HEADING","LOCA_ID","ISPT_TOP","ISPT_SEAT","ISPT_MAIN","ISPT_NVAL","ISPT_REP");
+  push("UNIT","","m","","","",""); push("TYPE","X","2DP","X","X","X","X");
+  for (const b of S.boreholes){ const l=(S.logs||{})[b.id]||{};
+    for (const t of (l.spt||[])) if (t.depth!==""&&t.depth!=null)
+      /* ISPT_NVAL is numeric in AGS4 — refusal goes to ISPT_REP, never "R" in the number field */
+      push("DATA",b.id,(+t.depth||0).toFixed(2),t.seat||t.b1||"",[t.b2,t.b3].filter(x=>x!==""&&x!=null).join(","),t.refusal?"":(t.n||""),(t.refusal?"Refusal (N=R). ":"")+(t.remarks||"")); }
+  out.push("");
+  push("GROUP","SAMP"); push("HEADING","LOCA_ID","SAMP_TOP","SAMP_BASE","SAMP_TYPE","SAMP_ID","SAMP_REM");
+  push("UNIT","","m","m","","",""); push("TYPE","X","2DP","2DP","X","X","X");
+  for (const b of S.boreholes){ const l=(S.logs||{})[b.id]||{};
+    for (const sm of (l.samples||[])) push("DATA",b.id,(+sm.from||0).toFixed(2),(+(sm.to??sm.from)||0).toFixed(2),sm.stype||sm.type||"",sm.sid||"",sm.remarks||""); }
+  out.push("");
+  push("GROUP","CORE"); push("HEADING","LOCA_ID","CORE_TOP","CORE_BASE","CORE_PREC","CORE_SREC","CORE_RQD");
+  push("UNIT","","m","m","%","%","%"); push("TYPE","X","2DP","2DP","0DP","0DP","0DP");
+  for (const b of S.boreholes){ const l=(S.logs||{})[b.id]||{};
+    for (const r of (l.rock||[])) if (r.tcr||r.rqd) push("DATA",b.id,(+r.from||0).toFixed(2),(+r.to||0).toFixed(2),r.tcr||"",r.scr||"",r.rqd||""); }
+  return out.join("\r\n")+"\r\n";
+}
+window.__agsRows21=agsRows;
+function agsExport(){
+  const a=document.createElement("a"); a.href=URL.createObjectURL(new Blob([agsRows()],{type:"text/plain"}));
+  a.download=(S.project?.projectNumber||"project")+".ags"; a.click();
+  try{ if (typeof pjLog==="function") pjLog("AGS4 file exported"); }catch(e){}
+}
+function injectAgs(){
+  const pg=document.getElementById("page-export"); if (!pg || pg.querySelector("#agsCard21")) return;
+  const dv=document.createElement("div"); dv.id="agsCard21"; dv.className="sc-card"; dv.style.cssText="padding:14px;margin-top:12px";
+  dv.innerHTML=`<div style="font-weight:700;font-size:13.5px;margin-bottom:4px">AGS4 interchange file</div>
+    <div style="font-size:12px;color:#5a6675;margin-bottom:8px">Industry-standard AGS4 (PROJ · LOCA · GEOL · ISPT · SAMP · CORE) — imports straight into OpenGround, Leapfrog, Civil 3D and client databases.</div>
+    <button class="ags-btn21" id="agsBtn21">⇩ Export AGS4 (.ags)</button>`;
+  pg.appendChild(dv);
+  dv.querySelector("#agsBtn21").addEventListener("click",agsExport);
+}
+async function makeShare(){
+  const loc=(typeof pjSyncKey==="function"? pjSyncKey():"__autosoil_project__");
+  const h={"Content-Type":"application/json"}; const k=localStorage.getItem("geologger-api-key"); if (k) h["X-Autosoil-Api-Key"]=k;
+  let d=null;
+  try{ const r=await fetch("/api/v1/share",{method:"POST",headers:h,body:JSON.stringify({project:loc})}); d=await r.json(); }catch(e){}
+  if (!d||!d.ok) return alert("Share service not available on this deployment yet.");
+  S.share=Object.assign({},S.share,{[loc]:d.token}); try{ save(); }catch(e){ localStorage.setItem("autosoil-logger",JSON.stringify(S)); }
+  const url=(location.protocol==="file:"?"https://autosoillogger.poreddyjeevanreddy.workers.dev":location.origin)+"/share/"+d.token;
+  const bg=document.createElement("div"); bg.style.cssText="position:fixed;inset:0;background:rgba(15,23,42,.45);z-index:900;display:flex;align-items:center;justify-content:center";
+  bg.innerHTML=`<div style="background:#fff;border-radius:14px;max-width:540px;width:92%;padding:20px">
+    <div style="font-weight:800;font-size:15px;margin-bottom:6px">🔗 Client share link</div>
+    <div style="font-size:12.5px;color:#5a6675;margin-bottom:10px">Read-only live progress page — no login. Anyone with the link can view; revoke any time.</div>
+    <input id="shUrl21" readonly value="${E(url)}" style="width:100%;border:1px solid #cbd5e1;border-radius:8px;padding:9px 10px;font-size:12.5px;margin-bottom:10px">
+    <div style="display:flex;gap:8px;justify-content:flex-end">
+      <button id="shRev21" style="border:1px solid #fca5a5;color:#b91c1c;background:#fff;border-radius:8px;padding:8px 14px;font-size:12.5px;font-weight:600;cursor:pointer">Revoke</button>
+      <button id="shCp21" style="border:none;background:#1d4ed8;color:#fff;border-radius:8px;padding:8px 16px;font-size:12.5px;font-weight:700;cursor:pointer">Copy link</button>
+      <button id="shCl21" style="border:1px solid #cbd5e1;background:#fff;border-radius:8px;padding:8px 14px;font-size:12.5px;cursor:pointer">Close</button>
+    </div></div>`;
+  document.body.appendChild(bg);
+  bg.querySelector("#shCl21").addEventListener("click",()=>bg.remove());
+  bg.addEventListener("click",e=>{ if(e.target===bg) bg.remove(); });
+  bg.querySelector("#shCp21").addEventListener("click",()=>{ const i=bg.querySelector("#shUrl21"); i.select(); document.execCommand("copy"); });
+  bg.querySelector("#shRev21").addEventListener("click",async()=>{
+    try{ await fetch("/api/v1/share",{method:"POST",headers:h,body:JSON.stringify({action:"revoke",token:d.token})}); }catch(e){}
+    if (S.share) delete S.share[loc]; bg.remove(); });
+  try{ if (typeof pjLog==="function") pjLog("Client share link created"); }catch(e){}
+}
+function injectShare(){
+  const pg=document.getElementById("page-dashboard"); if (!pg || pg.querySelector("#shareBar21")) return;
+  const dv=document.createElement("div"); dv.id="shareBar21"; dv.style.cssText="display:flex;justify-content:flex-end;margin:0 0 10px";
+  dv.innerHTML=`<button id="shareBtn21">🔗 Client share link</button>`;
+  pg.prepend(dv);
+  dv.querySelector("#shareBtn21").addEventListener("click",makeShare);
+}
+function injectSide(){
+  const nav=document.getElementById("sideNav"); if (!nav) return;
+  const exp=nav.querySelector('[data-sntab="export"]'); if (!exp) return;
+  let n=nav.querySelector("[data-sn21]");
+  if (!n){
+    n=document.createElement("div"); n.setAttribute("data-sn21","1");
+    n.innerHTML='<span class="ic">⛰</span>Long Section';
+    exp.insertAdjacentElement("afterend",n);
+    n.addEventListener("click",()=>{ nav.classList.remove("open"); document.getElementById("snBackdrop")?.classList.remove("show"); showTab("section"); });
+  }
+  n.className="sn"+((S.activeTab==="section")?" on":"");
+}
+const _prev21=showTab;
+showTab=function(tab){
+  _prev21(tab);
+  if (tab==="section") renderSection();
+  if (tab==="export") injectAgs();
+  if (tab==="dashboard") injectShare();
+  injectSide();
+  if (tab==="section"){ const bc=document.querySelector("#ctlBar .bc"); if (bc && /undefined/.test(bc.textContent)) bc.innerHTML=bc.innerHTML.replace(/undefined/g,"Long Section"); }
+};
+injectSide();
+if (S.activeTab==="section") renderSection();
+if (S.activeTab==="dashboard") injectShare();
+})();
+</script>
+<script id="v22-beast">
+"use strict";
+/* ============ v22: platform capabilities — strata correlation · formations · logic engine ·
+   completeness scores · sample register · drilling production ============ */
+(function(){
+const E=s=>String(s??"").replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/"/g,"&quot;");
+const MCC=m=>{ try{ const c=matColor(m); if (c) return c; }catch(e){} return "#d9c8a0"; };
+const dep22=id=>{ const l=(S.logs||{})[id]||{}; const b=S.boreholes.find(x=>x.id===id)||{};
+  return Math.max(...((l.soil||[]).map(r=>parseFloat(r.to)||0)), ...((l.rock||[]).map(r=>parseFloat(r.to)||0)), parseFloat(b.termDepth)||0, 0); };
+const FORMS=[["hawkesbury","Hawkesbury Sandstone"],["ashfield","Ashfield Shale"],["bringelly","Bringelly Shale"],["wianamatta","Wianamatta Group"],["mittagong","Mittagong Formation"],["minchinbury","Minchinbury Sandstone"]];
+const formOf=t=>{ const s=String(t||"").toLowerCase(); for (const [k,f] of FORMS) if (s.includes(k)) return f; return ""; };
+const CLASS=m=>{ const M=String(m||"").toUpperCase();
+  if (/TOPSOIL/.test(M)) return "TOPSOIL"; if (/FILL/.test(M)) return "FILL";
+  if (/GRAVEL/.test(M)) return "GRAVEL"; if (/SAND/.test(M)&&!/SANDSTONE/.test(M)) return "SAND";
+  if (/SILT/.test(M)&&!/SILTSTONE/.test(M)) return "SILT"; if (/CLAY/.test(M)&&!/CLAYSTONE/.test(M)) return "CLAY";
+  if (/STONE|SHALE|BASALT|GRANITE|LAMINITE|COAL|BRECCIA|CONGLOMERATE|TUFF|QUARTZITE|DOLERITE|ROCK/.test(M)) return "ROCK";
+  return M.split(" ")[0]||""; };
+function units22(id){ const l=(S.logs||{})[id]||{};
+  return [...(l.soil||[]).map(r=>({f:+r.from||0,t:+r.to||0,m:r.material||"",d:r.description||"",rock:false})),
+          ...(l.rock||[]).map(r=>({f:+r.from||0,t:+r.to||0,m:r.rockType||"ROCK",d:r.description||"",rock:true}))]
+    .filter(u=>u.t>u.f).sort((a,b)=>a.f-b.f).map(u=>Object.assign(u,{cls:CLASS(u.m), form:formOf(u.m)||formOf(u.d)})); }
+
+/* ---------- correlation long-section (overrides v21's page render) ---------- */
+function buildSection22(withCorr){
+  const bhs=S.boreholes.filter(b=>dep22(b.id)>0); if (!bhs.length) return null;
+  const maxD=Math.max(...bhs.map(b=>dep22(b.id)),1);
+  const step=maxD>18?2:1, PXM=maxD>25?18:26;
+  const top=70,left=64,colW=54,gap=150,H=top+maxD*PXM+56,Wd=left+bhs.length*gap+40;
+  const uniq=[]; const seen=new Set(); const X=i=>left+i*gap+30;
+  let s=`<svg xmlns="http://www.w3.org/2000/svg" width="${Wd}" height="${H}" viewBox="0 0 ${Wd} ${H}" font-family="Inter,Arial,sans-serif">`;
+  s+=`<defs><pattern id="rockhatch" width="7" height="7" patternTransform="rotate(45)" patternUnits="userSpaceOnUse"><rect width="7" height="7" fill="#cdd8e2"/><line x1="0" y1="0" x2="0" y2="7" stroke="#8fa3b5" stroke-width="1.4"/></pattern></defs>`;
+  s+=`<rect width="${Wd}" height="${H}" fill="#ffffff"/>`;
+  s+=`<text x="${left}" y="22" font-size="15" font-weight="700" fill="#0f172a">${E(S.project?.projectNumber||"")} — Correlated long section (ground-level datum)</text>`;
+  s+=`<text x="${left}" y="37" font-size="10.5" fill="#64748b">Generated by STS GeoFlow · ${new Date().toISOString().slice(0,10)} · equal spacing · solid tie = same material (high confidence), dashed = same class (moderate)</text>`;
+  for (let d=0; d<=maxD+0.01; d+=step){ const y=top+d*PXM;
+    s+=`<line x1="${left-6}" y1="${y}" x2="${Wd-20}" y2="${y}" stroke="#eef2f6" stroke-width="1"/>`;
+    s+=`<text x="${left-10}" y="${y+3}" font-size="9.5" fill="#94a3b8" text-anchor="end">${d.toFixed(0)} m</text>`; }
+  /* correlation ties first (under columns) */
+  if (withCorr!==false){
+    for (let i=0;i<bhs.length-1;i++){
+      const A=units22(bhs[i].id), B=units22(bhs[i+1].id); const used=new Set();
+      for (const a of A){
+        let bi=-1, conf="";
+        bi=B.findIndex((b2,j)=>!used.has(j)&&b2.m.toLowerCase()===a.m.toLowerCase());
+        if (bi>=0) conf="high"; else { bi=B.findIndex((b2,j)=>!used.has(j)&&b2.cls===a.cls&&a.cls); if (bi>=0) conf="moderate"; }
+        if (bi<0) continue; used.add(bi);
+        const y1=top+a.t*PXM, y2=top+B[bi].t*PXM;
+        s+=`<line x1="${X(i)+colW}" y1="${y1}" x2="${X(i+1)}" y2="${y2}" stroke="${conf==="high"?"#475569":"#94a3b8"}" stroke-width="1.1" ${conf==="high"?"":'stroke-dasharray="5,4"'}><title>Base of ${E(a.m)} — ${conf} confidence (${conf==="high"?"same material":"same class"})</title></line>`;
+      }
+    }
+  }
+  bhs.forEach((b,i)=>{
+    const x=X(i); const U=units22(b.id); const dTot=dep22(b.id);
+    const domForm=U.map(u=>u.form).find(Boolean)||"";
+    s+=`<text x="${x+colW/2}" y="${top-22}" font-size="11.5" font-weight="700" fill="#0f172a" text-anchor="middle">${E(b.id)}</text>`;
+    if (domForm) s+=`<text x="${x+colW/2}" y="${top-10}" font-size="8.5" font-style="italic" fill="#64748b" text-anchor="middle">${E(domForm)}</text>`;
+    for (const r of U){
+      const y=top+r.f*PXM, h=(r.t-r.f)*PXM;
+      s+=`<rect x="${x}" y="${y}" width="${colW}" height="${h}" fill="${r.rock?"url(#rockhatch)":MCC(r.m)}" stroke="#334155" stroke-width="0.8"><title>${E(b.id)} ${r.f}–${r.t} m — ${E(r.d||r.m)}${r.form?` · ${E(r.form)}`:""}</title></rect>`;
+      if (r.m && !seen.has(r.m)){ seen.add(r.m); uniq.push({m:r.m,rock:r.rock}); }
+      if (h>=12) s+=`<text x="${x+colW+4}" y="${y+Math.min(h/2+3,12)}" font-size="8.5" fill="#475569">${E(String(r.m).slice(0,16))}</text>`;
+    }
+    const l=(S.logs||{})[b.id]||{};
+    for (const t of (l.spt||[])){ const dd=parseFloat(t.depth); if (isNaN(dd)) continue; const y=top+dd*PXM;
+      s+=`<line x1="${x-8}" y1="${y}" x2="${x}" y2="${y}" stroke="#b91c1c" stroke-width="1.2"/>`;
+      s+=`<text x="${x-10}" y="${y+3}" font-size="8.5" fill="#b91c1c" text-anchor="end">N=${E(t.refusal?"R":(t.n||"–"))}</text>`; }
+    const yb=top+dTot*PXM;
+    s+=`<line x1="${x-4}" y1="${yb}" x2="${x+colW+4}" y2="${yb}" stroke="#0f172a" stroke-width="1.6"/>`;
+    s+=`<text x="${x+colW/2}" y="${yb+12}" font-size="9" fill="#0f172a" text-anchor="middle">${dTot.toFixed(2)} m</text>`;
+  });
+  let lx=left, ly=H-14;
+  for (const u of uniq.slice(0,10)){
+    s+=`<rect x="${lx}" y="${ly-9}" width="12" height="10" fill="${u.rock?"url(#rockhatch)":MCC(u.m)}" stroke="#334155" stroke-width="0.6"/>`;
+    s+=`<text x="${lx+16}" y="${ly}" font-size="9" fill="#334155">${E(String(u.m).slice(0,18))}</text>`;
+    lx+=16+Math.min(String(u.m).length,18)*5.2+18;
+  }
+  return s+"</svg>";
+}
+function renderSection22(){
+  const el=document.getElementById("page-section"); if (!el) return;
+  const on=S.__corr!==false;
+  const svg=buildSection22(on);
+  el.innerHTML=`<h2 style="font-size:19px;margin:6px 0 12px">Long section — correlated</h2>
+    <div class="ls-tools">
+      <button class="ls-btn pri" id="lsDl22">⇩ Download SVG</button>
+      <button class="ls-btn" id="lsCo22">${on?"◈ Correlation: ON":"◇ Correlation: OFF"}</button>
+      <button class="ls-btn" id="lsRe22">↻ Refresh</button>
+      <span style="font-size:11.5px;color:#64748b">Solid ties = same material (high confidence) · dashed = same class (moderate) · italic = formation.</span>
+    </div>
+    ${svg?`<div class="ls-wrap">${svg}</div>`:`<div class="sc-card" style="padding:18px;font-size:13px;color:#5a6675">No logged intervals yet — the section draws itself as strata are logged.</div>`}`;
+  el.querySelector("#lsDl22")?.addEventListener("click",()=>{ const s2=buildSection22(S.__corr!==false); if (!s2) return alert("Nothing to export yet.");
+    const a=document.createElement("a"); a.href=URL.createObjectURL(new Blob([s2],{type:"image/svg+xml"}));
+    a.download=(S.project?.projectNumber||"project")+"-long-section.svg"; a.click(); });
+  el.querySelector("#lsCo22")?.addEventListener("click",()=>{ S.__corr=!(S.__corr!==false); renderSection22(); });
+  el.querySelector("#lsRe22")?.addEventListener("click",renderSection22);
+}
+
+/* ---------- material logic engine + completeness score ---------- */
+/* primary soil = the LAST soil noun (AS 1726: "Sandy CLAY" is cohesive, "Clayey SAND" granular) */
+const GRAN22=m=>{ const p=(String(m||"").toUpperCase().match(/\b(CLAY|SILT|SAND|GRAVEL)\b/g)||[]).pop(); return p==="SAND"||p==="GRAVEL"; };
+const B_COH=[["very soft",0,2],["soft",2,4],["firm",4,8],["stiff",8,15],["very stiff",15,30],["hard",30,1e9]];
+const B_GRA=[["very loose",0,4],["loose",4,10],["medium dense",10,30],["dense",30,50],["very dense",50,1e9]];
+function logicFindings(){
+  const out=[];
+  for (const b of S.boreholes){ const l=(S.logs||{})[b.id]||{};
+    for (const r of (l.soil||[])){
+      const m=r.material||"", cons=String(r.consistency||"").toLowerCase();
+      if (GRAN22(m) && r.plasticity) out.push({bh:b.id,sev:"warn",msg:`${r.from}–${r.to} m: plasticity "${r.plasticity}" on granular ${m}`});
+      const hasNoun=/\b(CLAY|SILT|SAND|GRAVEL)\b/i.test(m);   /* FILL/TOPSOIL etc. legitimately take either term */
+      if (hasNoun && !GRAN22(m) && cons && B_GRA.some(x=>x[0]===cons)) out.push({bh:b.id,sev:"warn",msg:`${r.from}–${r.to} m: density term "${cons}" on cohesive ${m}`});
+      if (hasNoun && GRAN22(m) && cons && B_COH.some(x=>x[0]===cons)) out.push({bh:b.id,sev:"warn",msg:`${r.from}–${r.to} m: consistency term "${cons}" on granular ${m}`});
+      /* half-open [from,to): a boundary SPT belongs to ONE layer, never both */
+      const spt=(l.spt||[]).find(t=>{ const d=+t.depth; return d>=+r.from && d<+r.to && !t.refusal && t.n!==""&&t.n!=null; });
+      if (spt && cons){ const n=+spt.n; const bl=GRAN22(m)?B_GRA:B_COH; const ci=bl.findIndex(x=>x[0]===cons);
+        const ni=bl.findIndex(x=>n>=x[1]&&n<x[2]);
+        if (ci>=0&&ni>=0&&Math.abs(ni-ci)>=2) out.push({bh:b.id,sev:"warn",msg:`${r.from}–${r.to} m: "${cons}" vs SPT N=${n} at ${spt.depth} m (${bl[ni][0]} range) — check`}); }
+    }
+    for (const r of (l.rock||[])){
+      if (r.weathering==="FR" && /^(EL|VL)$/.test(r.strength||"")) out.push({bh:b.id,sev:"warn",msg:`${r.from}–${r.to} m: fresh rock logged ${r.strength} strength — verify`});
+      if (r.rqd!==""&&r.tcr!==""&&r.rqd!=null&&r.tcr!=null&&+r.rqd>+r.tcr) out.push({bh:b.id,sev:"err",msg:`${r.from}–${r.to} m: RQD ${r.rqd}% > TCR ${r.tcr}%`});
+    }
+    const iv=(l.soil||[]).slice().sort((a,b2)=>(+a.from)-(+b2.from));
+    for (let i=1;i<iv.length;i++){
+      if (+iv[i].from > +iv[i-1].to+0.011) out.push({bh:b.id,sev:"warn",msg:`gap ${iv[i-1].to}–${iv[i].from} m unlogged`});
+      if (+iv[i].from < +iv[i-1].to-0.011) out.push({bh:b.id,sev:"err",msg:`overlap at ${iv[i].from} m`}); }
+  }
+  return out;
+}
+function scoreBh(id){
+  const l=(S.logs||{})[id]||{}; const b=S.boreholes.find(x=>x.id===id)||{};
+  const soil=l.soil||[], rock=l.rock||[], spt=l.spt||[], smp=l.samples||[];
+  let got=0, tot=0; const add=(ok,w)=>{ tot+=w; if (ok) got+=w; };
+  add(soil.length+rock.length>0,15);
+  add(soil.length+rock.length>0 && [...soil,...rock].every(r=>(r.description||"").length>5||r.material||r.rockType),15);
+  add(!!b.termDepth,15);
+  if (b.termDepth) add(Math.abs(Math.max(...[...soil,...rock].map(r=>+r.to||0),0)-parseFloat(b.termDepth))<=0.05,10);
+  add(!!(S.project&&S.project.groundwater)||!!(l.gw&&l.gw.state),10);
+  /* recovery is logged per core RUN, not per lithology split — 60% of rock rows carrying TCR+RQD passes */
+  if (rock.length) add(rock.filter(r=>r.tcr!==""&&r.tcr!=null&&r.rqd!==""&&r.rqd!=null).length>=Math.ceil(rock.length*0.6),15);
+  /* SPT expectation applies to SOIL footage only — cored rock holes and test pits carry no SPT penalty */
+  const soilD=Math.max(...soil.map(r=>+r.to||0),0);
+  if (soilD>=1.5 && !/^TP/i.test(id)) add(spt.length>=Math.max(1,Math.floor(soilD/1.5)*0.6),10);
+  add(smp.length>0,10);
+  return tot? Math.round(got/tot*100):0;
+}
+window.__score22=scoreBh; window.__logic22=logicFindings;
+function injectQa22(){
+  const pg=document.getElementById("page-qa"); if (!pg) return;
+  pg.querySelector("#qaBeast22")?.remove();
+  const dv=document.createElement("div"); dv.id="qaBeast22";
+  const rows=S.boreholes.map(b=>{ const sc=scoreBh(b.id); const col=sc>=85?"#16a34a":sc>=60?"#d97706":"#dc2626";
+    return `<div style="display:flex;align-items:center;gap:10px;padding:7px 2px;border-bottom:1px solid #f1f5f9;font-size:12.5px">
+      <b style="width:64px">${E(b.id)}</b>
+      <div style="flex:1;height:8px;background:#eef2f6;border-radius:5px;overflow:hidden"><i style="display:block;height:100%;width:${sc}%;background:${col}"></i></div>
+      <b style="width:44px;text-align:right;color:${col}">${sc}%</b></div>`; }).join("");
+  const f=logicFindings();
+  dv.innerHTML=`<div class="sc-card" style="padding:14px;margin-top:12px">
+    <div style="font-weight:700;font-size:13.5px;margin-bottom:6px">Completeness score — deterministic, per borehole</div>
+    ${rows||'<div style="font-size:12px;color:#64748b">No boreholes yet.</div>'}
+    <div style="font-size:11px;color:#64748b;margin-top:6px">Scored on intervals, descriptions, termination, depth closure, groundwater, TCR/RQD, SPT coverage and sampling — arithmetic only, no judgement.</div></div>
+  <div class="sc-card" style="padding:14px;margin-top:12px">
+    <div style="font-weight:700;font-size:13.5px;margin-bottom:6px">Material logic engine${f.length?` — ${f.length} finding${f.length>1?"s":""}`:""}</div>
+    ${f.length? f.map(x=>`<div style="font-size:12.5px;padding:4px 0;color:${x.sev==="err"?"#b91c1c":"#92400e"}">${x.sev==="err"?"✗":"⚠"} <b>${E(x.bh)}</b> ${E(x.msg)}</div>`).join(""):'<div style="font-size:12.5px;color:#16a34a">✓ No AS 1726 logic conflicts detected.</div>'}
+  </div>`;
+  pg.appendChild(dv);
+}
+
+/* ---------- sample register (lab-ready CSV) ---------- */
+function regCsv(){
+  const P=S.project||{}; const lines=[["Project","Location","Sample ID","From (m)","To (m)","Type","Tests","Remarks"].map(v=>`"${v}"`).join(",")];
+  for (const b of S.boreholes){ const l=(S.logs||{})[b.id]||{};
+    for (const s2 of (l.samples||[])){
+      /* UNION of every test source — the string OR booleans alone silently under-requested the lab */
+      const fromArr=Array.isArray(s2.tests)? s2.tests : String(s2.tests||"").split(/[;,]/).map(x=>x.trim()).filter(Boolean);
+      const fromBools=[s2.mc&&"MC",s2.att&&"Atterberg",s2.psd&&"PSD",s2.cbr&&"CBR",s2.agg&&"Aggressivity",s2.ass&&"ASS",s2.contam&&"Contamination"].filter(Boolean);
+      const tests=[...new Set([...fromArr,...fromBools])].join("; ");
+      lines.push([P.projectNumber||"",b.id,s2.sid||"",s2.from??"",s2.to??"",s2.stype||s2.type||"",tests,s2.remarks||""]
+        .map(v=>`"${String(v).replace(/"/g,'""')}"`).join(","));
+    } }
+  return lines.join("\r\n")+"\r\n";
+}
+window.__reg22=regCsv;
+function injectReg22(){
+  const pg=document.getElementById("page-samples"); if (!pg || pg.querySelector("#regBtn22")) return;
+  const dv=document.createElement("div"); dv.className="sc-card"; dv.style.cssText="padding:12px;margin-top:12px";
+  dv.innerHTML=`<div style="font-weight:700;font-size:13px;margin-bottom:6px">Sample register</div>
+    <div style="font-size:12px;color:#5a6675;margin-bottom:8px">Lab-ready register of every sample and its requested tests — one click, zero re-typing.</div>
+    <button class="ags-btn21" id="regBtn22">⇩ Download register (CSV)</button>`;
+  pg.appendChild(dv);
+  dv.querySelector("#regBtn22").addEventListener("click",()=>{ const a=document.createElement("a");
+    a.href=URL.createObjectURL(new Blob([regCsv()],{type:"text/csv"}));
+    a.download=(S.project?.projectNumber||"project")+"-sample-register.csv"; a.click(); });
+}
+
+/* ---------- drilling production (from daily snapshots) ---------- */
+function injectProd22(){
+  const pg=document.getElementById("page-fieldwork"); if (!pg) return;
+  pg.querySelector("#prod22")?.remove();
+  const h=S.dailyHist||{}; const dates=Object.keys(h).sort(); const per=[];
+  for (let i=0;i<dates.length;i++){
+    const cur=(h[dates[i]]&&h[dates[i]].bh)||{}; const prev=i? ((h[dates[i-1]]&&h[dates[i-1]].bh)||{}) : null;
+    const m=prev? Object.keys(cur).reduce((a,k)=>a+Math.max(0,(cur[k]||0)-(prev[k]||0)),0)
+                : Object.values(cur).reduce((a,v)=>a+(v||0),0);
+    per.push({d:dates[i], m});
+  }
+  const tot=S.boreholes.reduce((a,b)=>a+dep22(b.id),0);
+  const mx=Math.max(...per.map(p=>p.m),1);
+  const bars=per.slice(-10).map(p=>`<div style="text-align:center;font-size:9.5px;color:#64748b">
+      <div style="height:56px;display:flex;align-items:flex-end;justify-content:center">
+        <div title="${p.d}: ${p.m.toFixed(1)} m" style="width:22px;background:#1d4ed8;border-radius:3px 3px 0 0;height:${Math.max(3,Math.round(p.m/mx*56))}px"></div></div>${p.d.slice(5)}</div>`).join("");
+  const dv=document.createElement("div"); dv.id="prod22"; dv.className="sc-card"; dv.style.cssText="padding:14px;margin-top:12px";
+  dv.innerHTML=`<div style="font-weight:700;font-size:13.5px;margin-bottom:6px">Drilling production</div>
+    <div style="font-size:12px;color:#5a6675;margin-bottom:8px">Total drilled <b>${tot.toFixed(1)} m</b>${per.length?` · best day <b>${mx.toFixed(1)} m</b>`:""} — metres/day from end-of-day snapshots.</div>
+    <div style="display:flex;gap:8px;align-items:flex-end">${bars||'<span style="font-size:12px;color:#64748b">No daily snapshots yet — they stamp automatically with the Daily Report.</span>'}</div>`;
+  pg.appendChild(dv);
+}
+function patchAgs22(){ const c=document.querySelector("#agsCard21 > div"); if (c && !/4\.1/.test(c.textContent)) c.textContent="AGS4 / AGS4.1-compatible interchange file"; }
+
+const _p22=showTab;
+showTab=function(tab){
+  _p22(tab);
+  if (tab==="section") renderSection22();
+  if (tab==="qa") injectQa22();
+  if (tab==="samples") injectReg22();
+  if (tab==="fieldwork") injectProd22();
+  if (tab==="export") patchAgs22();
+};
+if (S.activeTab==="section") renderSection22();
+if (S.activeTab==="qa") injectQa22();
+})();
+</script>
+<script id="v22b-section-pro">
+"use strict";
+/* ============ v22b: drawing-grade correlated long section (OpenGround-class output) ============ */
+(function(){
+const E=s=>String(s??"").replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/"/g,"&quot;");
+const dep=id=>{ const l=(S.logs||{})[id]||{}; const b=S.boreholes.find(x=>x.id===id)||{};
+  return Math.max(...((l.soil||[]).map(r=>parseFloat(r.to)||0)), ...((l.rock||[]).map(r=>parseFloat(r.to)||0)), parseFloat(b.termDepth)||0, 0); };
+const FORMS=[["hawkesbury","Hawkesbury Sandstone"],["ashfield","Ashfield Shale"],["bringelly","Bringelly Shale"],["wianamatta","Wianamatta Group"],["mittagong","Mittagong Formation"],["minchinbury","Minchinbury Sandstone"]];
+const formOf=t=>{ const s=String(t||"").toLowerCase(); for (const [k,f] of FORMS) if (s.includes(k)) return f; return ""; };
+const KLASS=m=>{ const M=String(m||"").toUpperCase();
+  if (/TOPSOIL/.test(M)) return "TOPSOIL"; if (/FILL/.test(M)) return "FILL";
+  if (/SANDSTONE/.test(M)) return "SANDSTONE"; if (/SILTSTONE/.test(M)) return "SILTSTONE";
+  if (/SHALE|LAMINITE|CLAYSTONE|MUDSTONE/.test(M)) return "SHALE";
+  if (/STONE|BASALT|GRANITE|COAL|BRECCIA|CONGLOMERATE|TUFF|QUARTZITE|DOLERITE|ROCK|BEDROCK/.test(M)) return "ROCK";
+  const p=(M.match(/\b(CLAY|SILT|SAND|GRAVEL)\b/g)||[]).pop();
+  return p||"OTHER"; };
+const STYLE={ TOPSOIL:["#d9cdb4","#65563a"], FILL:["#e8e2d8","#8a7f6a"], CLAY:["#e2b877","#7c5c25"],
+  SILT:["#ddd6ba","#77704f"], SAND:["#f1e3ad","#8f7c40"], GRAVEL:["#e1d5bf","#6d6046"],
+  SHALE:["#c3cfda","#43586c"], SANDSTONE:["#ecdcb2","#7d6a45"], SILTSTONE:["#d6d1c1","#66604f"],
+  ROCK:["#cfd8e0","#54636f"], OTHER:["#e3ddd2","#7a7264"] };
+function patDefs(){
+  const t=8; let d="";
+  const P=(id,body)=>{ d+=`<pattern id="pp-${id}" width="${t}" height="${t}" patternUnits="userSpaceOnUse">${body}</pattern>`; };
+  const sc=k=>STYLE[k][1];
+  P("CLAY",`<line x1="0" y1="2.5" x2="5" y2="2.5" stroke="${sc("CLAY")}" stroke-width="0.9"/><line x1="3" y1="6.5" x2="8" y2="6.5" stroke="${sc("CLAY")}" stroke-width="0.9"/>`);
+  P("SILT",`<line x1="2" y1="1" x2="2" y2="4" stroke="${sc("SILT")}" stroke-width="0.9"/><line x1="6" y1="4.5" x2="6" y2="7.5" stroke="${sc("SILT")}" stroke-width="0.9"/>`);
+  P("SAND",`<circle cx="2" cy="2" r="0.75" fill="${sc("SAND")}"/><circle cx="6" cy="5" r="0.75" fill="${sc("SAND")}"/><circle cx="3.5" cy="6.8" r="0.75" fill="${sc("SAND")}"/>`);
+  P("GRAVEL",`<circle cx="2.6" cy="2.6" r="1.5" fill="none" stroke="${sc("GRAVEL")}" stroke-width="0.8"/><circle cx="6.2" cy="6" r="1.1" fill="none" stroke="${sc("GRAVEL")}" stroke-width="0.8"/>`);
+  P("TOPSOIL",`<path d="M1 3 L2.2 1 L3.4 3" fill="none" stroke="${sc("TOPSOIL")}" stroke-width="0.8"/><path d="M4.8 7 L6 5 L7.2 7" fill="none" stroke="${sc("TOPSOIL")}" stroke-width="0.8"/>`);
+  P("FILL",`<line x1="0" y1="0" x2="8" y2="8" stroke="${sc("FILL")}" stroke-width="0.7"/><line x1="8" y1="0" x2="0" y2="8" stroke="${sc("FILL")}" stroke-width="0.7"/>`);
+  P("SHALE",`<line x1="0" y1="2" x2="8" y2="2" stroke="${sc("SHALE")}" stroke-width="0.9"/><line x1="0" y1="6" x2="8" y2="6" stroke="${sc("SHALE")}" stroke-width="0.9"/>`);
+  P("SANDSTONE",`<circle cx="2" cy="2.4" r="0.8" fill="${sc("SANDSTONE")}"/><circle cx="5.8" cy="5.4" r="0.8" fill="${sc("SANDSTONE")}"/><line x1="0" y1="7.6" x2="8" y2="7.6" stroke="${sc("SANDSTONE")}" stroke-width="0.6"/>`);
+  P("SILTSTONE",`<line x1="0" y1="2.4" x2="4.5" y2="2.4" stroke="${sc("SILTSTONE")}" stroke-width="0.8"/><circle cx="6.6" cy="2.4" r="0.6" fill="${sc("SILTSTONE")}"/><line x1="2.5" y1="6" x2="8" y2="6" stroke="${sc("SILTSTONE")}" stroke-width="0.8"/>`);
+  P("ROCK",`<line x1="0" y1="8" x2="8" y2="0" stroke="${sc("ROCK")}" stroke-width="0.8"/>`);
+  P("OTHER",`<line x1="0" y1="4" x2="8" y2="4" stroke="${sc("OTHER")}" stroke-width="0.6"/>`);
+  return `<defs>${d}</defs>`;
+}
+function units(id){ const l=(S.logs||{})[id]||{};
+  return [...(l.soil||[]).map(r=>({f:+r.from||0,t:+r.to||0,m:r.material||"",d:r.description||"",rock:false})),
+          ...(l.rock||[]).map(r=>({f:+r.from||0,t:+r.to||0,m:r.rockType||"ROCK",d:r.description||"",rock:true}))]
+    .filter(u=>u.t>u.f).sort((a,b)=>a.f-b.f).map(u=>Object.assign(u,{k:KLASS(u.m), form:formOf(u.m)||formOf(u.d)})); }
+function buildPro(withCorr){
+  const bhs=S.boreholes.filter(b=>dep(b.id)>0); if (!bhs.length) return null;
+  const P=S.project||{};
+  const maxD=Math.ceil(Math.max(...bhs.map(b=>dep(b.id)),1));
+  const PXM=maxD>25?16:maxD>14?22:30;
+  const M=14, AX=46, colW=56, gap=168, TB=46, LEG=34, HDR=54;
+  const top=M+HDR, plotH=maxD*PXM;
+  const W=M+AX+bhs.length*gap+AX+M, H=top+plotH+18+LEG+TB+M;
+  const X=i=>M+AX+i*gap+(gap-colW)/2;
+  let s=`<svg xmlns="http://www.w3.org/2000/svg" width="${W}" height="${H}" viewBox="0 0 ${W} ${H}" font-family="Arial,Helvetica,sans-serif">`;
+  s+=patDefs();
+  s+=`<rect width="${W}" height="${H}" fill="#ffffff"/>`;
+  /* plot grid + axes */
+  for (let d2=0; d2<=maxD; d2++){ const y=top+d2*PXM; const maj=d2%(maxD>14?2:1)===0;
+    s+=`<line x1="${M+AX}" y1="${y}" x2="${W-M-AX}" y2="${y}" stroke="${maj?"#e5eaf0":"#f2f5f8"}" stroke-width="1"/>`;
+    if (maj){ s+=`<text x="${M+AX-7}" y="${y+3.2}" font-size="9" fill="#475569" text-anchor="end">${d2}</text>`;
+      s+=`<text x="${W-M-AX+7}" y="${y+3.2}" font-size="9" fill="#475569">${d2}</text>`;
+      s+=`<line x1="${M+AX-4}" y1="${y}" x2="${M+AX}" y2="${y}" stroke="#64748b" stroke-width="1"/>`;
+      s+=`<line x1="${W-M-AX}" y1="${y}" x2="${W-M-AX+4}" y2="${y}" stroke="#64748b" stroke-width="1"/>`; } }
+  s+=`<line x1="${M+AX}" y1="${top}" x2="${M+AX}" y2="${top+plotH}" stroke="#334155" stroke-width="1.2"/>`;
+  s+=`<line x1="${W-M-AX}" y1="${top}" x2="${W-M-AX}" y2="${top+plotH}" stroke="#334155" stroke-width="1.2"/>`;
+  s+=`<text x="${M+12}" y="${top+plotH/2}" font-size="9" fill="#334155" transform="rotate(-90 ${M+12} ${top+plotH/2})" text-anchor="middle" letter-spacing="1">DEPTH (m)</text>`;
+  s+=`<text x="${W-M-12}" y="${top+plotH/2}" font-size="9" fill="#334155" transform="rotate(90 ${W-M-12} ${top+plotH/2})" text-anchor="middle" letter-spacing="1">DEPTH (m)</text>`;
+  /* correlation ties (under columns) */
+  if (withCorr!==false){
+    /* forward-only pointer + depth window: ties cannot cross (no implied overturning) and a
+       shallow unit can never tie to a deep repeat of the same lithology */
+    const win=Math.max(2, maxD*0.35);
+    for (let i=0;i<bhs.length-1;i++){
+      const A=units(bhs[i].id), B=units(bhs[i+1].id);
+      let bp=0, lastY=-1;
+      for (const a of A){
+        let bi=-1, hi=true;
+        for (let j=bp;j<B.length;j++) if (B[j].m.toLowerCase()===a.m.toLowerCase() && Math.abs(B[j].t-a.t)<=win){ bi=j; break; }
+        if (bi<0){ hi=false; for (let j=bp;j<B.length;j++) if (B[j].k===a.k && a.k && Math.abs(B[j].t-a.t)<=win){ bi=j; break; } }
+        if (bi<0) continue;
+        bp=bi+1;
+        const y1=top+a.t*PXM, y2=top+B[bi].t*PXM;
+        if (y2<lastY) continue; lastY=y2;
+        s+=`<line x1="${X(i)+colW}" y1="${y1}" x2="${X(i+1)}" y2="${y2}" stroke="${hi?"#334155":"#94a3b8"}" stroke-width="1" ${hi?"":'stroke-dasharray="6,4"'}><title>Base of ${E(a.m)} — ${hi?"same material":"same class"} (indicative — verify geologically)</title></line>`;
+      } } }
+  /* boreholes */
+  bhs.forEach((b,i)=>{
+    const x=X(i); const U=units(b.id); const dT=dep(b.id); const l=(S.logs||{})[b.id]||{};
+    /* header box */
+    s+=`<rect x="${x-9}" y="${top-40}" width="${colW+18}" height="30" fill="#f8fafc" stroke="#334155" stroke-width="1"/>`;
+    s+=`<text x="${x+colW/2}" y="${top-27}" font-size="11" font-weight="bold" fill="#0f172a" text-anchor="middle">${E(b.id)}</text>`;
+    s+=`<text x="${x+colW/2}" y="${top-15.5}" font-size="7.5" fill="#475569" text-anchor="middle">${b.termDepth?`Terminated ${(+b.termDepth).toFixed(2)} m`:`Drilled ${dT.toFixed(2)} m`}</text>`;
+    const domForm=U.map(u=>u.form).find(Boolean)||"";
+    if (domForm) s+=`<text x="${x+colW/2}" y="${top-4}" font-size="7.5" font-style="italic" fill="#64748b" text-anchor="middle">${E(domForm)}</text>`;
+    for (const u of U){
+      const y=top+u.f*PXM, h=(u.t-u.f)*PXM; const [fill]=STYLE[u.k]||STYLE.OTHER;
+      s+=`<rect x="${x}" y="${y}" width="${colW}" height="${h}" fill="${fill}"/>`;
+      s+=`<rect x="${x}" y="${y}" width="${colW}" height="${h}" fill="url(#pp-${u.k})"/>`;
+      s+=`<rect x="${x}" y="${y}" width="${colW}" height="${h}" fill="none" stroke="#1f2937" stroke-width="0.9"><title>${E(b.id)} ${u.f.toFixed(2)}–${u.t.toFixed(2)} m — ${E(u.d||u.m)}${u.form?` · ${E(u.form)}`:""}</title></rect>`;
+      if (h>=13) s+=`<text x="${x+colW+5}" y="${y+Math.min(h/2+3,13)}" font-size="8.5" fill="#334155">${E(String(u.m).slice(0,17))}</text>`;
+    }
+    for (const t of (l.spt||[])){ const dd=parseFloat(t.depth); if (isNaN(dd)) continue; const y=top+dd*PXM;
+      s+=`<rect x="${x-31}" y="${y-6}" width="27" height="12" fill="#ffffff" stroke="#b91c1c" stroke-width="0.7" rx="2"/>`;
+      s+=`<text x="${x-17.5}" y="${y+3}" font-size="7.5" fill="#b91c1c" text-anchor="middle">N=${E(t.refusal?"R":(t.n||"–"))}</text>`;
+      s+=`<line x1="${x-4}" y1="${y}" x2="${x}" y2="${y}" stroke="#b91c1c" stroke-width="1"/>`; }
+    const yb=top+dT*PXM;
+    s+=`<line x1="${x-5}" y1="${yb}" x2="${x+colW+5}" y2="${yb}" stroke="#0f172a" stroke-width="1.8"/>`;
+    s+=`<line x1="${x+8}" y1="${yb+3.5}" x2="${x+colW-8}" y2="${yb+3.5}" stroke="#0f172a" stroke-width="0.9"/>`;
+    s+=`<text x="${x+colW/2}" y="${yb+13}" font-size="8" fill="#0f172a" text-anchor="middle">${dT.toFixed(2)} m</text>`;
+  });
+  /* legend */
+  const ks=[]; for (const b of bhs) for (const u of units(b.id)) if (!ks.some(k=>k.k===u.k)) ks.push({k:u.k,m:u.k==="ROCK"?"Rock (other)":u.k.charAt(0)+u.k.slice(1).toLowerCase()});
+  const ly=top+plotH+22;
+  s+=`<rect x="${M+AX}" y="${ly-4}" width="${W-2*(M+AX)}" height="${LEG-6}" fill="#fbfcfd" stroke="#cbd5e1" stroke-width="0.8"/>`;
+  s+=`<text x="${M+AX+8}" y="${ly+13}" font-size="8" font-weight="bold" fill="#334155" letter-spacing="0.6">LEGEND</text>`;
+  let lx=M+AX+66;
+  for (const g of ks){ const [fill]=STYLE[g.k]||STYLE.OTHER;
+    s+=`<rect x="${lx}" y="${ly+3}" width="18" height="13" fill="${fill}"/><rect x="${lx}" y="${ly+3}" width="18" height="13" fill="url(#pp-${g.k})"/><rect x="${lx}" y="${ly+3}" width="18" height="13" fill="none" stroke="#1f2937" stroke-width="0.7"/>`;
+    s+=`<text x="${lx+23}" y="${ly+13}" font-size="8.5" fill="#334155">${E(g.m)}</text>`;
+    lx+=23+g.m.length*5.2+16; }
+  /* ties legend + scale bar */
+  s+=`<line x1="${lx+6}" y1="${ly+9.5}" x2="${lx+34}" y2="${ly+9.5}" stroke="#334155" stroke-width="1"/><text x="${lx+39}" y="${ly+13}" font-size="8.5" fill="#334155">Same material</text>`;
+  const lx2=lx+39+76;
+  s+=`<line x1="${lx2}" y1="${ly+9.5}" x2="${lx2+28}" y2="${ly+9.5}" stroke="#94a3b8" stroke-width="1" stroke-dasharray="6,4"/><text x="${lx2+33}" y="${ly+13}" font-size="8.5" fill="#334155">Same class</text>`;
+  const sbx=W-M-AX-96;
+  if (sbx > lx2+118) s+=`<line x1="${sbx}" y1="${ly+9.5}" x2="${sbx+PXM}" y2="${ly+9.5}" stroke="#0f172a" stroke-width="2.5"/><text x="${sbx+PXM+6}" y="${ly+13}" font-size="8.5" fill="#334155">1 m (vert.)</text>`;
+  /* title block */
+  const ty=H-M-TB;
+  s+=`<rect x="${M}" y="${ty}" width="${W-2*M}" height="${TB}" fill="#ffffff" stroke="#1f2937" stroke-width="1.4"/>`;
+  const c1=M+(W-2*M)*0.24, c2=M+(W-2*M)*0.66;
+  s+=`<line x1="${c1}" y1="${ty}" x2="${c1}" y2="${ty+TB}" stroke="#1f2937" stroke-width="0.9"/>`;
+  s+=`<line x1="${c2}" y1="${ty}" x2="${c2}" y2="${ty+TB}" stroke="#1f2937" stroke-width="0.9"/>`;
+  s+=`<text x="${M+12}" y="${ty+19}" font-size="12.5" font-weight="bold" fill="#0f172a" letter-spacing="0.8">STS GEOTECHNICS</text>`;
+  s+=`<text x="${M+12}" y="${ty+33}" font-size="8" fill="#64748b">STS GeoFlow · AS 1726:2017</text>`;
+  s+=`<text x="${c1+12}" y="${ty+18}" font-size="10.5" font-weight="bold" fill="#0f172a">${E(P.projectNumber||"—")} — CORRELATED LONG SECTION</text>`;
+  s+=`<text x="${c1+12}" y="${ty+32}" font-size="8" fill="#475569">${E(P.clientName||"")}${P.siteAddress?` · ${E(String(P.siteAddress).slice(0,60))}`:""}</text>`;
+  s+=`<text x="${c2+12}" y="${ty+15}" font-size="8" fill="#475569">Date: ${new Date().toISOString().slice(0,10)}</text>`;
+  s+=`<text x="${c2+12}" y="${ty+27}" font-size="8" fill="#475569">Datum: ground level · equal BH spacing</text>`;
+  s+=`<text x="${c2+12}" y="${ty+39}" font-size="8" fill="#475569">Correlation: ${withCorr!==false?"shown":"off"} · Sheet 1 of 1</text>`;
+  /* outer frame */
+  s+=`<rect x="${M}" y="${M}" width="${W-2*M}" height="${H-2*M}" fill="none" stroke="#1f2937" stroke-width="1.6"/>`;
+  return s+"</svg>";
+}
+function renderPro(){
+  const el=document.getElementById("page-section"); if (!el) return;
+  const on=S.__corr!==false;
+  const svg=buildPro(on);
+  el.innerHTML=`<h2 style="font-size:19px;margin:6px 0 12px">Long section — correlated</h2>
+    <div class="ls-tools">
+      <button class="ls-btn pri" id="lsDlP">⇩ Download SVG</button>
+      <button class="ls-btn" id="lsCoP">${on?"◈ Correlation: ON":"◇ Correlation: OFF"}</button>
+      <button class="ls-btn" id="lsReP">↻ Refresh</button>
+      <span style="font-size:11.5px;color:#64748b">Issued-drawing style: AS lithology patterns, framed sheet, title block. Hover a unit for its description.</span>
+    </div>
+    ${svg?`<div class="ls-wrap">${svg}</div>`:`<div class="sc-card" style="padding:18px;font-size:13px;color:#5a6675">No logged intervals yet — the section draws itself as strata are logged.</div>`}`;
+  el.querySelector("#lsDlP")?.addEventListener("click",()=>{ const s2=buildPro(S.__corr!==false); if (!s2) return;
+    const a=document.createElement("a"); a.href=URL.createObjectURL(new Blob([s2],{type:"image/svg+xml"}));
+    a.download=(S.project?.projectNumber||"project")+"-long-section.svg"; a.click(); });
+  el.querySelector("#lsCoP")?.addEventListener("click",()=>{ S.__corr=!(S.__corr!==false); renderPro(); });
+  el.querySelector("#lsReP")?.addEventListener("click",renderPro);
+}
+const _pB=showTab;
+showTab=function(tab){ _pB(tab); if (tab==="section") renderPro(); };
+window.__pro22=buildPro;
+/* same reload trap as Pipeline: "section" joins TABS only now, so re-run the tab, don't just paint it */
+if (S.activeTab==="section" && document.getElementById("page-section")) showTab("section");
+})();
+</script>
+<script id="v24-flow">
+"use strict";
+/* ============ v24: workflow engine — deterministic stage DAG, gates, critical-path router ============
+   Every stage computes its own completeness and blockers from project data (arithmetic only, no
+   judgement). Every blocker knows the screen that fixes it. Read-only over existing state. */
+(function(){
+const E=s=>String(s??"").replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/"/g,"&quot;");
+const N=v=>{ const n=parseFloat(v); return isNaN(n)? null:n; };
+const pc=(a,b)=>b? Math.max(0,Math.min(100,Math.round(a/b*100))) : 0;
+const LG=()=>S.logs||{};
+const BH=()=>S.boreholes||[];
+const dOf=id=>{ const l=LG()[id]||{}; const b=BH().find(x=>x.id===id)||{};
+  return Math.max(...((l.soil||[]).map(r=>N(r.to)||0)), ...((l.rock||[]).map(r=>N(r.to)||0)), N(b.termDepth)||0, 0); };
+const anyLog=id=>{ const l=LG()[id]||{}; return ((l.soil||[]).length+(l.rock||[]).length)>0; };
+const cnt=k=>Object.values(LG()).reduce((a,l)=>a+((l&&l[k])||[]).length,0);
+/* two planned-depth fields exist in this codebase: plannedDepth (borehole grid, manual + field
+   imports) and planned (scope-plan generator). Read BOTH or the gate can never be cleared. */
+const PLAN=b=>{ const a=N(b.plannedDepth); return a!=null? a : N(b.planned); };
+/* mirror renderLaboratory's own row enumeration exactly — same keys, so counts can never disagree.
+   Samples with no requested tests are excluded there and here (blank auto-rows must not inflate). */
+function labKeys(){
+  const plan=S.scope&&S.scope.plan; const labs=(plan&&plan.labs)||[];
+  const keys=labs.map((l,i)=>"plan-"+i);
+  for (const b of BH()){ const l=LG()[b.id]||{};
+    for (const s of (l.samples||[])) if (s.tests || s.mc||s.att||s.psd||s.cbr)
+      keys.push("smp-"+(s.sid||`${b.id}_${s.from}`)); }
+  return keys;
+}
+
+/* ---------- stage definitions: id · gate · blockers with their fix route ---------- */
+const ST=[
+ { id:"master", ic:"◆", label:"Project record", why:"Extract once, reuse everywhere — every log, email and report reads these fields.",
+   check(){ const P=S.project||{};
+     const req=[["projectNumber","Project number"],["clientName","Client name"],["siteAddress","Site address"],["projectName","Project name"]];
+     const miss=req.filter(([k])=>!String(P[k]||"").trim());
+     return { pct:pc(req.length-miss.length,req.length),
+       blk:miss.map(([k,l])=>({msg:l+" is not set", act:{tab:"project"}, fix:"Open Project Setup"})) }; } },
+
+ { id:"scope", ic:"⛭", label:"Scope agreed", why:"The proposal defines what must be delivered — everything downstream is checked against it.",
+   check(){ const sc=S.scope||{}; const it=sc.items||[]; const docs=sc.docs||[];
+     if (!docs.length) return { pct:0, blk:[{msg:"No proposal uploaded", act:{tab:"scope",step:1}, fix:"Upload proposal"}] };
+     if (!it.length) return { pct:25, blk:[{msg:"Proposal uploaded but scope not extracted", act:{tab:"scope",step:2}, fix:"Extract scope"}] };
+     const open=it.filter(i=>!i.status||i.status==="new");
+     const acc=it.filter(i=>i.status==="acc").length;
+     return { pct: open.length? 25+pc(it.length-open.length,it.length)*0.5 : (acc? 100:75),
+       blk: open.length? [{msg:`${open.length} scope item${open.length>1?"s":""} awaiting review`, act:{tab:"scope",step:3}, fix:"Review scope"}]
+            : (acc? [] : [{msg:"No scope items accepted", act:{tab:"scope",step:3}, fix:"Accept items"}]) }; } },
+
+ { id:"plan", ic:"▤", label:"Field plan", why:"Turns the agreed scope into boreholes, depths and test intervals the crew can execute.",
+   check(){ const p=S.scope&&S.scope.plan; const t=p&&p.totals;
+     if (!t || !(t.bh>0)) return { pct:0, blk:[{msg:"Field plan not generated from scope", act:{tab:"scope",step:4}, fix:"Generate plan"}] };
+     if (!BH().length) return { pct:50, blk:[{msg:"Plan exists but no boreholes created", act:{tab:"boreholes"}, fix:"Create boreholes"}] };
+     const unplanned=BH().filter(b=>PLAN(b)==null).length;
+     return { pct: unplanned? 75:100,
+       blk: unplanned? [{msg:`${unplanned} borehole${unplanned>1?"s":""} without a planned depth`, act:{tab:"boreholes"}, fix:"Set depths"}]:[] }; } },
+
+ { id:"field", ic:"⛏", label:"Fieldwork", why:"Crews log on the phone app; this stage closes when every hole is logged and terminated.",
+   check(){ const bs=BH(); if (!bs.length) return { pct:0, blk:[{msg:"No boreholes to log", act:{tab:"boreholes"}, fix:"Create boreholes"}] };
+     const done=bs.filter(b=>b.termDepth && anyLog(b.id));
+     const started=bs.filter(b=>anyLog(b.id));
+     const blk=[];
+     const notStarted=bs.filter(b=>!anyLog(b.id));
+     if (notStarted.length) blk.push({msg:`${notStarted.length} not started: ${notStarted.slice(0,4).map(b=>b.id).join(", ")}${notStarted.length>4?"…":""}`, act:{tab:"fieldwork"}, fix:"Fieldwork"});
+     const openHoles=started.filter(b=>!b.termDepth);
+     if (openHoles.length) blk.push({msg:`${openHoles.length} logged but not terminated: ${openHoles.slice(0,4).map(b=>b.id).join(", ")}`, act:{tab:"boreholes"}, fix:"Set termination"});
+     const shortHoles=bs.filter(b=>PLAN(b)!=null && b.termDepth && dOf(b.id) < PLAN(b)-0.05 && !String(b.termReason||"").trim());
+     if (shortHoles.length) blk.push({msg:`${shortHoles.length} terminated short of plan without a reason: ${shortHoles.slice(0,3).map(b=>b.id).join(", ")}`, act:{tab:"boreholes"}, fix:"Add reason"});
+     return { pct:pc(done.length,bs.length), blk }; } },
+
+ { id:"lab", ic:"⚗", label:"Laboratory", why:"Every planned lab test and every sample carrying a test request must come back before sign-off.",
+   check(){ const plan=S.scope&&S.scope.plan;
+     /* no approved plan → the lab requirement is UNKNOWN, never assume satisfied */
+     if (!plan) return { pct:0, blk:[{msg:"Lab requirement unknown until the field plan is approved", act:{tab:"scope",step:4}, fix:"Generate plan"}] };
+     const keys=labKeys();
+     if (!keys.length) return { pct:100, blk:[] };            /* plan approved and requires no lab work */
+     const ls=S.labStatus||{}; const stt=k=>ls[k]||"Pending";
+     const ret=keys.filter(k=>stt(k)==="Returned").length;
+     const sub=keys.filter(k=>stt(k)!=="Pending").length;
+     const blk=[];
+     if (sub<keys.length) blk.push({msg:`${keys.length-sub} lab item${keys.length-sub>1?"s":""} not submitted`, act:{tab:"laboratory"}, fix:"Laboratory"});
+     else if (ret<keys.length) blk.push({msg:`${keys.length-ret} lab result${keys.length-ret>1?"s":""} outstanding`, act:{tab:"laboratory"}, fix:"Laboratory"});
+     return { pct:pc(ret,keys.length), blk }; } },
+
+ { id:"qa", ic:"⚠", label:"QA clean", why:"Blocking validation errors and AS 1726 logic conflicts must be zero before logs are issued.",
+   check(){ const blk=[];
+     /* validate() returns {errs,warns} — NOT an array. Reading the wrong key made this gate blind. */
+     let v=null, vOk=true; try{ v=(typeof validate==="function")? validate() : null; }catch(e){ vOk=false; }
+     const eArr = Array.isArray(v)? v : ((v && (v.errs||v.errors)) || []);
+     if (!vOk || v==null) blk.push({msg:"Validation engine unavailable — cannot certify QA", act:{tab:"export"}, fix:"Data Export"});
+     /* an unavailable engine is UNKNOWN, never silently clean */
+     let logic=null; try{ logic=(window.__logic22? window.__logic22() : null); }catch(e){ logic=null; }
+     const hard=Array.isArray(logic)? logic.filter(x=>x&&x.sev==="err") : [];
+     if (!Array.isArray(logic)) blk.push({msg:"Logic engine unavailable — AS 1726 conflicts unchecked", act:{tab:"qa"}, fix:"QA Alerts"});
+     let low=0, scoreOk=true;
+     for (const b of BH()){ let s2=null; try{ s2=window.__score22? window.__score22(b.id) : null; }catch(e){ s2=null; }
+       if (typeof s2!=="number"){ scoreOk=false; break; } if (s2<85) low++; }
+     if (!scoreOk) blk.push({msg:"Completeness scoring unavailable", act:{tab:"qa"}, fix:"QA Alerts"});
+     if (eArr.length) blk.push({msg:`${eArr.length} blocking validation error${eArr.length>1?"s":""}`, act:{tab:"export"}, fix:"Data Export"});
+     if (hard.length) blk.push({msg:`${hard.length} logic conflict${hard.length>1?"s":""} (RQD/overlap)`, act:{tab:"qa"}, fix:"QA Alerts"});
+     if (low) blk.push({msg:`${low} borehole${low>1?"s":""} below 85% completeness`, act:{tab:"qa"}, fix:"QA Alerts"});
+     return { pct: blk.length? Math.max(10,100-blk.length*15) : 100, blk }; } },
+
+ { id:"report", ic:"▥", label:"Sign-off", why:"Logs carry a DRAFT watermark until a reviewer is recorded.",
+   check(){ const P=S.project||{}; const blk=[];
+     if (!String(P.reportNumber||"").trim()) blk.push({msg:"Report number not set", act:{tab:"project"}, fix:"Project Setup"});
+     if (!String(P.loggedBy||"").trim()) blk.push({msg:"Logged By not recorded", act:{tab:"project"}, fix:"Project Setup"});
+     if (!String(P.reviewBy||P.checkedBy||"").trim()) blk.push({msg:"Review By not recorded — logs print DRAFT", act:{tab:"project"}, fix:"Project Setup"});
+     return { pct:pc(3-blk.length,3), blk }; } },
+
+ { id:"issue", ic:"⇧", label:"Client handover", why:"A live read-only link for the client. Issue logs from Reports and AGS4/section from Data Export.",
+   check(){ const loc=(typeof pjSyncKey==="function"? pjSyncKey():"__autosoil_project__");
+     const shared=!!(S.share&&S.share[loc]);
+     const blk=[];
+     if (!shared) blk.push({msg:"No client share link created", act:{tab:"dashboard"}, fix:"Tower"});
+     return { pct: shared?100:0, blk }; } }
+];
+
+let _memo=null, _memoT=0;
+function state(){
+  if (_memo && Date.now()-_memoT<1200) return _memo;     /* one pass per navigation, not three */
+  _memo=ST.map(s=>{ let r={pct:0,blk:[]}; try{ r=s.check()||r; }catch(e){ r={pct:0,blk:[{msg:"Stage check unavailable",act:null,fix:""}]}; }
+    return { id:s.id, ic:s.ic, label:s.label, why:s.why, pct:Math.round(r.pct||0), blk:r.blk||[] }; });
+  _memoT=Date.now(); return _memo; }
+window.__flowBust=()=>{ _memo=null; };
+function critical(st){ return st.find(s=>s.pct<100) || st[st.length-1]; }
+window.__flow24=state;
+
+/* ---------- router: every blocker knows its fix screen ---------- */
+function jump(act){
+  if (!act) return;
+  if (act.tab==="scope" && act.step && S.scope) S.scope.step=act.step;
+  showTab(act.tab);
+  setTimeout(()=>{ const el=document.querySelector(".content .tabpage.show"); if (el) el.scrollIntoView({block:"start"}); },60);
+}
+window.__flowJump=jump;
+
+/* ---------- next-action bar (every page) ---------- */
+const css=document.createElement("style"); css.textContent=`
+ #flowBar{display:flex;align-items:center;gap:12px;padding:9px 16px;background:linear-gradient(90deg,#0b1220,#152238);color:#e2e8f0;font-size:12.5px;border-bottom:1px solid #1e293b}
+ #flowBar .stg{display:flex;align-items:center;gap:7px;font-weight:700;letter-spacing:.2px;white-space:nowrap}
+ #flowBar .stg i{font-style:normal;opacity:.8}
+ #flowBar .msg{flex:1;color:#cbd5e1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+ #flowBar .msg b{color:#fff;font-weight:600}
+ #flowBar .go{border:none;background:#2563eb;color:#fff;border-radius:7px;padding:6px 14px;font-size:12px;font-weight:700;cursor:pointer;white-space:nowrap}
+ #flowBar .go:hover{background:#1d4ed8}
+ #flowBar .pipe{border:1px solid #334155;background:transparent;color:#cbd5e1;border-radius:7px;padding:6px 12px;font-size:12px;font-weight:600;cursor:pointer;white-space:nowrap}
+ #flowBar .dots{display:flex;gap:3px}
+ #flowBar .dots i{width:16px;height:5px;border-radius:3px;background:#334155;display:block}
+ #flowBar .dots i.on{background:#22c55e} #flowBar .dots i.cur{background:#f59e0b}
+ #flowBar.done{background:linear-gradient(90deg,#052e1a,#0b3f26)}
+ #page-pipeline .pl-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(300px,1fr));gap:12px}
+ #page-pipeline .pl{background:#fff;border:1px solid #e2e8f0;border-radius:12px;padding:14px;box-shadow:0 1px 2px rgba(15,23,42,.05);position:relative}
+ #page-pipeline .pl.cur{border-color:#2563eb;box-shadow:0 0 0 3px rgba(37,99,235,.10)}
+ #page-pipeline .pl.ok{border-color:#bbf7d0}
+ #page-pipeline .pl.wait{opacity:.62}
+ #page-pipeline .pl h4{font-size:13.5px;margin:0 0 2px;display:flex;align-items:center;gap:8px}
+ #page-pipeline .pl .num{font-size:10px;color:#94a3b8;font-weight:700}
+ #page-pipeline .pl .why{font-size:11.5px;color:#64748b;margin:2px 0 8px}
+ #page-pipeline .bar{height:7px;background:#eef2f6;border-radius:5px;overflow:hidden;margin-bottom:8px}
+ #page-pipeline .bar i{display:block;height:100%;border-radius:5px}
+ #page-pipeline .bk{display:flex;align-items:center;gap:8px;font-size:12px;padding:5px 0;border-top:1px solid #f1f5f9;color:#92400e}
+ #page-pipeline .bk button{margin-left:auto;border:1px solid #cbd5e1;background:#fff;border-radius:6px;padding:4px 10px;font-size:11.5px;font-weight:600;cursor:pointer;white-space:nowrap}
+ #page-pipeline .clean{font-size:12px;color:#16a34a;padding-top:4px;border-top:1px solid #f1f5f9}
+`; document.head.appendChild(css);
+
+function buildBar(){
+  const ctl0=document.getElementById("ctlBar");
+  if (!ctl0) return;                                   /* no anchor → never build an orphan node */
+  const bar=document.getElementById("flowBar")||document.createElement("div");
+  bar.id="flowBar";
+  const st=state(); const cur=critical(st); const b0=cur.blk[0];
+  const allDone=st.every(s=>s.pct===100);
+  bar.className=allDone?"done":"";
+  /* the portfolio screen is not project-scoped — hide, exactly as v16 hides #ctlBar there */
+  bar.style.display = (S.activeTab==="projects") ? "none" : "flex";
+  /* ONE readiness number in the UI: the header pill mirrors the pipeline, so they can never disagree */
+  const pill=document.querySelector("#gh .pill16");
+  if (pill){ const overall=Math.round(st.reduce((a,s)=>a+s.pct,0)/st.length);
+    const idx=st.findIndex(s=>s.id===cur.id)+1;
+    pill.textContent=`Stage ${allDone?st.length:idx}/${st.length} · ${overall}%`;
+    pill.title=`${cur.label} — ${overall}% of the delivery pipeline complete`;
+    pill.className="pill16 "+(overall>=70?"rdy":"mid"); }
+  bar.innerHTML=`<span class="stg"><i>${cur.ic}</i>${allDone?"Delivered":E(cur.label)}</span>
+    <span class="dots">${st.map(s=>`<i class="${s.pct===100?"on":(s.id===cur.id?"cur":"")}" title="${E(s.label)} ${s.pct}%"></i>`).join("")}</span>
+    <span class="msg">${allDone?"All stages complete — project ready to issue."
+      : (b0? `Next: <b>${E(b0.msg)}</b>` : `<b>${E(cur.label)}</b> in progress — ${cur.pct}%`)}</span>
+    ${b0&&b0.act?`<button class="go" id="flowGo">${E(b0.fix||"Fix")} →</button>`:""}
+    <button class="pipe" id="flowPipe">Pipeline</button>`;
+  /* idempotent placement: always the element immediately after the control bar, even if that
+     bar's container is rebuilt (the orphaned-#syncStatus lesson) */
+  const ctl=document.getElementById("ctlBar");
+  if (ctl && ctl.nextElementSibling!==bar) ctl.insertAdjacentElement("afterend",bar);
+  const g=bar.querySelector("#flowGo"); if (g) g.addEventListener("click",()=>jump(b0.act));
+  const pb=bar.querySelector("#flowPipe");
+  if (pb) pb.addEventListener("click",()=>{ if (document.getElementById("page-pipeline")) showTab("pipeline"); });
+}
+
+/* ---------- pipeline page: the DAG with gates ---------- */
+const host=document.querySelector(".content");
+if (host && !document.getElementById("page-pipeline")){ const d=document.createElement("div"); d.className="tabpage"; d.id="page-pipeline"; host.appendChild(d); }
+if (typeof TABS!=="undefined" && document.getElementById("page-pipeline") && !TABS.includes("pipeline")) TABS.push("pipeline");
+function renderPipeline(){
+  const el=document.getElementById("page-pipeline"); if (!el) return;
+  const st=state(); const cur=critical(st); const overall=Math.round(st.reduce((a,s)=>a+s.pct,0)/st.length);
+  let reached=true;
+  el.innerHTML=`<h2 style="font-size:19px;margin:6px 0 4px">Delivery pipeline <span style="font-size:13px;color:#64748b;font-weight:500">— ${overall}% complete</span></h2>
+    <div style="font-size:12.5px;color:#64748b;margin-bottom:12px">Every gate is computed from project data — no status is typed by hand. Click any blocker to jump straight to the screen that clears it.</div>
+    <div class="pl-grid">${st.map((s,i)=>{
+      const isCur=s.id===cur.id; const cls=s.pct===100?"ok":(isCur?"cur":(reached?"":"wait"));
+      if (isCur) reached=false;   /* stages after the critical one render dimmed (not yet actionable) */
+      const col=s.pct===100?"#16a34a":(s.pct>=50?"#f59e0b":"#dc2626");
+      return `<div class="pl ${cls}">
+        <div class="num">STAGE ${i+1}${isCur?" · CURRENT":""}</div>
+        <h4>${s.ic} ${E(s.label)} <span style="margin-left:auto;color:${col};font-weight:700">${s.pct}%</span></h4>
+        <div class="why">${E(s.why)}</div>
+        <div class="bar"><i style="width:${s.pct}%;background:${col}"></i></div>
+        ${s.blk.length? s.blk.map((b,j)=>`<div class="bk">⚠ ${E(b.msg)}${b.act?`<button data-fx="${i}-${j}">${E(b.fix||"Open")} →</button>`:""}</div>`).join("")
+          : '<div class="clean">✓ Gate satisfied</div>'}
+      </div>`; }).join("")}</div>`;
+  el.querySelectorAll("[data-fx]").forEach(btn=>btn.addEventListener("click",()=>{
+    const [i,j]=btn.dataset.fx.split("-").map(Number); jump(st[i].blk[j].act); }));
+}
+
+/* ---------- sidebar entry ---------- */
+function side(){
+  const nav=document.getElementById("sideNav"); if (!nav) return;
+  const first=nav.querySelector('[data-sntab="dashboard"]'); if (!first) return;
+  let n=nav.querySelector("[data-sn24]");
+  if (!n){ n=document.createElement("div"); n.setAttribute("data-sn24","1");
+    n.innerHTML='<span class="ic">◈</span>Pipeline';
+    first.insertAdjacentElement("beforebegin",n);
+    n.addEventListener("click",()=>{ nav.classList.remove("open"); document.getElementById("snBackdrop")?.classList.remove("show");
+      if (document.getElementById("page-pipeline")) showTab("pipeline"); }); }
+  n.className="sn"+((S.activeTab==="pipeline")?" on":"");
+}
+
+const _p24=showTab;
+showTab=function(tab){ _p24(tab); _memo=null;                    /* fresh gates after every navigation */
+  try{ if (tab==="pipeline") renderPipeline(); }catch(e){}
+  try{ buildBar(); side(); }catch(e){} };
+try{ buildBar(); side(); }catch(e){}
+/* the app booted before this layer existed, so a reload landing on Pipeline showed no page at all —
+   re-run the (now registered) tab properly rather than only painting its contents */
+if (S.activeTab==="pipeline" && document.getElementById("page-pipeline")) showTab("pipeline");
+})();
+</script>
+<script id="v23-localfile">
+/* opened from disk (file://): route API calls to the Worker so live project data still loads */
+if (location.protocol==="file:"){ const _f=window.fetch.bind(window);
+  window.fetch=(u,o)=> _f(typeof u==="string" && u.startsWith("/api/")? "https://autosoillogger.poreddyjeevanreddy.workers.dev"+u : u, o);
+  document.title="STS GeoFlow (local copy) — live data via Worker"; }
+</script>
 </body>
 </html>
