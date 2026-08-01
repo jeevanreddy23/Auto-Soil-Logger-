@@ -8,10 +8,10 @@
 <style>
   :root {
     color-scheme: light;
-    --surface-1: #fcfcfb; --page-plane: #f9f9f7;
-    --text-primary: #0b0b0b; --text-secondary: #52514e; --text-muted: #898781;
-    --hairline: #e1e0d9; --border-ring: rgba(11,11,11,0.10);
-    --accent: #2a78d6; --socket: #eb6834;
+    --surface-1: #101a2b; --page-plane: #0b1220;
+    --text-primary: #e8eef7; --text-secondary: #9fb0c5; --text-muted: #64748b;
+    --hairline: #1f2c42; --border-ring: rgba(148,180,220,0.16);
+    --accent: #4c8dff; --socket: #ff7038;
     --status-good: #0ca30c; --status-good-text: #006300;
   }
   * { box-sizing: border-box; }
@@ -61,7 +61,7 @@
   #scene-wrap canvas { display: block; }
   #tooltip {
     position: absolute; pointer-events: none; display: none; z-index: 5;
-    background: rgba(11,11,11,0.88); color: #fff; border-radius: 8px;
+    background: rgba(6,12,22,0.94); color: #e8eef7; border: 1px solid rgba(148,180,220,0.25); border-radius: 8px;
     padding: 8px 11px; font-size: 11.5px; line-height: 1.5; max-width: 230px;
   }
   #tooltip .tt-id { font-weight: 700; font-size: 13px; }
@@ -101,11 +101,11 @@
   .prow .pid { font-weight: 700; font-size: 12.5px; }
   .prow .pid .grp { display: block; font-size: 9px; font-weight: 600; color: var(--text-muted); }
   .prow .bar { height: 14px; position: relative; background: var(--page-plane); border-radius: 4px; overflow: hidden; border: 1px solid var(--hairline); }
-  .prow .bar .soil { position: absolute; top: 0; bottom: 0; left: 0; background: #d9c3ae; }
+  .prow .bar .soil { position: absolute; top: 0; bottom: 0; left: 0; background: #b9803e; }
   .prow .bar .sock { position: absolute; top: 0; bottom: 0; background: var(--socket); }
   .prow .nums { font-size: 10.5px; color: var(--text-secondary); text-align: right; font-variant-numeric: tabular-nums; line-height: 1.35; }
   .prow.ghost { opacity: .48; }
-  .prow.ghost .bar { background: repeating-linear-gradient(45deg, #f1f0ec, #f1f0ec 4px, #e6e5df 4px, #e6e5df 8px); }
+  .prow.ghost .bar { background: repeating-linear-gradient(45deg, #1a2740, #1a2740 4px, #142033 4px, #142033 8px); }
 
   #table-wrap { display: none; flex: 1; overflow: auto; padding: 14px 18px; }
   table { border-collapse: collapse; font-size: 12.5px; background: var(--surface-1); }
@@ -222,14 +222,14 @@ renderer.shadowMap.type = THREE.PCFSoftShadowMap;
 wrap.appendChild(renderer.domElement);
 
 const scene = new THREE.Scene();
-scene.background = new THREE.Color(0xeef1f4);
-scene.fog = new THREE.Fog(0xeef1f4, 90, 220);
+scene.background = new THREE.Color(0x0b1220);
+scene.fog = new THREE.Fog(0x0b1220, 90, 230);
 
 const camera = new THREE.PerspectiveCamera(46, 1, 0.1, 600);
 
-const amb = new THREE.HemisphereLight(0xffffff, 0xb0a893, 0.85);
+const amb = new THREE.HemisphereLight(0xdfe8ff, 0x141d2c, 0.95);
 scene.add(amb);
-const sun = new THREE.DirectionalLight(0xfff4e0, 0.9);
+const sun = new THREE.DirectionalLight(0xffe9c8, 1.0);
 sun.position.set(-35, 55, -25);
 sun.castShadow = true;
 sun.shadow.mapSize.set(2048, 2048);
@@ -277,7 +277,7 @@ renderer.domElement.addEventListener('wheel', e => {
 const groundGrp = new THREE.Group(); scene.add(groundGrp);
 const surround = new THREE.Mesh(
   new THREE.PlaneGeometry(400, 400),
-  new THREE.MeshLambertMaterial({ color: 0xdcd8cd, transparent: true, opacity: 0.55, depthWrite: false })
+  new THREE.MeshLambertMaterial({ color: 0xcfd6de, transparent: true, opacity: 0.35, depthWrite: false })
 );
 surround.rotation.x = -Math.PI / 2; surround.position.y = -0.03; surround.receiveShadow = true;
 surround.renderOrder = 10;
@@ -311,20 +311,20 @@ function updateSelMarker() {
   const g = new THREE.Group();
   const halo = new THREE.Mesh(
     new THREE.CylinderGeometry(p.dia * 0.85, p.dia * 0.85, h, 24, 1, true),
-    new THREE.MeshBasicMaterial({ color: 0x2a78d6, transparent: true, opacity: 0.30,
+    new THREE.MeshBasicMaterial({ color: 0x4c8dff, transparent: true, opacity: 0.22,
       depthTest: false, side: THREE.DoubleSide }));
   halo.position.y = -h / 2; halo.renderOrder = 15;
   const ring = new THREE.Mesh(new THREE.TorusGeometry(p.dia * 0.95, 0.05, 8, 40),
-    new THREE.MeshBasicMaterial({ color: 0x2a78d6, depthTest: false }));
+    new THREE.MeshBasicMaterial({ color: 0x4c8dff, depthTest: false }));
   ring.rotation.x = Math.PI / 2; ring.position.y = 0.04; ring.renderOrder = 16;
   g.add(halo, ring);
   g.position.set(p.x, 0, p.z);
   scene.add(g); selMarker = g;
 }
 
-const matConcrete = () => new THREE.MeshStandardMaterial({ color: 0xd8d6cf, roughness: 0.75 });
-const matSocket = () => new THREE.MeshStandardMaterial({ color: 0xeb6834, roughness: 0.6 });
-const CLAY = 0xc9a08a, SILT = 0x8a8578;
+const matConcrete = () => new THREE.MeshStandardMaterial({ color: 0xe6ddc8, roughness: 0.7 });
+const matSocket = () => new THREE.MeshStandardMaterial({ color: 0xff7038, roughness: 0.55, emissive: 0x3a1505 });
+const CLAY = 0xb9803e, SILT = 0x3f5d78;   /* residual silty clay · weathered siltstone */
 /* sequential blue ramp (palette steps 150→650) for socket length */
 const RAMP = ['#b7d3f6','#9ec5f4','#86b6ef','#6da7ec','#5598e7','#3987e5','#2a78d6','#256abf','#1c5cab','#104281'];
 const sockCol = s => new THREE.Color(RAMP[Math.min(RAMP.length - 1, Math.floor((s - 0.6) / (2.0 - 0.6) * (RAMP.length - 1)))]);
@@ -387,14 +387,14 @@ function buildGeo() {
   const deepest = Math.max(2.5, ...piles.filter(p => p.d != null).map(p => p.d));
   const clayT = CLAY_T * VEX, rockT = (deepest + 0.9 - CLAY_T) * VEX;
   const clay = new THREE.Mesh(new THREE.BoxGeometry(fw, clayT, fd),
-    new THREE.MeshLambertMaterial({ color: CLAY, transparent: true, opacity: 0.16, depthWrite: false }));
+    new THREE.MeshLambertMaterial({ color: CLAY, transparent: true, opacity: 0.34, depthWrite: false }));
   clay.position.set(fcx, -clayT / 2, fcz);
   const rock = new THREE.Mesh(new THREE.BoxGeometry(fw, rockT, fd),
-    new THREE.MeshLambertMaterial({ color: SILT, transparent: true, opacity: 0.20, depthWrite: false }));
+    new THREE.MeshLambertMaterial({ color: SILT, transparent: true, opacity: 0.36, depthWrite: false }));
   rock.position.set(fcx, -clayT - rockT / 2, fcz);
   const edges = new THREE.LineSegments(
     new THREE.EdgesGeometry(new THREE.BoxGeometry(fw, clayT + rockT, fd)),
-    new THREE.LineBasicMaterial({ color: 0x898781, transparent: true, opacity: 0.6 }));
+    new THREE.LineBasicMaterial({ color: 0x7d90ad, transparent: true, opacity: 0.55 }));
   edges.position.set(fcx, -(clayT + rockT) / 2, fcz);
   soil.add(clay, rock, edges);
   geoGrp.add(soil);
@@ -410,13 +410,13 @@ function buildGeo() {
   }
   rh.computeVertexNormals();
   const rockheadMesh = new THREE.Mesh(rh, new THREE.MeshStandardMaterial({
-    color: 0x7d7568, transparent: true, opacity: 0.45, side: THREE.DoubleSide,
+    color: 0x49869c, transparent: true, opacity: 0.5, side: THREE.DoubleSide,
     roughness: 0.9, metalness: 0,
   }));
   rockheadMesh.position.set(fcx - fcx, 0, fcz - fcz); rockheadMesh.name = 'rockhead';
   const rhGrp = new THREE.Group(); rhGrp.name = 'rockheadG';
   const rhWire = new THREE.Mesh(rh.clone(), new THREE.MeshBasicMaterial({
-    color: 0x52514e, wireframe: true, transparent: true, opacity: 0.10 }));
+    color: 0xa9d3e4, wireframe: true, transparent: true, opacity: 0.14 }));
   rhGrp.add(rockheadMesh, rhWire);
   rhGrp.position.set(0, 0, 0);
   rockheadMesh.position.set(fcx, 0, fcz); rhWire.position.set(fcx, 0, fcz);
@@ -446,15 +446,15 @@ function buildGeo() {
       pileGroups[p.id] = grp;
       /* rockhead collar ring */
       const ring = new THREE.Mesh(new THREE.TorusGeometry(r * 1.15, 0.035, 8, 32),
-        new THREE.MeshBasicMaterial({ color: 0x52514e }));
+        new THREE.MeshBasicMaterial({ color: 0xcfe0f2 }));
       ring.rotation.x = Math.PI / 2; ring.position.y = -shaftLen; grp.add(ring);
       /* toe disc */
       const toe = new THREE.Mesh(new THREE.CylinderGeometry(r * 1.12, r * 1.12, 0.03, 24),
-        new THREE.MeshBasicMaterial({ color: colorMode === 'seg' ? 0xb44f22 : 0x104281 }));
+        new THREE.MeshBasicMaterial({ color: colorMode === 'seg' ? 0xff8a4d : 0x7fb2ff }));
       toe.position.y = -(shaftLen + sockLen); grp.add(toe);
       /* cap */
       const cap = new THREE.Mesh(new THREE.BoxGeometry(0.9, 0.22, 0.9),
-        new THREE.MeshStandardMaterial({ color: p.internal ? 0x2a78d6 : 0x8a8a84, roughness: 0.6 }));
+        new THREE.MeshStandardMaterial({ color: p.internal ? 0x4c8dff : 0x9aa4b2, roughness: 0.6 }));
       cap.position.y = 0.11; cap.castShadow = true; cap.userData.pile = p;
       grp.add(cap); pickables.push(cap);
       const lab = textSprite(p.id, {});
@@ -462,11 +462,11 @@ function buildGeo() {
     } else {
       /* uninspected ghost */
       const gh = new THREE.Mesh(new THREE.CylinderGeometry(r, r, (CFG.ghost_depth ?? 2.0) * VEX, 20),
-        new THREE.MeshLambertMaterial({ color: 0x898781, transparent: true, opacity: 0.13 }));
+        new THREE.MeshLambertMaterial({ color: 0x9db2cf, transparent: true, opacity: 0.10 }));
       gh.position.y = -(CFG.ghost_depth ?? 2.0) / 2 * VEX; gh.userData.pile = p; gh.name = 'ghost';
       grp.add(gh); pickables.push(gh);
       const ring = new THREE.Mesh(new THREE.TorusGeometry(r * 1.2, 0.03, 6, 28),
-        new THREE.MeshBasicMaterial({ color: 0x898781, transparent: true, opacity: 0.5 }));
+        new THREE.MeshBasicMaterial({ color: 0x7d90ad, transparent: true, opacity: 0.4 }));
       ring.rotation.x = Math.PI / 2; ring.position.y = 0.02; grp.add(ring); grp.name = 'ghostG';
       const lab = textSprite(p.id, { color: '#898781', hFrac: 0.036, bgc: 'rgba(252,252,251,0.75)' });
       lab.position.set(p.x, 0.7, p.z); lab.userData.pileId = p.id; lab.userData.ghost = true; labelGrp.add(lab);
@@ -476,7 +476,7 @@ function buildGeo() {
 
   /* depth ruler at SW corner */
   const rx = fx0 - 1.6, rz = fz1 + 1.6, maxD = Math.ceil(deepest + 0.7);
-  const rulerMat = new THREE.LineBasicMaterial({ color: 0x52514e });
+  const rulerMat = new THREE.LineBasicMaterial({ color: 0xa9bad0 });
   const rpts = [new THREE.Vector3(rx, 0, rz), new THREE.Vector3(rx, -maxD * VEX, rz)];
   geoGrp.add(new THREE.Line(new THREE.BufferGeometry().setFromPoints(rpts), rulerMat));
   for (let d = 0; d <= maxD + 0.001; d += 0.5) {
@@ -540,19 +540,21 @@ function drawLegend() {
   const lg = $('legend');
   if (colorMode === 'seg') {
     lg.innerHTML =
-      `<div class="lg-row"><span class="sw" style="background:#d8d6cf"></span> shaft through residual clay</div>
-       <div class="lg-row"><span class="sw" style="background:#eb6834"></span> rock socket (weathered siltstone)</div>
-       <div class="lg-row"><span class="sw" style="background:#2a78d6"></span> internal pier cap (P1–P13)</div>
-       <div class="lg-row"><span class="sw" style="background:#8a8a84"></span> perimeter pier cap (P14–P27)</div>
-       <div class="lg-row"><span class="sw" style="background:repeating-linear-gradient(45deg,#eee,#eee 3px,#ddd 3px,#ddd 6px)"></span> not inspected this visit</div>
-       <div class="lg-row"><span class="sw" style="background:#7d7568;opacity:.6"></span> interpolated rockhead surface</div>`;
+      `<div class="lg-row"><span class="sw" style="background:#e6ddc8"></span> shaft through residual clay</div>
+       <div class="lg-row"><span class="sw" style="background:#ff7038"></span> rock socket (weathered siltstone)</div>
+       <div class="lg-row"><span class="sw" style="background:#4c8dff"></span> internal pier cap (P1–P13)</div>
+       <div class="lg-row"><span class="sw" style="background:#9aa4b2"></span> perimeter pier cap (P14–P27)</div>
+       <div class="lg-row"><span class="sw" style="background:repeating-linear-gradient(45deg,#233250,#233250 3px,#182741 3px,#182741 6px)"></span> not inspected this visit</div>
+       <div class="lg-row"><span class="sw" style="background:#49869c;opacity:.7"></span> interpolated rockhead surface</div>
+       <div class="lg-row"><span class="sw" style="background:#b9803e;opacity:.8"></span> residual silty clay layer (0–1.2 m)</div>
+       <div class="lg-row"><span class="sw" style="background:#3f5d78;opacity:.85"></span> weathered siltstone mass</div>`;
   } else {
     lg.innerHTML =
       `<div class="lg-row"><span>socket length</span></div>
        <div class="lg-row"><span style="font-variant-numeric:tabular-nums">0.6 m</span>
        <span class="ramp" style="background:linear-gradient(90deg,${RAMP.join(',')})"></span>
        <span style="font-variant-numeric:tabular-nums">2.0 m</span></div>
-       <div class="lg-row"><span class="sw" style="background:repeating-linear-gradient(45deg,#eee,#eee 3px,#ddd 3px,#ddd 6px)"></span> not inspected</div>`;
+       <div class="lg-row"><span class="sw" style="background:repeating-linear-gradient(45deg,#233250,#233250 3px,#182741 3px,#182741 6px)"></span> not inspected</div>`;
   }
 }
 
@@ -598,7 +600,7 @@ function selectPile(id, fromScene) {
   const p = piles.find(q => q.id === id);
   if (p) {
     if (pileGroups[id])
-      pileGroups[id].userData.meshes.forEach(m => m.material.emissive?.set(0x1c5cab));
+      pileGroups[id].userData.meshes.forEach(m => m.material.emissive?.set(0x2f6fd6));
     updateSelMarker();
     ctrl.target.set(p.x, -(p.d || 2) * VEX / 2, p.z);
     ctrl.sph.radius = 22;
