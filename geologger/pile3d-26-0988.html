@@ -277,7 +277,7 @@ renderer.domElement.addEventListener('wheel', e => {
 const groundGrp = new THREE.Group(); scene.add(groundGrp);
 const surround = new THREE.Mesh(
   new THREE.PlaneGeometry(400, 400),
-  new THREE.MeshLambertMaterial({ color: 0xcfd6de, transparent: true, opacity: 0.35, depthWrite: false })
+  new THREE.MeshLambertMaterial({ color: 0xaeb8c4, transparent: true, opacity: 0.22, depthWrite: false })
 );
 surround.rotation.x = -Math.PI / 2; surround.position.y = -0.03; surround.receiveShadow = true;
 surround.renderOrder = 10;
@@ -387,10 +387,10 @@ function buildGeo() {
   const deepest = Math.max(2.5, ...piles.filter(p => p.d != null).map(p => p.d));
   const clayT = CLAY_T * VEX, rockT = (deepest + 0.9 - CLAY_T) * VEX;
   const clay = new THREE.Mesh(new THREE.BoxGeometry(fw, clayT, fd),
-    new THREE.MeshLambertMaterial({ color: CLAY, transparent: true, opacity: 0.34, depthWrite: false }));
+    new THREE.MeshLambertMaterial({ color: CLAY, transparent: true, opacity: 0.55, depthWrite: false }));
   clay.position.set(fcx, -clayT / 2, fcz);
   const rock = new THREE.Mesh(new THREE.BoxGeometry(fw, rockT, fd),
-    new THREE.MeshLambertMaterial({ color: SILT, transparent: true, opacity: 0.36, depthWrite: false }));
+    new THREE.MeshLambertMaterial({ color: SILT, transparent: true, opacity: 0.60, depthWrite: false }));
   rock.position.set(fcx, -clayT - rockT / 2, fcz);
   const edges = new THREE.LineSegments(
     new THREE.EdgesGeometry(new THREE.BoxGeometry(fw, clayT + rockT, fd)),
@@ -410,7 +410,7 @@ function buildGeo() {
   }
   rh.computeVertexNormals();
   const rockheadMesh = new THREE.Mesh(rh, new THREE.MeshStandardMaterial({
-    color: 0x49869c, transparent: true, opacity: 0.5, side: THREE.DoubleSide,
+    color: 0x53a3bd, transparent: true, opacity: 0.6, side: THREE.DoubleSide,
     roughness: 0.9, metalness: 0,
   }));
   rockheadMesh.position.set(fcx - fcx, 0, fcz - fcz); rockheadMesh.name = 'rockhead';
