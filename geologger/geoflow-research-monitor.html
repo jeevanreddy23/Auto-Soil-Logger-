@@ -1,0 +1,480 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>GeoFlow Research Monitor</title>
+<style>
+  :root {
+    color-scheme: light;
+    --surface-1: #fcfcfb;
+    --page: #f9f9f7;
+    --ink-1: #0b0b0b;
+    --ink-2: #52514e;
+    --ink-muted: #898781;
+    --hairline: #e1e0d9;
+    --ring: rgba(11,11,11,0.10);
+    --c1: #2a78d6; /* blue    – Soil & Rock Logging */
+    --c2: #eb6834; /* orange  – Computer Vision */
+    --c3: #1baf7a; /* aqua    – Standards & Data Formats */
+    --c4: #eda100; /* yellow  – 3D Viz & Digital Twins */
+    --c5: #e87ba4; /* magenta – AI Agents & Automation */
+    --c6: #008300; /* green   – Report & Doc Intelligence */
+    --good: #0ca30c;
+    --critical: #d03b3b;
+    --warning: #fab219;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      color-scheme: dark;
+      --surface-1: #1a1a19;
+      --page: #0d0d0d;
+      --ink-1: #ffffff;
+      --ink-2: #c3c2b7;
+      --ink-muted: #898781;
+      --hairline: #2c2c2a;
+      --ring: rgba(255,255,255,0.10);
+      --c1: #3987e5;
+      --c2: #d95926;
+      --c3: #199e70;
+      --c4: #c98500;
+      --c5: #d55181;
+      --c6: #008300;
+    }
+  }
+  :root[data-theme="dark"] {
+    color-scheme: dark;
+    --surface-1: #1a1a19;
+    --page: #0d0d0d;
+    --ink-1: #ffffff;
+    --ink-2: #c3c2b7;
+    --ink-muted: #898781;
+    --hairline: #2c2c2a;
+    --ring: rgba(255,255,255,0.10);
+    --c1: #3987e5;
+    --c2: #d95926;
+    --c3: #199e70;
+    --c4: #c98500;
+    --c5: #d55181;
+    --c6: #008300;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    background: var(--page);
+    color: var(--ink-1);
+    font-family: system-ui, -apple-system, "Segoe UI", sans-serif;
+    font-size: 14px;
+    line-height: 1.45;
+  }
+  .wrap { max-width: 1180px; margin: 0 auto; padding: 20px 24px 60px; }
+
+  header { display: flex; align-items: baseline; gap: 14px; flex-wrap: wrap; margin-bottom: 4px; }
+  header h1 { font-size: 20px; font-weight: 700; margin: 0; }
+  header .sub { color: var(--ink-2); font-size: 13px; }
+  .theme-btn {
+    margin-left: auto; border: 1px solid var(--hairline); background: var(--surface-1);
+    color: var(--ink-2); border-radius: 8px; padding: 4px 10px; cursor: pointer; font-size: 12px;
+  }
+
+  .controls {
+    display: flex; gap: 10px; align-items: center; flex-wrap: wrap;
+    background: var(--surface-1); border: 1px solid var(--hairline);
+    border-radius: 12px; padding: 10px 14px; margin: 14px 0 8px;
+  }
+  .controls label { color: var(--ink-2); font-size: 12px; }
+  .controls select, .controls input[type="text"], .controls input[type="password"] {
+    background: var(--page); color: var(--ink-1);
+    border: 1px solid var(--hairline); border-radius: 8px; padding: 5px 8px; font-size: 13px;
+  }
+  .controls input.key { width: 190px; }
+  .btn {
+    background: var(--ink-1); color: var(--page); border: none; border-radius: 8px;
+    padding: 6px 14px; font-size: 13px; font-weight: 600; cursor: pointer;
+  }
+  .btn.ghost { background: transparent; color: var(--ink-2); border: 1px solid var(--hairline); font-weight: 500; }
+  .btn:disabled { opacity: 0.5; cursor: default; }
+
+  #status { font-size: 12px; color: var(--ink-muted); min-height: 18px; margin: 2px 2px 10px; }
+  #status .err { color: var(--critical); }
+  #status a { color: inherit; }
+
+  .banner {
+    display: none; border: 1px solid var(--warning); background: var(--surface-1);
+    border-radius: 10px; padding: 10px 14px; margin-bottom: 12px; font-size: 13px; color: var(--ink-1);
+  }
+  .banner.show { display: block; }
+  .banner a { color: var(--c1); }
+
+  .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(360px, 1fr)); gap: 14px; }
+
+  section.col {
+    background: var(--surface-1); border: 1px solid var(--hairline);
+    border-radius: 12px; padding: 12px 14px 10px; display: flex; flex-direction: column; min-height: 160px;
+  }
+  .col-head { display: flex; align-items: center; gap: 8px; margin-bottom: 2px; }
+  .chip { width: 10px; height: 10px; border-radius: 3px; flex: none; }
+  .col-head h2 { font-size: 14px; font-weight: 700; margin: 0; flex: 1; }
+  .col-head .count { font-size: 12px; color: var(--ink-muted); }
+  .col-head button { background: none; border: none; color: var(--ink-muted); cursor: pointer; font-size: 13px; padding: 2px 4px; }
+  .query-row { display: flex; gap: 6px; margin: 6px 0 8px; }
+  .query-row input {
+    flex: 1; background: var(--page); color: var(--ink-2); border: 1px solid var(--hairline);
+    border-radius: 7px; padding: 4px 8px; font-size: 12px;
+  }
+
+  .paper { border-top: 1px solid var(--hairline); padding: 9px 2px 8px; }
+  .paper h3 { font-size: 13px; font-weight: 600; margin: 0 0 3px; line-height: 1.35; }
+  .paper h3 a { color: var(--ink-1); text-decoration: none; }
+  .paper h3 a:hover { text-decoration: underline; }
+  .meta { font-size: 12px; color: var(--ink-2); }
+  .meta .dot { color: var(--ink-muted); padding: 0 4px; }
+  .oa { color: var(--good); font-weight: 600; text-decoration: none; }
+  .abstract { font-size: 12px; color: var(--ink-muted); margin: 4px 0 5px; }
+  .paper-actions { display: flex; gap: 8px; }
+  .paper-actions button {
+    background: none; border: 1px solid var(--hairline); color: var(--ink-2);
+    border-radius: 7px; padding: 2px 9px; font-size: 11.5px; cursor: pointer;
+  }
+  .paper-actions button.saved { border-color: var(--good); color: var(--good); }
+  .empty, .loading { color: var(--ink-muted); font-size: 12.5px; padding: 12px 2px; }
+  .colerr { color: var(--critical); font-size: 12.5px; padding: 10px 2px; }
+
+  #tray {
+    margin-top: 22px; background: var(--surface-1); border: 1px solid var(--hairline);
+    border-radius: 12px; padding: 14px 16px;
+  }
+  #tray h2 { font-size: 15px; margin: 0 0 4px; }
+  #tray .hint { font-size: 12px; color: var(--ink-muted); margin-bottom: 8px; }
+  .idea { display: flex; align-items: baseline; gap: 8px; border-top: 1px solid var(--hairline); padding: 7px 0; font-size: 13px; }
+  .idea .t { flex: 1; }
+  .idea .src { font-size: 11.5px; color: var(--ink-muted); }
+  .idea button { background: none; border: none; color: var(--critical); cursor: pointer; font-size: 12px; }
+  .tray-actions { margin-top: 10px; display: flex; gap: 8px; }
+  footer { margin-top: 26px; font-size: 11.5px; color: var(--ink-muted); }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <h1>GeoFlow Research Monitor</h1>
+    <span class="sub">live OpenAlex feed for the six STS GeoFlow research collections</span>
+    <button class="theme-btn" id="themeBtn" type="button">◐ theme</button>
+  </header>
+
+  <div class="controls">
+    <label>Window
+      <select id="windowSel">
+        <option value="30">last 30 days</option>
+        <option value="90">last 90 days</option>
+        <option value="180" selected>last 6 months</option>
+        <option value="365">last 12 months</option>
+        <option value="1095">last 3 years</option>
+      </select>
+    </label>
+    <label>Sort
+      <select id="sortSel">
+        <option value="publication_date:desc" selected>newest first</option>
+        <option value="cited_by_count:desc">most cited</option>
+      </select>
+    </label>
+    <label>API key (optional)
+      <input class="key" type="password" id="apiKey" placeholder="paste OpenAlex key">
+    </label>
+    <button class="btn" id="refreshAll" type="button">Refresh all</button>
+  </div>
+  <div id="status"></div>
+
+  <div class="banner" id="rateBanner">
+    OpenAlex is rate-limiting keyless requests. Grab a <b>free API key</b> at
+    <a href="https://openalex.org/settings/api" target="_blank" rel="noopener">openalex.org/settings/api</a>
+    (US$1/day free — ~1,000 searches), paste it above, and refresh. You can also hardcode it in the
+    <code>CONFIG</code> block at the top of this file's script.
+  </div>
+
+  <div class="grid" id="grid"></div>
+
+  <div id="tray">
+    <h2>⭐ Feature ideas</h2>
+    <div class="hint">Papers you flag land here. This list lives in memory only — export it before closing the page.</div>
+    <div id="ideaList"><div class="empty">Nothing flagged yet. Hit “☆ feature idea” on any paper that could become a GeoFlow feature.</div></div>
+    <div class="tray-actions">
+      <button class="btn ghost" id="copyIssues" type="button">Copy as GitHub issues</button>
+      <button class="btn ghost" id="exportMd" type="button">Download .md</button>
+    </div>
+  </div>
+
+  <footer>
+    Data: <a href="https://openalex.org" target="_blank" rel="noopener">OpenAlex</a> (CC0).
+    Queries are editable per collection — tune them and they persist for this page load.
+    Duplicates across collections are shown once, in the first collection that returned them.
+  </footer>
+</div>
+
+<script>
+"use strict";
+
+/* ================= CONFIG ================= */
+const CONFIG = {
+  mailto: "poreddyjeevanreddy@gmail.com",  // polite-pool identifier
+  apiKey: "",                               // optional: paste your free OpenAlex key here to bake it in
+  perPage: 8,
+  staggerMs: 250                            // gap between collection fetches (politeness)
+};
+
+const COLLECTIONS = [
+  { id: "logging",  name: "Soil & Rock Logging",           color: "var(--c1)", query: "geotechnical borehole rock core logging" },
+  { id: "vision",   name: "Computer Vision",               color: "var(--c2)", query: "deep learning rock core image defect detection" },
+  { id: "standards",name: "Standards & Data Formats",      color: "var(--c3)", query: "geotechnical data AGS format digital standard" },
+  { id: "viz3d",    name: "3D Visualization & Digital Twins", color: "var(--c4)", query: "3D geological model visualization digital twin" },
+  { id: "agents",   name: "AI Agents & Automation",        color: "var(--c5)", query: "large language model agent engineering workflow automation" },
+  { id: "reports",  name: "Report & Document Intelligence",color: "var(--c6)", query: "automated geotechnical report generation document information extraction" }
+];
+/* ========================================== */
+
+const state = {
+  seen: new Set(),        // OpenAlex work ids already rendered (dedupe across collections)
+  ideas: [],              // flagged papers
+  papers: {},             // work id -> paper object
+  inFlight: 0
+};
+
+const $ = (sel) => document.querySelector(sel);
+const grid = $("#grid");
+const statusEl = $("#status");
+
+/* ---------- helpers ---------- */
+function fmtDate(d) { return d || "n.d."; }
+
+function abstractText(inv) {
+  if (!inv) return "";
+  const words = [];
+  for (const [w, positions] of Object.entries(inv))
+    for (const p of positions) words[p] = w;
+  return words.join(" ");
+}
+
+function truncate(s, n) {
+  if (!s) return "";
+  return s.length > n ? s.slice(0, n).replace(/\s+\S*$/, "") + "…" : s;
+}
+
+function authorsLine(auths) {
+  if (!auths || !auths.length) return "Unknown authors";
+  const names = auths.slice(0, 3).map(a => (a.author && a.author.display_name) || "?");
+  return names.join(", ") + (auths.length > 3 ? " et al." : "");
+}
+
+function fromDateISO(days) {
+  const d = new Date(Date.now() - days * 86400000);
+  return d.toISOString().slice(0, 10);
+}
+
+function buildURL(query) {
+  const days = +$("#windowSel").value;
+  const sort = $("#sortSel").value;
+  const key = $("#apiKey").value.trim() || CONFIG.apiKey;
+  const p = new URLSearchParams();
+  p.set("search", query);
+  p.set("filter", "from_publication_date:" + fromDateISO(days));
+  p.set("sort", sort);
+  p.set("per-page", CONFIG.perPage);
+  if (CONFIG.mailto) p.set("mailto", CONFIG.mailto);
+  if (key) p.set("api_key", key);
+  return "https://api.openalex.org/works?" + p.toString();
+}
+
+function setStatus(html, isErr) {
+  statusEl.innerHTML = isErr ? '<span class="err">' + html + "</span>" : html;
+}
+
+/* ---------- rendering ---------- */
+function colSection(col) {
+  const sec = document.createElement("section");
+  sec.className = "col";
+  sec.id = "col-" + col.id;
+  sec.innerHTML =
+    '<div class="col-head">' +
+      '<span class="chip" style="background:' + col.color + '"></span>' +
+      "<h2>" + col.name + "</h2>" +
+      '<span class="count" id="count-' + col.id + '"></span>' +
+      '<button type="button" title="Refresh this collection" data-refresh="' + col.id + '">↻</button>' +
+    "</div>" +
+    '<div class="query-row">' +
+      '<input id="q-' + col.id + '" value="' + col.query.replace(/"/g, "&quot;") + '" spellcheck="false" ' +
+        'title="OpenAlex search query — edit and hit ↻">' +
+    "</div>" +
+    '<div class="papers" id="papers-' + col.id + '"><div class="loading">Loading…</div></div>';
+  return sec;
+}
+
+function paperCard(w, col) {
+  const id = w.id || "";
+  const short = id.replace("https://openalex.org/", "");
+  const link = w.doi || id;
+  const oa = w.open_access && w.open_access.oa_url;
+  const venue = (w.primary_location && w.primary_location.source && w.primary_location.source.display_name) || "—";
+  const abs = truncate(abstractText(w.abstract_inverted_index), 220);
+  const div = document.createElement("div");
+  div.className = "paper";
+  div.innerHTML =
+    '<h3><a href="' + link + '" target="_blank" rel="noopener"></a></h3>' +
+    '<div class="meta"></div>' +
+    (abs ? '<div class="abstract"></div>' : "") +
+    '<div class="paper-actions"><button type="button" class="flag">☆ feature idea</button></div>';
+  div.querySelector("h3 a").textContent = w.display_name || "(untitled)";
+  const meta = div.querySelector(".meta");
+  meta.append(authorsLine(w.authorships));
+  meta.insertAdjacentHTML("beforeend",
+    '<span class="dot">·</span>' + escapeHtml(venue) +
+    '<span class="dot">·</span>' + fmtDate(w.publication_date) +
+    '<span class="dot">·</span>' + (w.cited_by_count || 0) + " citations" +
+    (oa ? '<span class="dot">·</span><a class="oa" href="' + oa + '" target="_blank" rel="noopener">open access ↗</a>' : ""));
+  if (abs) div.querySelector(".abstract").textContent = abs;
+
+  const btn = div.querySelector(".flag");
+  btn.addEventListener("click", () => {
+    const i = state.ideas.findIndex(x => x.id === id);
+    if (i >= 0) { state.ideas.splice(i, 1); btn.classList.remove("saved"); btn.textContent = "☆ feature idea"; }
+    else {
+      state.ideas.push({ id, short, title: w.display_name, link, venue, date: w.publication_date, col: col.name, abs });
+      btn.classList.add("saved"); btn.textContent = "★ flagged";
+    }
+    renderIdeas();
+  });
+  return div;
+}
+
+function escapeHtml(s) {
+  return String(s).replace(/[&<>"']/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+}
+
+function renderIdeas() {
+  const box = $("#ideaList");
+  if (!state.ideas.length) {
+    box.innerHTML = '<div class="empty">Nothing flagged yet. Hit “☆ feature idea” on any paper that could become a GeoFlow feature.</div>';
+    return;
+  }
+  box.innerHTML = "";
+  state.ideas.forEach((it, i) => {
+    const row = document.createElement("div");
+    row.className = "idea";
+    row.innerHTML = '<span class="t"></span><span class="src"></span><button type="button">remove</button>';
+    row.querySelector(".t").textContent = it.title;
+    row.querySelector(".src").textContent = it.col;
+    row.querySelector("button").addEventListener("click", () => { state.ideas.splice(i, 1); renderIdeas(); syncFlags(); });
+    box.append(row);
+  });
+}
+
+function syncFlags() {
+  const ids = new Set(state.ideas.map(i => i.id));
+  document.querySelectorAll(".paper").forEach(p => {
+    const a = p.querySelector("h3 a");
+    const btn = p.querySelector(".flag");
+    const flagged = [...ids].some(id => a.href === id || a.href.includes("doi") && state.ideas.some(x => x.link === a.href));
+    if (!flagged) { btn.classList.remove("saved"); btn.textContent = "☆ feature idea"; }
+  });
+}
+
+function ideasMarkdown() {
+  let md = "# GeoFlow feature ideas — from research monitor\n\n";
+  for (const it of state.ideas) {
+    md += "## " + it.title + "\n\n";
+    md += "- **Collection:** " + it.col + "\n";
+    md += "- **Source:** " + it.link + " (" + it.venue + ", " + fmtDate(it.date) + ")\n";
+    md += "- **Why it matters:** _fill in — what GeoFlow feature could this become?_\n";
+    md += "- **Acceptance:** _fill in — what would 'shipped' look like?_\n\n";
+    if (it.abs) md += "> " + it.abs + "\n\n";
+  }
+  return md;
+}
+
+/* ---------- fetching ---------- */
+async function loadCollection(col) {
+  const box = $("#papers-" + col.id);
+  const countEl = $("#count-" + col.id);
+  box.innerHTML = '<div class="loading">Loading…</div>';
+  countEl.textContent = "";
+  const q = $("#q-" + col.id).value.trim() || col.query;
+  state.inFlight++;
+  setStatus("Fetching… (" + state.inFlight + " in flight)");
+  try {
+    const res = await fetch(buildURL(q));
+    if (res.status === 429) { $("#rateBanner").classList.add("show"); throw new Error("429 — rate limited"); }
+    if (!res.ok) throw new Error("HTTP " + res.status);
+    const data = await res.json();
+    const results = data.results || [];
+    box.innerHTML = "";
+    let shown = 0, dup = 0;
+    for (const w of results) {
+      if (state.seen.has(w.id)) { dup++; continue; }
+      state.seen.add(w.id);
+      state.papers[w.id] = w;
+      box.append(paperCard(w, col));
+      shown++;
+    }
+    if (!shown) box.innerHTML = '<div class="empty">No ' + (dup ? "new " : "") + "papers in this window — widen it or tweak the query.</div>";
+    countEl.textContent = shown + (dup ? " (+" + dup + " dup)" : "") + " · " + (data.meta ? data.meta.count.toLocaleString() + " total" : "");
+  } catch (e) {
+    box.innerHTML = '<div class="colerr">Couldn’t load: ' + escapeHtml(e.message) + ' <button type="button" class="retry" style="margin-left:6px">retry</button></div>';
+    box.querySelector(".retry").addEventListener("click", () => loadCollection(col));
+  } finally {
+    state.inFlight--;
+    if (state.inFlight === 0) setStatus("Updated " + new Date().toLocaleTimeString());
+  }
+}
+
+async function loadAll() {
+  state.seen.clear();
+  $("#rateBanner").classList.remove("show");
+  for (let i = 0; i < COLLECTIONS.length; i++) {
+    loadCollection(COLLECTIONS[i]);
+    if (CONFIG.staggerMs) await new Promise(r => setTimeout(r, CONFIG.staggerMs));
+  }
+}
+
+/* ---------- wiring ---------- */
+COLLECTIONS.forEach(c => grid.append(colSection(c)));
+
+grid.addEventListener("click", (e) => {
+  const id = e.target.getAttribute && e.target.getAttribute("data-refresh");
+  if (id) loadCollection(COLLECTIONS.find(c => c.id === id));
+});
+grid.addEventListener("keydown", (e) => {
+  if (e.key === "Enter" && e.target.id && e.target.id.startsWith("q-")) {
+    const id = e.target.id.slice(2);
+    loadCollection(COLLECTIONS.find(c => c.id === id));
+  }
+});
+
+$("#refreshAll").addEventListener("click", loadAll);
+$("#windowSel").addEventListener("change", loadAll);
+$("#sortSel").addEventListener("change", loadAll);
+
+$("#copyIssues").addEventListener("click", async () => {
+  if (!state.ideas.length) { setStatus("Nothing flagged to copy.", true); return; }
+  try { await navigator.clipboard.writeText(ideasMarkdown()); setStatus("Copied " + state.ideas.length + " idea(s) as issue-ready markdown."); }
+  catch { setStatus("Clipboard blocked — use Download .md instead.", true); }
+});
+
+$("#exportMd").addEventListener("click", () => {
+  if (!state.ideas.length) { setStatus("Nothing flagged to export.", true); return; }
+  const blob = new Blob([ideasMarkdown()], { type: "text/markdown" });
+  const a = document.createElement("a");
+  a.href = URL.createObjectURL(blob);
+  a.download = "geoflow-feature-ideas.md";
+  a.click();
+  URL.revokeObjectURL(a.href);
+});
+
+$("#themeBtn").addEventListener("click", () => {
+  const r = document.documentElement;
+  const cur = r.getAttribute("data-theme");
+  r.setAttribute("data-theme", cur === "dark" ? "light" : "dark");
+});
+
+loadAll();
+</script>
+</body>
+</html>
