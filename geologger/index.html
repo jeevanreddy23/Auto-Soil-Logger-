@@ -7365,6 +7365,179 @@ try{ buildBar(); side(); }catch(e){}
 if (S.activeTab==="pipeline" && document.getElementById("page-pipeline")) showTab("pipeline");
 })();
 </script>
+<script id="v25-piles">
+"use strict";
+/* ============ v25: pile inspection module — schedule vs achieved, compliance, reviewer-ready report ============ */
+(function(){
+const E=s=>String(s??"").replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/"/g,"&quot;");
+const N=v=>{ const n=parseFloat(v); return isNaN(n)? null:n; };
+function PS(){ if (!S.piles) S.piles={ meta:{client:"",reportNo:"",structEng:"",structJob:"",structDwgs:"",structRev:"",structDate:"",geoRef:"",inspDate:"",by:"",reviewer:""}, sched:[], insp:{} }; return S.piles; }
+const sv25=()=>{ try{ save(); }catch(e){ localStorage.setItem("autosoil-logger", JSON.stringify(S)); } };
+
+/* page + sidebar */
+const host=document.querySelector(".content");
+if (host && !document.getElementById("page-piles")){ const d=document.createElement("div"); d.className="tabpage"; d.id="page-piles"; host.appendChild(d); }
+if (typeof TABS!=="undefined" && document.getElementById("page-piles") && !TABS.includes("piles")) TABS.push("piles");
+function side25(){
+  const nav=document.getElementById("sideNav"); if (!nav) return;
+  const anchor=nav.querySelector('[data-sntab="spt"]')||nav.querySelector('[data-sntab="boreholes"]'); if (!anchor) return;
+  let n=nav.querySelector("[data-sn25]");
+  if (!n){ n=document.createElement("div"); n.setAttribute("data-sn25","1");
+    n.innerHTML='<span class="ic">⌇</span>Pile Inspections';
+    anchor.insertAdjacentElement("afterend",n);
+    n.addEventListener("click",()=>{ nav.classList.remove("open"); document.getElementById("snBackdrop")?.classList.remove("show");
+      if (document.getElementById("page-piles")) showTab("piles"); }); }
+  n.className="sn"+((S.activeTab==="piles")?" on":"");
+}
+
+/* compliance: the check that matters — achieved socket vs structural requirement */
+function compliance(p){
+  const r=PS().insp[p.id]||{};
+  if (r.depth==null||r.depth===""||r.socket==null||r.socket==="") return {st:"—",cls:"na",note:"not inspected"};
+  const nom=N(p.nomSocket);
+  if (nom==null) return {st:"INSPECTED",cls:"ok",note:"no nominated socket on schedule"};
+  const a=N(r.socket)||0;
+  if (a>=nom-0.001) return {st:"PASS",cls:"ok",note:`${a.toFixed(1)} ≥ ${nom.toFixed(1)} m nominated`};
+  return {st:"SHORT "+(nom-a).toFixed(1)+" m",cls:"bad",note:`achieved ${a.toFixed(1)} of ${nom.toFixed(1)} m — refer to structural engineer`};
+}
+function parseSched(txt){
+  /* forgiving: CSV or whitespace rows — ID, dia(mm or m), nominated socket (m), [nominated founding / group] */
+  const out=[];
+  for (const ln of String(txt||"").split(/\n/)){
+    const c=ln.split(/[,\t;]+|\s{2,}/).map(x=>x.trim()).filter(Boolean);
+    if (c.length<2 || !/^P?\d+/i.test(c[0])) continue;
+    const id=c[0].toUpperCase().startsWith("P")?c[0].toUpperCase():"P"+c[0];
+    let dia=N(c[1]); if (dia!=null && dia>10) dia=dia/1000;
+    out.push({ id, dia:dia??"", nomSocket:N(c[2])??"", group:(c[3]||"").toLowerCase().includes("per")?"perimeter":"internal" });
+  }
+  return out;
+}
+function render25(){
+  const el=document.getElementById("page-piles"); if (!el) return;
+  const P2=PS(); const m=P2.meta;
+  const rows=P2.sched.map((p,i)=>{ const r=P2.insp[p.id]||{}; const c=compliance(p);
+    return `<tr>
+      <td><b>${E(p.id)}</b><div style="font-size:10px;color:#94a3b8">${E(p.group||"")}</div></td>
+      <td>${p.dia? (p.dia*1000).toFixed(0)+" mm":"-"}</td>
+      <td>${p.nomSocket!==""&&p.nomSocket!=null? (+p.nomSocket).toFixed(1)+" m":"-"}</td>
+      <td><input data-pi="${i}" data-k="depth" value="${E(r.depth??"")}" style="width:62px" placeholder="m"></td>
+      <td><input data-pi="${i}" data-k="socket" value="${E(r.socket??"")}" style="width:62px" placeholder="m"></td>
+      <td><input data-pi="${i}" data-k="material" value="${E(r.material??"")}" style="width:150px" placeholder="Weathered Siltstone"></td>
+      <td><span class="pl-badge ${c.cls}" title="${E(c.note)}">${E(c.st)}</span></td>
+    </tr>`; }).join("");
+  const done=P2.sched.filter(p=>{ const r=P2.insp[p.id]||{}; return r.depth!==""&&r.depth!=null; }).length;
+  const short=P2.sched.filter(p=>compliance(p).cls==="bad").length;
+  el.innerHTML=`<style>
+    #page-piles table{width:100%;border-collapse:collapse;font-size:12.5px;background:#fff}
+    #page-piles th{font-size:10.5px;color:#64748b;text-align:left;letter-spacing:.4px;padding:7px 8px;border-bottom:1px solid #e2e8f0}
+    #page-piles td{padding:5px 8px;border-bottom:1px solid #f1f5f9}
+    #page-piles input{border:1px solid #cbd5e1;border-radius:6px;padding:5px 7px;font-size:12.5px}
+    #page-piles .pl-badge{font-size:11px;font-weight:700;border-radius:999px;padding:3px 9px}
+    #page-piles .pl-badge.ok{background:#dcfce7;color:#15803d}.pl-badge.bad{background:#fee2e2;color:#b91c1c}.pl-badge.na{background:#f1f5f9;color:#94a3b8}
+    #page-piles .pl-btn{border:1px solid #cbd5e1;background:#fff;border-radius:8px;padding:8px 14px;font-size:12.5px;font-weight:600;cursor:pointer}
+    #page-piles .pl-btn.pri{background:#1d4ed8;border-color:#1d4ed8;color:#fff}
+    #page-piles .mrow{display:grid;grid-template-columns:repeat(auto-fit,minmax(190px,1fr));gap:8px;margin-bottom:10px}
+    #page-piles .mrow label{font-size:10.5px;color:#64748b;display:block;margin-bottom:2px}
+    #page-piles .mrow input{width:100%}
+  </style>
+  <h2 style="font-size:19px;margin:6px 0 4px">Pile inspections <span style="font-size:12.5px;color:#64748b;font-weight:500">— ${done}/${P2.sched.length} inspected${short?` · <span style="color:#b91c1c;font-weight:700">${short} SHORT of nominated socket</span>`:""}</span></h2>
+  <div style="font-size:12px;color:#64748b;margin-bottom:10px">Paste the pier schedule once; on site enter only depth · socket · material per pier. Compliance against the structural nomination is computed, the report is one click, and the 3D visualiser reads the same data.</div>
+  <div class="sc-card" style="padding:12px;margin-bottom:10px"><div class="mrow">
+    ${[["client","Client"],["reportNo","Report No. (YY/NNNN)"],["inspDate","Inspection date"],["by","Inspected by"],["reviewer","Reviewer (on site)"],["structEng","Structural consultant"],["structJob","Struct. job no."],["structDwgs","Drawing nos."],["structRev","Revision"],["structDate","Drawing date"],["geoRef","STS geo report no."]].map(([k,l])=>`<div><label>${l}</label><input data-pm="${k}" value="${E(m[k]||"")}"></div>`).join("")}
+  </div></div>
+  <div class="sc-card" style="padding:12px;margin-bottom:10px">
+    <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center">
+      <button class="pl-btn" id="plSched">📋 Paste pier schedule…</button>
+      <button class="pl-btn pri" id="plReport" ${done? "":"disabled style='opacity:.5'"}>⬇ Reviewer-ready report (.doc)</button>
+      <button class="pl-btn" id="plJson" ${done? "":"disabled style='opacity:.5'"}>⬇ 3D visualiser data (.json)</button>
+      <span style="font-size:11.5px;color:#64748b">Report follows the issued 26/0988 template — only your entered values change.</span>
+    </div>
+  </div>
+  <div class="sc-card" style="padding:0;overflow:auto">
+    <table><thead><tr><th>Pier</th><th>Ø design</th><th>Nom. socket</th><th>Depth (m BGL)</th><th>Socket (m)</th><th>Founded on</th><th>Socket compliance</th></tr></thead>
+    <tbody>${rows||'<tr><td colspan="7" style="color:#64748b;padding:16px">No pier schedule yet — paste it from the structural drawings.</td></tr>'}</tbody></table>
+  </div>`;
+  el.querySelectorAll("[data-pm]").forEach(i=>i.addEventListener("input",()=>{ PS().meta[i.dataset.pm]=i.value; clearTimeout(window.__p25t); window.__p25t=setTimeout(sv25,400); }));
+  el.querySelectorAll("[data-pi]").forEach(i=>i.addEventListener("change",()=>{
+    const p=PS().sched[+i.dataset.pi]; if (!p) return;
+    const r=PS().insp[p.id]=PS().insp[p.id]||{};
+    r[i.dataset.k]=i.value; if (!r.date) r.date=PS().meta.inspDate||new Date().toISOString().slice(0,10);
+    sv25(); render25(); }));
+  el.querySelector("#plSched")?.addEventListener("click",()=>{
+    const txt=prompt("Paste pier schedule rows (ID, diameter mm, nominated socket m, group):\ne.g.  P1, 600, 1.5, internal");
+    if (!txt) return; const s2=parseSched(txt);
+    if (!s2.length) return alert("No rows recognised.");
+    const ex=PS().sched;
+    for (const p of s2){ const i=ex.findIndex(x=>x.id===p.id); if (i>=0) ex[i]=Object.assign(ex[i],p); else ex.push(p); }
+    ex.sort((a,b)=>(+a.id.replace(/\D/g,""))-(+b.id.replace(/\D/g,"")));
+    sv25(); render25(); });
+  el.querySelector("#plReport")?.addEventListener("click",dlReport);
+  el.querySelector("#plJson")?.addEventListener("click",()=>{
+    const P3=PS(); const data={ site:S.project?.siteAddress||"", reportNo:P3.meta.reportNo, inspected:P3.meta.inspDate, client:P3.meta.client,
+      piles:P3.sched.map(p=>{ const r=P3.insp[p.id]||{}; return Object.assign({id:p.id,group:p.group,dia:p.dia||null,nomSocket:p.nomSocket||null},
+        (r.depth!=null&&r.depth!=="")?{depth:+r.depth,socket:+r.socket||0,terminated:r.material||""}:{}) }) };
+    const a=document.createElement("a"); a.href=URL.createObjectURL(new Blob([JSON.stringify(data,null,2)],{type:"application/json"}));
+    a.download=(P3.meta.reportNo||"piles").replace(/\//g,"-")+"-3d-data.json"; a.click(); });
+}
+function dlReport(){
+  const P3=PS(); const m=P3.meta; const Pr=S.project||{};
+  const insp=P3.sched.filter(p=>{ const r=P3.insp[p.id]||{}; return r.depth!==""&&r.depth!=null; });
+  if (!insp.length) return alert("No inspected piers yet.");
+  const n=insp.length; const words=["zero","one","two","three","four","five","six","seven","eight","nine","ten","eleven","twelve","thirteen","fourteen","fifteen","sixteen","seventeen","eighteen","nineteen","twenty"];
+  const nw=(words[n]||n)+" ("+n+")";
+  const depths=insp.map(p=>+((P3.insp[p.id]||{}).depth)||0), socks=insp.map(p=>+((P3.insp[p.id]||{}).socket)||0);
+  const dmin=Math.min(...depths).toFixed(1), dmax=Math.max(...depths).toFixed(1);
+  const smin=Math.min(...socks).toFixed(1), smax=Math.max(...socks).toFixed(1);
+  const mats=[...new Set(insp.map(p=>(P3.insp[p.id]||{}).material).filter(Boolean))];
+  const mat=mats.length===1? mats[0] : (mats.join(" / ")||"competent bedrock");
+  const shorts=insp.filter(p=>compliance(p).cls==="bad");
+  const rows=insp.map(p=>{ const r=P3.insp[p.id]||{};
+    return `<tr><td>${E(p.id)}</td><td style="text-align:center">${(+r.depth).toFixed(1)}</td><td style="text-align:center">${(+r.socket).toFixed(1)}</td><td>${E(r.material||mat)}</td></tr>`; }).join("");
+  const dt=m.inspDate||new Date().toISOString().slice(0,10);
+  const html=`<html xmlns:w="urn:schemas-microsoft-com:office:word"><head><meta charset="utf-8"><style>
+    body{font-family:Calibri,Arial,sans-serif;font-size:11pt;margin:2.2cm}
+    h1{font-size:13pt;margin:14pt 0 6pt} table{border-collapse:collapse;width:100%;font-size:10.5pt}
+    td,th{border:1px solid #444;padding:4pt 6pt} th{background:#eee}
+    .hdr td{border:none;padding:1pt 0;font-size:10.5pt}
+  </style></head><body>
+  <table class="hdr"><tr><td>Project No. ${E(Pr.projectNumber||"")}</td></tr><tr><td>Report No. ${E(m.reportNo||"")}</td></tr><tr><td>${E(m.by||"")}</td></tr></table>
+  <p>${E(m.client||"")}</p>
+  <h1>SITE ADDRESS: ${E(Pr.siteAddress||"")}</h1>
+  <h1>Introduction</h1>
+  <p>At the request of ${E(m.client||"the client")}, STS Geotechnics (STS) attended the above site on ${E(dt)} to undertake geotechnical inspections of selected bored pier excavations associated with the proposed development.</p>
+  <p>The following documents were provided to assist with the preparation of this report:</p>
+  <p>Structural Drawings prepared by ${E(m.structEng||"-")}, Job No. ${E(m.structJob||"-")}, Drawing No. ${E(m.structDwgs||"-")}, Revision ${E(m.structRev||"-")}, dated ${E(m.structDate||"-")}.<br>
+  Geotechnical Investigation Report prepared by STS Geotechnical Pty Ltd, Report No. ${E(m.geoRef||"-")}.</p>
+  <p>STS inspected the ${nw} selected bored pier excavations during construction on ${E(dt)}. The bored piers were founded in ${E(mat.toLowerCase())} at depths ranging from ${dmin} m to ${dmax} m below existing ground level, with achieved rock socket lengths varying between ${smin} m and ${smax} m.</p>
+  <p><b>Table 1 – Pile Inspection Summary</b></p>
+  <table><tr><th>Inspected Pile No (Pile Tag)</th><th>Total Pier Depth¹ (m)</th><th>Socket length of rock (m)</th><th>Pile terminated on</th></tr>${rows}</table>
+  <p style="font-size:9pt">¹ Depth below existing ground level at the time of inspection.</p>
+  <h1>Comments and Recommendations</h1>
+  <p>Based on the observations made during the inspection, STS concludes that:</p>
+  <p>${shorts.length? `⚠ ${shorts.length} pier(s) (${shorts.map(p=>p.id).join(", ")}) did not achieve the nominated rock socket length — refer to the structural engineer for acceptance before concrete placement.`
+    : `All ${nw} inspected bored piers were founded within and socketed into ${E(mat.toLowerCase())} in accordance with the structural founding requirements.`}</p>
+  <p>The inspected bored piers achieved rock socket lengths ranging from ${smin} m to ${smax} m.</p>
+  <p>At the time of inspection, the founding material exposed at the base of each pier excavation was considered competent. The base of each inspected pile excavation was clean and free of loose or softened material at the time of inspection.</p>
+  <p>Any loose or disturbed material encountered during subsequent drilling operations shall be removed immediately prior to concrete placement.</p>
+  <p>Concrete should be placed immediately following drilling, cleaning and geotechnical approval to minimise deterioration of the founding material.</p>
+  <p>Concrete placement shall comply with the requirements of AS 2159:2009 – Piling – Design and Installation.</p>
+  <p>We trust this meets with your requirements. Should you have any questions, please contact us.</p>
+  <p>Yours faithfully,</p>
+  <table class="hdr"><tr><td>${E(m.by||"")}</td><td>${E(m.reviewer||"")}</td></tr>
+  <tr><td>Geotechnical Site Engineer</td><td>Senior Geotechnical Engineer</td></tr>
+  <tr><td>STS Geotechnics Pty Ltd</td><td>STS Geotechnics Pty Ltd</td></tr></table>
+  </body></html>`;
+  const a=document.createElement("a");
+  a.href=URL.createObjectURL(new Blob(["﻿"+html],{type:"application/msword"}));
+  a.download=(m.reportNo||"pile-inspection").replace(/\//g,"-")+"-pile-inspection.doc"; a.click();
+  try{ if (typeof pjLog==="function") pjLog("Pile inspection report generated ("+n+" piers)"); }catch(e){}
+}
+const _p25=showTab;
+showTab=function(tab){ _p25(tab); try{ if (tab==="piles") render25(); side25(); }catch(e){} };
+try{ side25(); }catch(e){}
+if (S.activeTab==="piles" && document.getElementById("page-piles")) showTab("piles");
+})();
+</script>
 <script id="v23-localfile">
 /* opened from disk (file://): route API calls to the Worker so live project data still loads */
 if (location.protocol==="file:"){ const _f=window.fetch.bind(window);
