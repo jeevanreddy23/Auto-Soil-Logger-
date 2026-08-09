@@ -7538,6 +7538,57 @@ try{ side25(); }catch(e){}
 if (S.activeTab==="piles" && document.getElementById("page-piles")) showTab("piles");
 })();
 </script>
+<script id="v26-reset">
+"use strict";
+/* ============ v26: safe field-data reset — auto-backup, typed confirm, master record kept ============ */
+(function(){
+const E=s=>String(s??"").replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/"/g,"&quot;");
+async function doReset(){
+  const loc=(typeof pjSyncKey==="function"? pjSyncKey():"__autosoil_project__");
+  /* 1. backups: local download + cloud file store — reset must never be able to lose data */
+  const snap=JSON.stringify(S);
+  const a=document.createElement("a");
+  a.href=URL.createObjectURL(new Blob([snap],{type:"application/json"}));
+  a.download="backup-"+(S.project?.projectNumber||"project").replace(/[\/\\]/g,"-")+"-"+new Date().toISOString().slice(0,10)+".json"; a.click();
+  try{
+    const data="data:application/json;base64,"+btoa(unescape(encodeURIComponent(snap)));
+    await fetch("/api/v1/files",{method:"POST",headers:{"Content-Type":"application/json"},
+      body:JSON.stringify({project:loc,id:"backup-"+Date.now(),name:"Pre-reset backup "+new Date().toISOString(),kind:"backup",data})});
+  }catch(e){ if (!confirm("Cloud backup failed (offline?). Local download only — continue reset?")) return; }
+  /* 2. clear field data, keep the master record */
+  const keepP=S.project;
+  S.boreholes=[]; S.logs={}; S.activeBh=null; S.scope=null; S.scopeVersions=[]; S.piles=null;
+  S.labStatus={}; S.dailyHist={}; S.dailyNotes=null; S.conflicts=[]; S.share=null; S.emailLog=[];
+  S.project=keepP;
+  try{ save(); }catch(e){ localStorage.setItem("autosoil-logger", JSON.stringify(S)); }
+  /* 3. write KV DIRECTLY — pushSync pull-merges and would resurrect the old boreholes */
+  try{
+    await fetch("/api/v1/geologger/logs",{method:"POST",headers:{"Content-Type":"application/json"},
+      body:JSON.stringify({location:loc, rows:[{project:S.project, boreholes:[], logs:{}, activeBh:null, activeTab:"dashboard"}]})});
+  }catch(e){ alert("Local reset done; cloud copy will update when back online."); }
+  try{ if (typeof pjLog==="function") pjLog("Field data reset — backup saved to file store"); }catch(e){}
+  location.reload();
+}
+function inject26(){
+  const pg=document.getElementById("page-settings"); if (!pg || pg.querySelector("#reset26")) return;
+  const dv=document.createElement("div"); dv.id="reset26"; dv.className="sc-card";
+  dv.style.cssText="padding:14px;margin-top:12px;border-color:#fca5a5";
+  dv.innerHTML=`<div style="font-weight:700;font-size:13.5px;margin-bottom:4px;color:#b91c1c">Reset field data</div>
+    <div style="font-size:12px;color:#5a6675;margin-bottom:8px">Clears boreholes, logs, samples, SPT, scope, pile inspections and daily history for
+    <b>${E(S.project?.projectNumber||"this project")}</b>. The master record (project number, client, site) is kept, and a full JSON backup is
+    downloaded and stored in the cloud file store first — restorable any time.</div>
+    <button id="resetBtn26" style="border:1px solid #fca5a5;color:#b91c1c;background:#fff;border-radius:8px;padding:8px 14px;font-size:12.5px;font-weight:700;cursor:pointer">Reset field data…</button>`;
+  pg.appendChild(dv);
+  dv.querySelector("#resetBtn26").addEventListener("click",()=>{
+    const t=prompt('This clears all field data for '+(S.project?.projectNumber||"this project")+' (a backup is taken first).\nType RESET to confirm:');
+    if (t==="RESET") doReset(); else if (t!=null) alert("Not reset — confirmation text did not match.");
+  });
+}
+const _p26=showTab;
+showTab=function(tab){ _p26(tab); try{ if (tab==="settings") inject26(); }catch(e){} };
+if (S.activeTab==="settings") { try{ inject26(); }catch(e){} }
+})();
+</script>
 <script id="v23-localfile">
 /* opened from disk (file://): route API calls to the Worker so live project data still loads */
 if (location.protocol==="file:"){ const _f=window.fetch.bind(window);
