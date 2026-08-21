@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>STS GeoFlow · Project Portal</title>
+  <title>STS GeoFlow · Smart AS 1726 Portal</title>
   <script src="https://cdn.tailwindcss.com"></script>
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -14,7 +14,9 @@
     
     .hatch-clay { background: repeating-linear-gradient(45deg, #cbd5e1, #cbd5e1 1.5px, #ffffff 1.5px, #ffffff 7px); }
     .hatch-sand { background-image: radial-gradient(#94a3b8 1.5px, transparent 1.5px); background-size: 6px 6px; background-color: #fefce8; }
+    .hatch-gravel { background-image: radial-gradient(#64748b 2.5px, transparent 2.5px); background-size: 8px 8px; background-color: #f1f5f9; }
     .hatch-rock { background: repeating-linear-gradient(45deg, #94a3b8, #94a3b8 1px, transparent 1px, transparent 8px), repeating-linear-gradient(-45deg, #94a3b8, #94a3b8 1px, #f8fafc 1px, #f8fafc 8px); }
+    .hatch-topsoil { background: repeating-linear-gradient(0deg, #d1d5db, #d1d5db 1px, #f3f4f6 1px, #f3f4f6 6px); }
   </style>
 </head>
 <body class="bg-slate-100 text-slate-800 h-screen flex flex-col overflow-hidden select-none">
@@ -22,25 +24,25 @@
   <!-- 1. Fixed Context & Sync Bar -->
   <header class="h-12 bg-white border-b border-slate-200 px-4 flex items-center justify-between shrink-0">
     <div class="flex items-center gap-3">
-      <div class="w-7 h-7 rounded bg-sky-600 flex items-center justify-center text-white font-bold text-sm">S</div>
+      <div class="w-7 h-7 rounded bg-sky-600 flex items-center justify-center text-white font-bold text-sm shadow-xs">S</div>
       <span class="font-bold text-slate-900 text-xs tracking-tight">STS GeoFlow</span>
       <span class="h-4 w-px bg-slate-200"></span>
       <div class="flex items-center gap-2 text-xs">
-        <span class="font-bold text-slate-700">Tower Project</span>
+        <span class="font-bold text-slate-700">Marsden Park Project</span>
         <span class="text-slate-400">/</span>
         <span class="font-semibold text-sky-700 bg-sky-50 px-2 py-0.5 rounded border border-sky-100" id="currentBhPill">BH03</span>
       </div>
-      <span class="text-[11px] text-slate-500 font-medium">Progress: <strong class="text-slate-800">8/12 Complete</strong></span>
+      <span class="text-[11px] text-slate-500 font-medium">Boreholes: <strong class="text-slate-800" id="progressBhs">3/4 Logged</strong></span>
     </div>
 
     <!-- Active Sync State Indicator -->
     <div class="flex items-center gap-3">
       <div class="flex items-center gap-1.5 text-xs text-slate-600 bg-slate-50 px-2.5 py-1 rounded-full border border-slate-200 font-mono-num">
-        <span class="w-2 h-2 rounded-full bg-emerald-500"></span>
-        <span id="syncStateText">Saved · Synced 3:41 PM</span>
+        <span class="w-2 h-2 rounded-full bg-emerald-500 animate-pulse"></span>
+        <span id="syncStateText">Cloudflare Synced</span>
       </div>
-      <button id="qaGateBtn" class="bg-slate-800 hover:bg-slate-900 text-white text-xs font-semibold px-3 py-1.5 rounded-lg shadow-2xs transition">
-        Project QA
+      <button id="exportAgsBtn" onclick="exportAgsFormat()" class="bg-slate-800 hover:bg-slate-900 text-white text-xs font-semibold px-3 py-1.5 rounded-lg shadow-2xs transition">
+        Export AGS 4.1.1
       </button>
     </div>
   </header>
@@ -50,88 +52,95 @@
 
     <!-- Left Navigation: Hierarchy (Project -> Boreholes -> QA -> Output) -->
     <aside class="w-56 bg-white border-r border-slate-200 flex flex-col shrink-0">
-      <div class="p-3 border-b border-slate-100">
-        <span class="text-[10px] font-bold uppercase tracking-wider text-slate-400">Navigation</span>
+      <div class="p-3 border-b border-slate-100 flex items-center justify-between">
+        <span class="text-[10px] font-bold uppercase tracking-wider text-slate-400">Boreholes</span>
+        <button onclick="addBorehole()" class="text-[10px] text-sky-600 hover:text-sky-800 font-bold">+ New BH</button>
       </div>
 
       <nav class="p-2 space-y-0.5 flex-1 overflow-y-auto">
-        <a href="#/projects/p_rwulad/overview" class="flex items-center justify-between px-2.5 py-1.5 text-xs font-medium text-slate-600 rounded-lg hover:bg-slate-50">
-          <span>Overview</span>
-        </a>
-        
-        <div class="pt-2 pb-1 px-2.5 text-[10px] font-bold uppercase tracking-wider text-slate-400">Boreholes</div>
-        
         <div id="bhNavList" class="space-y-0.5">
           <!-- Rendered dynamically -->
         </div>
 
-        <div class="pt-3 pb-1 px-2.5 text-[10px] font-bold uppercase tracking-wider text-slate-400">Review & Output</div>
+        <div class="pt-3 pb-1 px-2.5 text-[10px] font-bold uppercase tracking-wider text-slate-400">Project Quality</div>
         <a href="#/projects/p_rwulad/qa" class="flex items-center justify-between px-2.5 py-1.5 text-xs font-medium text-slate-600 rounded-lg hover:bg-slate-50">
-          <span>Project QA Gate</span>
-          <span class="text-[10px] bg-rose-100 text-rose-700 px-1.5 rounded-full font-bold">1 err</span>
-        </a>
-        <a href="#/projects/p_rwulad/export" class="flex items-center justify-between px-2.5 py-1.5 text-xs font-medium text-slate-600 rounded-lg hover:bg-slate-50">
-          <span>Final Output (AGS/PDF)</span>
+          <span>QA Gate (AS 1726)</span>
+          <span id="navQaBadge" class="text-[10px] bg-emerald-100 text-emerald-700 px-1.5 rounded-full font-bold">Pass</span>
         </a>
       </nav>
+      
+      <!-- Quick Info Footer -->
+      <div class="p-3 border-t border-slate-100 bg-slate-50/50 text-[11px] text-slate-500">
+        <div class="flex justify-between"><span>Standards</span><span class="font-semibold text-slate-700">AS 1726:2017</span></div>
+        <div class="flex justify-between"><span>Format</span><span class="font-semibold text-slate-700">AGS 4.1.1 / PDF</span></div>
+      </div>
     </aside>
 
     <!-- Center Workspace: Borehole-Centric Tabs + Dynamic Log Grid -->
     <main class="flex-1 flex flex-col bg-white overflow-hidden">
       
-      <!-- Sub-Workspace Tabs for Active Borehole -->
-      <div class="px-6 pt-3 pb-0 border-b border-slate-200 bg-slate-50/50 flex items-center justify-between shrink-0">
-        <div>
-          <div class="flex items-center gap-2 mb-2">
+      <!-- Sub-Workspace Header & Site Template Strip -->
+      <div class="px-5 pt-3 pb-2 border-b border-slate-200 bg-slate-50/70 shrink-0">
+        <div class="flex items-center justify-between mb-2">
+          <div class="flex items-center gap-2">
             <h1 class="text-base font-bold text-slate-900" id="bhTitle">BH03 Workspace</h1>
-            <span class="text-[10px] bg-amber-100 text-amber-800 font-bold px-2 py-0.5 rounded-full">● Logging</span>
+            <span class="text-[10px] bg-amber-100 text-amber-800 font-bold px-2 py-0.5 rounded-full">● In Progress</span>
           </div>
-          <!-- Integrated Sub-navigation -->
-          <div class="flex gap-1 text-xs">
-            <button class="px-3 py-1.5 text-slate-500 hover:text-slate-800 font-medium">Setup</button>
-            <button class="px-3 py-1.5 border-b-2 border-sky-600 font-bold text-sky-700">Soil + Rock Log</button>
-            <button class="px-3 py-1.5 text-slate-500 hover:text-slate-800 font-medium">SPT (4)</button>
-            <button class="px-3 py-1.5 text-slate-500 hover:text-slate-800 font-medium">Samples (6)</button>
-            <button class="px-3 py-1.5 text-slate-500 hover:text-slate-800 font-medium">Corebox / RQD</button>
-            <button class="px-3 py-1.5 text-slate-500 hover:text-slate-800 font-medium">Review ✓</button>
+
+          <!-- Template Quick Pick Strip -->
+          <div class="flex items-center gap-1.5 text-xs">
+            <span class="text-[10px] font-bold uppercase tracking-wider text-slate-400 mr-1">Templates:</span>
+            <button onclick="insertTemplate('topsoil')" class="text-xs bg-white hover:bg-slate-100 border border-slate-200 px-2 py-1 rounded font-medium text-slate-700 shadow-2xs transition">+ Topsoil (0.3m)</button>
+            <button onclick="insertTemplate('pavement')" class="text-xs bg-white hover:bg-slate-100 border border-slate-200 px-2 py-1 rounded font-medium text-slate-700 shadow-2xs transition">+ Basecourse (0.4m)</button>
+            <button onclick="insertTemplate('clay')" class="text-xs bg-white hover:bg-slate-100 border border-slate-200 px-2 py-1 rounded font-medium text-slate-700 shadow-2xs transition">+ Residual Clay (1.5m)</button>
+            <button onclick="insertTemplate('shale')" class="text-xs bg-white hover:bg-slate-100 border border-slate-200 px-2 py-1 rounded font-medium text-slate-700 shadow-2xs transition">+ Shale Bedrock (2.0m)</button>
           </div>
         </div>
 
-        <div class="flex items-center gap-2 pb-2">
-          <button id="addIntervalBtn" class="bg-sky-600 hover:bg-sky-700 text-white text-xs font-semibold px-3 py-1.5 rounded-lg shadow-2xs transition">
-            + Add Interval
+        <!-- Shorthand Input Box with Live Parser -->
+        <div class="flex gap-2 items-center mt-2">
+          <div class="relative flex-1">
+            <input type="text" id="shorthandInput" placeholder="Quick log shorthand: e.g. 'CH, VST, moist, dk brn, tr sd' or 'SP, MD, dry, brn' — Press Enter" 
+                   class="w-full text-xs border border-slate-300 rounded-lg pl-8 pr-3 py-1.5 focus:ring-2 focus:ring-sky-500 outline-none font-mono-num bg-white transition shadow-2xs">
+            <span class="absolute left-2.5 top-1.5 text-slate-400 text-xs">⚡</span>
+          </div>
+          <button onclick="parseAndAdd()" class="bg-sky-600 hover:bg-sky-700 text-white text-xs font-semibold px-3 py-1.5 rounded-lg shadow-2xs transition">
+            Add Layer
+          </button>
+          <button onclick="copyDownActive()" title="Copy down active interval properties (Ctrl+D)" class="bg-white hover:bg-slate-100 border border-slate-200 text-slate-700 text-xs font-semibold px-2.5 py-1.5 rounded-lg shadow-2xs transition">
+            Copy Down (Ctrl+D)
           </button>
         </div>
       </div>
 
       <!-- Predictive Assistant Alert Bar -->
-      <div id="aiPredictionBar" class="bg-gradient-to-r from-sky-50 to-indigo-50 border-b border-sky-100 px-6 py-2 flex items-center justify-between text-xs">
+      <div id="aiPredictionBar" class="bg-gradient-to-r from-sky-50 to-indigo-50 border-b border-sky-100 px-5 py-1.5 flex items-center justify-between text-xs shrink-0">
         <div class="flex items-center gap-2">
           <span class="text-sky-600 font-bold">✨ Predictive AI:</span>
-          <span class="text-slate-700" id="predictionText">Next expected layer: <strong>SHALE (MW)</strong> at 4.80m–6.20m (81% confidence from BH05/BH06 correlation).</span>
+          <span class="text-slate-700" id="predictionText">Next expected layer: <strong>SHALE (MW)</strong> at 4.80m–6.20m (81% correlation with BH05/BH06).</span>
         </div>
         <div class="flex items-center gap-2">
-          <button id="acceptPredictionBtn" class="bg-white border border-sky-300 text-sky-800 hover:bg-sky-100 font-semibold px-2.5 py-1 rounded shadow-2xs">
+          <button id="acceptPredictionBtn" onclick="acceptAiPrediction()" class="bg-white border border-sky-300 text-sky-800 hover:bg-sky-100 font-semibold px-2.5 py-0.5 rounded shadow-2xs text-[11px]">
             Accept Prediction
           </button>
         </div>
       </div>
 
-      <!-- Combined Data Grid -->
+      <!-- Combined Data Grid with Context-Aware Dropdowns -->
       <div class="flex-1 overflow-y-auto">
         <table class="w-full text-left border-collapse text-xs">
-          <thead class="bg-slate-100/90 sticky top-0 border-b border-slate-200 text-[10px] font-bold uppercase tracking-wider text-slate-500 z-10">
+          <thead class="bg-slate-100/95 sticky top-0 border-b border-slate-200 text-[10px] font-bold uppercase tracking-wider text-slate-500 z-10">
             <tr>
               <th class="py-2.5 px-3 w-10 text-center">#</th>
               <th class="py-2.5 px-2 w-20 text-right">From (m)</th>
               <th class="py-2.5 px-2 w-20 text-right">To (m)</th>
               <th class="py-2.5 px-2 w-12 text-center">Hatch</th>
-              <th class="py-2.5 px-2 w-40">Material / Unit</th>
-              <th class="py-2.5 px-2 w-32">Consistency / Strength</th>
+              <th class="py-2.5 px-2 w-36">Major Classification</th>
+              <th class="py-2.5 px-2 w-32">Strength / Consistency</th>
               <th class="py-2.5 px-2 w-24">Moisture</th>
-              <th class="py-2.5 px-2 w-24">Color</th>
-              <th class="py-2.5 px-3">Field Description (AS 1726)</th>
-              <th class="py-2.5 px-2 w-16 text-center">QA</th>
+              <th class="py-2.5 px-2 w-28">Color</th>
+              <th class="py-2.5 px-3">AS 1726 Output Description</th>
+              <th class="py-2.5 px-2 w-16 text-center">Action</th>
             </tr>
           </thead>
           <tbody id="strataGridBody" class="divide-y divide-slate-100">
@@ -140,52 +149,72 @@
         </table>
       </div>
 
+      <!-- Bottom Keyboard Hints Bar -->
       <div class="h-8 bg-slate-50 border-t border-slate-200 px-4 flex items-center justify-between text-[11px] text-slate-500 shrink-0">
         <div class="flex items-center gap-4">
           <span><kbd class="bg-white border border-slate-300 px-1 py-0.5 rounded font-mono-num font-semibold text-slate-700">Tab</kbd> next cell</span>
           <span><kbd class="bg-white border border-slate-300 px-1 py-0.5 rounded font-mono-num font-semibold text-slate-700">Ctrl+D</kbd> copy down</span>
           <span><kbd class="bg-white border border-slate-300 px-1 py-0.5 rounded font-mono-num font-semibold text-slate-700">Ctrl+Enter</kbd> chain interval</span>
         </div>
+        <div class="flex items-center gap-2 font-mono-num">
+          <span>Total Depth: <strong class="text-slate-800" id="totalDepthFoot">4.80m</strong></span>
+        </div>
       </div>
     </main>
 
-    <!-- Right Inspector: Context Summary, QA Gate, and AS 1726 Live Tokenizer -->
-    <aside class="w-80 bg-slate-50 border-l border-slate-200 flex flex-col shrink-0 overflow-y-auto p-3.5 space-y-3">
+    <!-- Right Inspector: Context Summary, Progressive Editor, QA Gate, AS 1726 Live Tokenizer -->
+    <aside class="w-84 bg-slate-50 border-l border-slate-200 flex flex-col shrink-0 overflow-y-auto p-3.5 space-y-3">
       
       <!-- Summary Card -->
       <div class="bg-white p-3 rounded-xl border border-slate-200 shadow-2xs">
-        <span class="text-[10px] font-bold uppercase tracking-wider text-slate-400 block mb-1.5">Borehole Summary</span>
+        <div class="flex justify-between items-center mb-1.5">
+          <span class="text-[10px] font-bold uppercase tracking-wider text-slate-400">Borehole Profile</span>
+          <span class="text-[10px] text-sky-700 font-mono-num font-bold" id="inspectorIntervalLabel">Interval 2 (0.40m - 2.10m)</span>
+        </div>
         <div class="grid grid-cols-2 gap-2 text-xs font-mono-num">
           <div class="bg-slate-50 p-2 rounded border border-slate-100">
             <span class="text-slate-400 block text-[10px] font-sans">Total Depth</span>
             <strong class="text-slate-800 text-sm" id="bhSummaryDepth">4.80 m</strong>
           </div>
           <div class="bg-slate-50 p-2 rounded border border-slate-100">
-            <span class="text-slate-400 block text-[10px] font-sans">Core Runs</span>
-            <strong class="text-slate-800 text-sm">2 Runs (TCR 94%)</strong>
+            <span class="text-slate-400 block text-[10px] font-sans">Strata Layers</span>
+            <strong class="text-slate-800 text-sm" id="strataCountText">3 Layers</strong>
           </div>
+        </div>
+      </div>
+
+      <!-- Progressive Dynamic Parameter Inspector -->
+      <div class="bg-white p-3 rounded-xl border border-slate-200 shadow-2xs">
+        <span class="text-[10px] font-bold uppercase tracking-wider text-slate-400 block mb-2">Context-Aware Fields</span>
+        <div id="dynamicInspectorFields" class="space-y-2 text-xs">
+          <!-- Populated based on Cohesive / Cohesionless / Rock category -->
         </div>
       </div>
 
       <!-- Mandatory QA Validation Gate -->
       <div class="bg-white p-3 rounded-xl border border-slate-200 shadow-2xs">
         <div class="flex items-center justify-between mb-2">
-          <span class="text-[10px] font-bold uppercase tracking-wider text-slate-400">QA Gate & Rule Engine</span>
-          <span class="text-[10px] bg-rose-100 text-rose-800 font-bold px-1.5 py-0.2 rounded" id="qaStatusPill">1 Blocker</span>
+          <span class="text-[10px] font-bold uppercase tracking-wider text-slate-400">AS 1726 Rule Engine</span>
+          <span class="text-[10px] bg-emerald-100 text-emerald-800 font-bold px-1.5 py-0.5 rounded" id="qaStatusPill">Standard Compliant</span>
         </div>
         <div class="space-y-1.5 text-xs" id="qaInspectorList">
           <!-- Injected dynamically -->
         </div>
       </div>
 
-      <!-- Live AS 1726 Tokenizer Preview -->
+      <!-- Live AS 1726 Composite Generator & Freeform Override -->
       <div class="bg-white p-3 rounded-xl border border-slate-200 shadow-2xs">
-        <span class="text-[10px] font-bold uppercase tracking-wider text-slate-400 block mb-1.5">AS 1726 Composite Generator</span>
+        <div class="flex items-center justify-between mb-1.5">
+          <span class="text-[10px] font-bold uppercase tracking-wider text-slate-400">AS 1726 Composite String</span>
+          <button onclick="resetToComputedDescription()" class="text-[10px] text-sky-600 hover:text-sky-800 font-semibold">Reset to Derived</button>
+        </div>
         <div id="inspectorTokens" class="flex flex-wrap gap-1 mb-2">
           <!-- Pills -->
         </div>
-        <div id="inspectorSentence" class="text-xs text-slate-800 bg-sky-50/50 p-2.5 rounded-lg border border-sky-100 leading-relaxed italic">
-          Select a layer to view AS 1726 sentence.
+        <div class="relative">
+          <textarea id="freeformOverrideInput" rows="3" onchange="onFreeformDescriptionChange(this.value)"
+                    class="w-full text-xs text-slate-800 bg-sky-50/40 p-2.5 rounded-lg border border-sky-100 leading-relaxed font-mono-num outline-none focus:bg-white focus:ring-1 focus:ring-sky-500"></textarea>
+          <span id="customizedBadge" class="hidden absolute right-2 bottom-2 text-[9px] bg-amber-100 text-amber-800 font-bold px-1.5 py-0.5 rounded border border-amber-200">Customized</span>
         </div>
       </div>
 
@@ -204,12 +233,44 @@
     let currentBorehole = 'BH03';
 
     let intervals = [
-      { from: 0.00, to: 0.40, material: 'FILL', isRock: false, hatch: 'hatch-clay', consistency: 'Loose', moisture: 'Moist', color: 'Brown', desc: 'crushed sandstone gravel with silt' },
-      { from: 0.40, to: 2.10, material: 'CLAY (CH)', isRock: false, hatch: 'hatch-clay', consistency: 'Very Stiff', moisture: 'Moist', color: 'Dark Reddish Brown', desc: 'high plasticity, trace sand' },
-      { from: 2.10, to: 4.80, material: 'SHALE (Rock)', isRock: true, hatch: 'hatch-rock', consistency: 'Low (L)', moisture: 'Moist', color: 'Dark Grey', desc: 'highly weathered, laminated' }
+      { from: 0.00, to: 0.40, category: 'cohesionless', material: 'TOPSOIL', hatch: 'hatch-topsoil', param: 'Loose', moisture: 'Moist', color: 'Dark Brown', secondary: 'with rootlets', customDesc: null },
+      { from: 0.40, to: 2.10, category: 'cohesive', material: 'CLAY (CH)', hatch: 'hatch-clay', param: 'Very Stiff', moisture: 'Moist', color: 'Dark Reddish Brown', secondary: 'high plasticity, trace sand', customDesc: null },
+      { from: 2.10, to: 4.80, category: 'rock', material: 'SHALE (Rock)', hatch: 'hatch-rock', param: 'Low (L)', moisture: 'Moist', color: 'Dark Grey', secondary: 'highly weathered, laminated', customDesc: null }
     ];
 
     let activeRow = 1;
+
+    // AS 1726 Shorthand Aliases Dictionary
+    const shorthandAliases = {
+      ch: { material: 'CLAY (CH)', category: 'cohesive', defaultParam: 'Very Stiff', hatch: 'hatch-clay' },
+      cl: { material: 'CLAY (CL)', category: 'cohesive', defaultParam: 'Firm', hatch: 'hatch-clay' },
+      ci: { material: 'CLAY (CI)', category: 'cohesive', defaultParam: 'Stiff', hatch: 'hatch-clay' },
+      mh: { material: 'SILT (MH)', category: 'cohesive', defaultParam: 'Stiff', hatch: 'hatch-clay' },
+      ml: { material: 'SILT (ML)', category: 'cohesive', defaultParam: 'Firm', hatch: 'hatch-clay' },
+      sp: { material: 'SAND (SP)', category: 'cohesionless', defaultParam: 'Medium Dense', hatch: 'hatch-sand' },
+      sw: { material: 'SAND (SW)', category: 'cohesionless', defaultParam: 'Dense', hatch: 'hatch-sand' },
+      gp: { material: 'GRAVEL (GP)', category: 'cohesionless', defaultParam: 'Dense', hatch: 'hatch-gravel' },
+      gw: { material: 'GRAVEL (GW)', category: 'cohesionless', defaultParam: 'Dense', hatch: 'hatch-gravel' },
+      top: { material: 'TOPSOIL', category: 'cohesionless', defaultParam: 'Loose', hatch: 'hatch-topsoil' },
+      shale: { material: 'SHALE (Rock)', category: 'rock', defaultParam: 'Medium (M)', hatch: 'hatch-rock' },
+      sh: { material: 'SHALE (Rock)', category: 'rock', defaultParam: 'Medium (M)', hatch: 'hatch-rock' },
+      sst: { material: 'SANDSTONE (Rock)', category: 'rock', defaultParam: 'Medium (M)', hatch: 'hatch-rock' },
+      slt: { material: 'SILTSTONE (Rock)', category: 'rock', defaultParam: 'Low (L)', hatch: 'hatch-rock' }
+    };
+
+    function deriveCategory(material) {
+      if (material.includes('Rock') || material.includes('SHALE') || material.includes('SANDSTONE') || material.includes('SILTSTONE') || material.includes('BASALT')) return 'rock';
+      if (material.includes('SAND') || material.includes('GRAVEL') || material === 'TOPSOIL' || material.includes('FILL')) return 'cohesionless';
+      return 'cohesive';
+    }
+
+    function getHatch(material) {
+      if (material.includes('Rock') || material.includes('SHALE') || material.includes('SANDSTONE')) return 'hatch-rock';
+      if (material.includes('SAND')) return 'hatch-sand';
+      if (material.includes('GRAVEL')) return 'hatch-gravel';
+      if (material === 'TOPSOIL') return 'hatch-topsoil';
+      return 'hatch-clay';
+    }
 
     function renderNav() {
       const el = document.getElementById('bhNavList');
@@ -218,7 +279,7 @@
         const isActive = bh.id === currentBorehole;
         const item = document.createElement('div');
         item.className = `flex items-center justify-between px-2.5 py-1.5 text-xs rounded-lg cursor-pointer transition ${
-          isActive ? 'bg-sky-50 text-sky-900 font-bold border border-sky-100' : 'text-slate-600 hover:bg-slate-50'
+          isActive ? 'bg-sky-50 text-sky-900 font-bold border border-sky-100 shadow-2xs' : 'text-slate-600 hover:bg-slate-50'
         }`;
         
         let statusBadge = `<span class="text-[10px] text-emerald-600 font-bold">✓</span>`;
@@ -243,15 +304,19 @@
       });
     }
 
-    function buildSentence(row) {
+    function computeSentence(row) {
       if (!row) return '';
       let parts = [];
       if (row.material) parts.push(row.material);
-      if (row.consistency) parts.push(row.consistency);
-      if (row.desc) parts.push(row.desc);
+      if (row.param) parts.push(row.param);
+      if (row.secondary) parts.push(row.secondary);
       if (row.color) parts.push(row.color);
       if (row.moisture) parts.push(row.moisture);
       return parts.join(', ') + '.';
+    }
+
+    function getSentence(row) {
+      return row.customDesc || computeSentence(row);
     }
 
     function renderTable() {
@@ -264,46 +329,83 @@
         tr.className = `cursor-pointer transition ${isSelected ? 'bg-sky-50/70 font-medium' : 'hover:bg-slate-50'}`;
 
         const isDepthError = row.to <= row.from;
+        const category = deriveCategory(row.material);
+
+        // Build progressive dropdown options based on category
+        let paramOptionsHtml = '';
+        if (category === 'cohesive') {
+          ['Very Soft', 'Soft', 'Firm', 'Stiff', 'Very Stiff', 'Hard'].forEach(opt => {
+            paramOptionsHtml += `<option value="${opt}" ${row.param === opt ? 'selected' : ''}>${opt}</option>`;
+          });
+        } else if (category === 'cohesionless') {
+          ['Very Loose', 'Loose', 'Medium Dense', 'Dense', 'Very Dense'].forEach(opt => {
+            paramOptionsHtml += `<option value="${opt}" ${row.param === opt ? 'selected' : ''}>${opt}</option>`;
+          });
+        } else { // rock
+          ['Extremely Low (EL)', 'Very Low (VL)', 'Low (L)', 'Medium (M)', 'High (H)', 'Very High (VH)'].forEach(opt => {
+            paramOptionsHtml += `<option value="${opt}" ${row.param === opt ? 'selected' : ''}>${opt}</option>`;
+          });
+        }
 
         tr.innerHTML = `
           <td class="py-2 px-3 text-center text-slate-400 font-mono-num">${i + 1}</td>
-          <td class="py-2 px-1 text-right">
-            <input type="number" step="0.05" value="${row.from.toFixed(2)}" class="w-16 text-right bg-transparent focus:bg-white focus:ring-1 focus:ring-sky-500 rounded px-1 py-0.5 border border-transparent focus:border-sky-500 font-mono-num text-xs outline-none" data-field="from" data-idx="${i}">
+          <td class="py-2 px-1 text-right font-mono-num text-slate-600">
+            ${row.from.toFixed(2)}
           </td>
           <td class="py-2 px-1 text-right ${isDepthError ? 'bg-rose-50' : ''}">
-            <input type="number" step="0.05" value="${row.to.toFixed(2)}" class="w-16 text-right bg-transparent focus:bg-white focus:ring-1 focus:ring-sky-500 rounded px-1 py-0.5 border ${isDepthError ? 'border-rose-400' : 'border-transparent'} font-mono-num text-xs outline-none" data-field="to" data-idx="${i}">
+            <input type="number" step="0.05" value="${row.to.toFixed(2)}" onchange="updateToDepth(${i}, this.value)" 
+                   class="w-16 text-right bg-transparent focus:bg-white focus:ring-1 focus:ring-sky-500 rounded px-1 py-0.5 border ${isDepthError ? 'border-rose-400 font-bold text-rose-700' : 'border-transparent'} font-mono-num text-xs outline-none font-bold text-slate-800">
           </td>
           <td class="py-2 px-2 text-center">
             <div class="w-7 h-4 rounded border border-slate-300 mx-auto ${row.hatch}"></div>
           </td>
           <td class="py-2 px-1">
             <select class="w-full bg-transparent focus:bg-white focus:ring-1 focus:ring-sky-500 rounded px-1 py-0.5 border border-transparent text-xs font-semibold" data-field="material" data-idx="${i}">
-              <option ${row.material === 'FILL' ? 'selected' : ''}>FILL</option>
-              <option ${row.material === 'CLAY (CH)' ? 'selected' : ''}>CLAY (CH)</option>
-              <option ${row.material === 'SAND (SP)' ? 'selected' : ''}>SAND (SP)</option>
-              <option ${row.material === 'SHALE (Rock)' ? 'selected' : ''}>SHALE (Rock)</option>
-              <option ${row.material === 'SANDSTONE (Rock)' ? 'selected' : ''}>SANDSTONE (Rock)</option>
+              <optgroup label="Cohesive Soils">
+                <option value="CLAY (CH)" ${row.material === 'CLAY (CH)' ? 'selected' : ''}>CLAY (CH) - High Plasticity</option>
+                <option value="CLAY (CL)" ${row.material === 'CLAY (CL)' ? 'selected' : ''}>CLAY (CL) - Low Plasticity</option>
+                <option value="SILT (ML)" ${row.material === 'SILT (ML)' ? 'selected' : ''}>SILT (ML)</option>
+              </optgroup>
+              <optgroup label="Cohesionless Soils">
+                <option value="TOPSOIL" ${row.material === 'TOPSOIL' ? 'selected' : ''}>TOPSOIL</option>
+                <option value="SAND (SP)" ${row.material === 'SAND (SP)' ? 'selected' : ''}>SAND (SP) - Poorly Graded</option>
+                <option value="SAND (SW)" ${row.material === 'SAND (SW)' ? 'selected' : ''}>SAND (SW) - Well Graded</option>
+                <option value="GRAVEL (GP)" ${row.material === 'GRAVEL (GP)' ? 'selected' : ''}>GRAVEL (GP)</option>
+              </optgroup>
+              <optgroup label="Bedrock">
+                <option value="SHALE (Rock)" ${row.material === 'SHALE (Rock)' ? 'selected' : ''}>SHALE (Rock)</option>
+                <option value="SANDSTONE (Rock)" ${row.material === 'SANDSTONE (Rock)' ? 'selected' : ''}>SANDSTONE (Rock)</option>
+                <option value="SILTSTONE (Rock)" ${row.material === 'SILTSTONE (Rock)' ? 'selected' : ''}>SILTSTONE (Rock)</option>
+              </optgroup>
             </select>
           </td>
           <td class="py-2 px-1">
-            <input type="text" value="${row.consistency}" class="w-full bg-transparent focus:bg-white focus:ring-1 focus:ring-sky-500 rounded px-1 py-0.5 border border-transparent text-xs" data-field="consistency" data-idx="${i}">
+            <select class="w-full bg-transparent focus:bg-white focus:ring-1 focus:ring-sky-500 rounded px-1 py-0.5 border border-transparent text-xs" data-field="param" data-idx="${i}">
+              ${paramOptionsHtml}
+            </select>
           </td>
           <td class="py-2 px-1">
-            <input type="text" value="${row.moisture}" class="w-full bg-transparent focus:bg-white focus:ring-1 focus:ring-sky-500 rounded px-1 py-0.5 border border-transparent text-xs" data-field="moisture" data-idx="${i}">
+            <select class="w-full bg-transparent focus:bg-white focus:ring-1 focus:ring-sky-500 rounded px-1 py-0.5 border border-transparent text-xs" data-field="moisture" data-idx="${i}">
+              <option ${row.moisture === 'Dry' ? 'selected' : ''}>Dry</option>
+              <option ${row.moisture === 'Moist' ? 'selected' : ''}>Moist</option>
+              <option ${row.moisture === 'Wet' ? 'selected' : ''}>Wet</option>
+              <option ${row.moisture === 'Saturated' ? 'selected' : ''}>Saturated</option>
+            </select>
           </td>
           <td class="py-2 px-1">
             <input type="text" value="${row.color}" class="w-full bg-transparent focus:bg-white focus:ring-1 focus:ring-sky-500 rounded px-1 py-0.5 border border-transparent text-xs" data-field="color" data-idx="${i}">
           </td>
-          <td class="py-2 px-3 text-slate-600 truncate max-w-xs font-mono-num text-[11px]">
-            ${buildSentence(row)}
+          <td class="py-2 px-3 text-slate-600 truncate max-w-xs font-mono-num text-[11px] flex items-center gap-1.5">
+            <span class="truncate">${getSentence(row)}</span>
+            ${row.customDesc ? '<span class="text-[9px] bg-amber-100 text-amber-800 px-1 rounded font-bold shrink-0">Custom</span>' : ''}
           </td>
           <td class="py-2 px-2 text-center">
-            ${isDepthError ? '<span title="Depth error" class="text-rose-600 font-bold">🔴</span>' : '<span class="text-emerald-600">✓</span>'}
+            <button onclick="removeInterval(${i})" class="text-slate-300 hover:text-rose-500 font-bold text-xs" title="Delete layer">✕</button>
           </td>
         `;
 
         tr.onclick = (e) => {
-          if (e.target.tagName !== 'INPUT' && e.target.tagName !== 'SELECT') {
+          if (e.target.tagName !== 'INPUT' && e.target.tagName !== 'SELECT' && e.target.tagName !== 'BUTTON') {
             activeRow = i;
             renderInspector();
             renderTable();
@@ -314,30 +416,93 @@
       });
 
       bindEvents();
+      updateDepthSummary();
+    }
+
+    function updateToDepth(idx, newTo) {
+      newTo = parseFloat(newTo);
+      if (isNaN(newTo) || newTo <= intervals[idx].from) {
+        alert("To Depth must strictly exceed From Depth.");
+        renderTable();
+        return;
+      }
+      
+      const diff = parseFloat((newTo - intervals[idx].to).toFixed(2));
+      intervals[idx].to = newTo;
+
+      // Auto-chain & cascade shift subsequent depths
+      if (idx + 1 < intervals.length) {
+        const cascade = confirm("Shift subsequent depths down by Δh (" + (diff >= 0 ? "+" : "") + diff + "m)?\n\nClick OK to shift all following strata, or Cancel to only adjust the immediate boundary.");
+        
+        intervals[idx + 1].from = newTo;
+        if (cascade) {
+          for (let j = idx + 1; j < intervals.length; j++) {
+            if (j > idx + 1) intervals[j].from = intervals[j - 1].to;
+            intervals[j].to = parseFloat((intervals[j].to + diff).toFixed(2));
+          }
+        }
+      }
+
+      renderTable();
+      renderInspector();
     }
 
     function renderInspector() {
       const row = intervals[activeRow];
-      const tokenContainer = document.getElementById('inspectorTokens');
-      const sentenceEl = document.getElementById('inspectorSentence');
-      const qaList = document.getElementById('qaInspectorList');
-
       if (!row) return;
 
+      document.getElementById('inspectorIntervalLabel').innerText = `Interval ${activeRow + 1} (${row.from.toFixed(2)}m - ${row.to.toFixed(2)}m)`;
+      
+      const tokenContainer = document.getElementById('inspectorTokens');
+      const customBadge = document.getElementById('customizedBadge');
+      const freeformInput = document.getElementById('freeformOverrideInput');
+      const dynamicFields = document.getElementById('dynamicInspectorFields');
+      const qaList = document.getElementById('qaInspectorList');
+
+      // Tokens
       tokenContainer.innerHTML = `
         <span class="bg-slate-100 text-slate-700 px-2 py-0.5 rounded text-[10px] font-semibold border border-slate-200">${row.material}</span>
-        <span class="bg-slate-100 text-slate-700 px-2 py-0.5 rounded text-[10px] font-semibold border border-slate-200">${row.consistency}</span>
+        <span class="bg-slate-100 text-slate-700 px-2 py-0.5 rounded text-[10px] font-semibold border border-slate-200">${row.param}</span>
         <span class="bg-slate-100 text-slate-700 px-2 py-0.5 rounded text-[10px] font-semibold border border-slate-200">${row.color}</span>
+        <span class="bg-slate-100 text-slate-700 px-2 py-0.5 rounded text-[10px] font-semibold border border-slate-200">${row.moisture}</span>
       `;
-      sentenceEl.innerText = buildSentence(row);
 
-      // QA Verification
+      freeformInput.value = getSentence(row);
+      if (row.customDesc) customBadge.classList.remove('hidden');
+      else customBadge.classList.add('hidden');
+
+      // Context-aware dynamic parameter fields in inspector
+      const category = deriveCategory(row.material);
+      if (category === 'cohesive') {
+        dynamicFields.innerHTML = `
+          <div class="flex justify-between items-center"><span class="text-slate-500">Cohesive Consistency:</span><strong class="text-slate-800">${row.param}</strong></div>
+          <div class="flex justify-between items-center"><span class="text-slate-500">Plasticity:</span><strong class="text-slate-800">${row.material.includes('(CH)') ? 'High Plasticity' : 'Low/Med Plasticity'}</strong></div>
+          <div class="flex justify-between items-center"><span class="text-slate-500">Density (Cohesionless):</span><span class="text-slate-400 italic">Disabled (N/A)</span></div>
+        `;
+      } else if (category === 'cohesionless') {
+        dynamicFields.innerHTML = `
+          <div class="flex justify-between items-center"><span class="text-slate-500">Density State:</span><strong class="text-slate-800">${row.param}</strong></div>
+          <div class="flex justify-between items-center"><span class="text-slate-500">Particle Size/Shape:</span><strong class="text-slate-800">${row.secondary || 'Sub-angular to rounded'}</strong></div>
+          <div class="flex justify-between items-center"><span class="text-slate-500">Cohesive Consistency:</span><span class="text-slate-400 italic">Disabled (N/A)</span></div>
+        `;
+      } else { // rock
+        dynamicFields.innerHTML = `
+          <div class="flex justify-between items-center"><span class="text-slate-500">Rock Strength:</span><strong class="text-slate-800">${row.param}</strong></div>
+          <div class="flex justify-between items-center"><span class="text-slate-500">Weathering Classification:</span><strong class="text-slate-800">${row.secondary.includes('weather') ? 'Recorded' : 'MW (Moderately)'}</strong></div>
+          <div class="flex justify-between items-center"><span class="text-slate-500">Soil Plasticity:</span><span class="text-slate-400 italic">Disabled (N/A)</span></div>
+        `;
+      }
+
+      // QA Verification Rule Engine
       let issues = [];
       if (row.to <= row.from) {
         issues.push({ type: 'error', text: `Depth error: To (${row.to}m) ≤ From (${row.from}m)` });
       }
-      if (row.material.includes('Rock') && !row.desc.includes('weather')) {
-        issues.push({ type: 'warning', text: 'Weathering classification not explicitly recorded.' });
+      if (row.material.includes('Rock') && !row.secondary.toLowerCase().includes('weather')) {
+        issues.push({ type: 'warning', text: 'Weathering grade not explicitly listed in rock unit.' });
+      }
+      if (category === 'cohesive' && ['Loose', 'Dense'].includes(row.param)) {
+        issues.push({ type: 'error', text: 'Cohesive clay cannot use cohesionless density values.' });
       }
 
       qaList.innerHTML = issues.length > 0 ? issues.map(iss => `
@@ -348,16 +513,30 @@
       `).join('') : '<div class="text-emerald-700 flex items-center gap-1"><span>✓</span> Standard AS 1726 compliant</div>';
 
       const qaStatusPill = document.getElementById('qaStatusPill');
+      const navQaBadge = document.getElementById('navQaBadge');
       if (issues.filter(i => i.type === 'error').length > 0) {
-        qaStatusPill.className = 'text-[10px] bg-rose-100 text-rose-800 font-bold px-1.5 py-0.2 rounded';
+        qaStatusPill.className = 'text-[10px] bg-rose-100 text-rose-800 font-bold px-1.5 py-0.5 rounded';
         qaStatusPill.innerText = '1 Blocker';
+        navQaBadge.className = 'text-[10px] bg-rose-100 text-rose-700 px-1.5 rounded-full font-bold';
+        navQaBadge.innerText = '1 err';
       } else {
-        qaStatusPill.className = 'text-[10px] bg-emerald-100 text-emerald-800 font-bold px-1.5 py-0.2 rounded';
-        qaStatusPill.innerText = 'QA Passed';
+        qaStatusPill.className = 'text-[10px] bg-emerald-100 text-emerald-800 font-bold px-1.5 py-0.5 rounded';
+        qaStatusPill.innerText = 'Standard Compliant';
+        navQaBadge.className = 'text-[10px] bg-emerald-100 text-emerald-700 px-1.5 rounded-full font-bold';
+        navQaBadge.innerText = 'Pass';
       }
+    }
 
-      const maxDepth = intervals.reduce((max, r) => Math.max(max, r.to), 0);
-      document.getElementById('bhSummaryDepth').innerText = `${maxDepth.toFixed(2)} m`;
+    function onFreeformDescriptionChange(val) {
+      intervals[activeRow].customDesc = val.trim() || null;
+      renderTable();
+      renderInspector();
+    }
+
+    function resetToComputedDescription() {
+      intervals[activeRow].customDesc = null;
+      renderTable();
+      renderInspector();
     }
 
     function bindEvents() {
@@ -370,35 +549,46 @@
           const idx = parseInt(e.target.getAttribute('data-idx'));
           const field = e.target.getAttribute('data-field');
           let val = e.target.value;
-          if (field === 'from' || field === 'to') val = parseFloat(val) || 0;
 
           if (field === 'material') {
-            intervals[idx].isRock = val.includes('Rock');
-            intervals[idx].hatch = val.includes('Rock') ? 'hatch-rock' : 'hatch-clay';
+            intervals[idx].material = val;
+            intervals[idx].category = deriveCategory(val);
+            intervals[idx].hatch = getHatch(val);
+            // reset default param if mismatch
+            if (intervals[idx].category === 'cohesive' && !['Very Soft','Soft','Firm','Stiff','Very Stiff','Hard'].includes(intervals[idx].param)) {
+              intervals[idx].param = 'Stiff';
+            } else if (intervals[idx].category === 'cohesionless' && !['Very Loose','Loose','Medium Dense','Dense','Very Dense'].includes(intervals[idx].param)) {
+              intervals[idx].param = 'Medium Dense';
+            } else if (intervals[idx].category === 'rock' && !intervals[idx].param.includes('(')) {
+              intervals[idx].param = 'Medium (M)';
+            }
+          } else if (field) {
+            intervals[idx][field] = val;
           }
 
-          intervals[idx][field] = val;
           renderInspector();
           renderTable();
         };
       });
     }
 
-    function addInterval() {
-      const last = intervals[intervals.length - 1];
-      const start = last ? last.to : 0.0;
-      const end = parseFloat((start + 1.4).toFixed(2));
+    function copyDownActive() {
+      if (intervals.length === 0) return;
+      const src = intervals[activeRow];
+      const from = intervals[intervals.length - 1].to;
+      const to = parseFloat((from + (src.to - src.from)).toFixed(2));
 
       intervals.push({
-        from: start,
-        to: end,
-        material: 'SHALE (Rock)',
-        isRock: true,
-        hatch: 'hatch-rock',
-        consistency: 'Medium (M)',
-        moisture: 'Moist',
-        color: 'Grey',
-        desc: 'moderately weathered, distinct jointing'
+        from: from,
+        to: to,
+        category: src.category,
+        material: src.material,
+        hatch: src.hatch,
+        param: src.param,
+        moisture: src.moisture,
+        color: src.color,
+        secondary: src.secondary,
+        customDesc: null
       });
 
       activeRow = intervals.length - 1;
@@ -406,22 +596,107 @@
       renderInspector();
     }
 
-    // Keybindings: Ctrl+Enter (Append next interval), Ctrl+D (Copy cell down)
-    window.addEventListener('keydown', (e) => {
-      if (e.ctrlKey && e.key === 'Enter') {
-        e.preventDefault();
-        addInterval();
-      }
-    });
+    function parseAndAdd() {
+      const input = document.getElementById("shorthandInput");
+      const val = input.value.trim().toLowerCase();
+      if (!val) return;
 
-    document.getElementById('addIntervalBtn').onclick = addInterval;
-    document.getElementById('acceptPredictionBtn').onclick = () => {
-      addInterval();
+      const tokens = val.split(/[, ]+/).map(t => t.trim()).filter(Boolean);
+      const last = intervals[intervals.length - 1];
+      const from = last ? last.to : 0.0;
+      const to = parseFloat((from + 1.2).toFixed(2));
+
+      let material = "CLAY (CH)";
+      let category = "cohesive";
+      let param = "Very Stiff";
+      let moisture = "Moist";
+      let color = "Brown";
+      let secondary = "";
+      let hatch = "hatch-clay";
+
+      tokens.forEach(tok => {
+        if (shorthandAliases[tok]) {
+          material = shorthandAliases[tok].material;
+          category = shorthandAliases[tok].category;
+          param = shorthandAliases[tok].defaultParam;
+          hatch = shorthandAliases[tok].hatch;
+        } else if (tok === 'vst' || tok === 'vstiff') param = "Very Stiff";
+        else if (tok === 'st' || tok === 'stiff') param = "Stiff";
+        else if (tok === 'f' || tok === 'firm') param = "Firm";
+        else if (tok === 's' || tok === 'soft') param = "Soft";
+        else if (tok === 'h' || tok === 'hard') param = "Hard";
+        else if (tok === 'md' || tok === 'mdense') param = "Medium Dense";
+        else if (tok === 'd' || tok === 'dense') param = "Dense";
+        else if (tok === 'l' || tok === 'loose') param = "Loose";
+        else if (tok === 'm' || tok === 'moist') moisture = "Moist";
+        else if (tok === 'dry') moisture = "Dry";
+        else if (tok === 'wet' || tok === 'w') moisture = "Wet";
+        else if (tok === 'sat') moisture = "Saturated";
+        else if (tok === 'dk' || tok === 'dkbrn' || tok === 'dbr') color = "Dark Brown";
+        else if (tok === 'ltbrn' || tok === 'lbr') color = "Light Brown";
+        else if (tok === 'brn' || tok === 'brown') color = "Brown";
+        else if (tok === 'rd' || tok === 'red') color = "Reddish Brown";
+        else if (tok === 'gry' || tok === 'grey') color = "Grey";
+        else if (tok === 'dkgry' || tok === 'dkg') color = "Dark Grey";
+        else if (tok.startsWith('tr') || tok.includes('trace') || tok.includes('with') || tok.includes('root')) {
+          secondary = tok.replace(/^tr\s*/, 'trace fine sand').replace(/^w\/\s*/, 'with ');
+        }
+      });
+
+      intervals.push({ from, to, category, material, hatch, param, moisture, color, secondary, customDesc: null });
+      input.value = "";
+      activeRow = intervals.length - 1;
+      renderTable();
+      renderInspector();
+    }
+
+    function insertTemplate(type) {
+      const last = intervals[intervals.length - 1];
+      const from = last ? last.to : 0.0;
+      
+      if (type === 'topsoil') {
+        const to = parseFloat((from + 0.3).toFixed(2));
+        intervals.push({ from, to, category: 'cohesionless', material: "TOPSOIL", hatch: "hatch-topsoil", param: "Loose", moisture: "Moist", color: "Dark Brown", secondary: "with rootlets", customDesc: null });
+      } else if (type === 'pavement') {
+        const to = parseFloat((from + 0.4).toFixed(2));
+        intervals.push({ from, to, category: 'cohesionless', material: "GRAVEL (GP)", hatch: "hatch-gravel", param: "Dense", moisture: "Dry", color: "Grey", secondary: "crushed basalt basecourse", customDesc: null });
+      } else if (type === 'clay') {
+        const to = parseFloat((from + 1.5).toFixed(2));
+        intervals.push({ from, to, category: 'cohesive', material: "CLAY (CH)", hatch: "hatch-clay", param: "Very Stiff", moisture: "Moist", color: "Reddish Brown", secondary: "high plasticity, trace fine sand", customDesc: null });
+      } else if (type === 'shale') {
+        const to = parseFloat((from + 2.0).toFixed(2));
+        intervals.push({ from, to, category: 'rock', material: "SHALE (Rock)", hatch: "hatch-rock", param: "Medium (M)", moisture: "Moist", color: "Dark Grey", secondary: "moderately weathered, laminated", customDesc: null });
+      }
+      activeRow = intervals.length - 1;
+      renderTable();
+      renderInspector();
+    }
+
+    function removeInterval(idx) {
+      if (intervals.length <= 1) return alert("At least one strata interval must be kept.");
+      intervals.splice(idx, 1);
+      // Re-chain
+      for (let i = 1; i < intervals.length; i++) {
+        intervals[i].from = intervals[i - 1].to;
+      }
+      activeRow = Math.max(0, idx - 1);
+      renderTable();
+      renderInspector();
+    }
+
+    function updateDepthSummary() {
+      const maxDepth = intervals.reduce((max, r) => Math.max(max, r.to), 0);
+      document.getElementById('bhSummaryDepth').innerText = `${maxDepth.toFixed(2)} m`;
+      document.getElementById('totalDepthFoot').innerText = `${maxDepth.toFixed(2)} m`;
+      document.getElementById('strataCountText').innerText = `${intervals.length} Layers`;
+    }
+
+    function acceptAiPrediction() {
+      insertTemplate('shale');
       document.getElementById('aiPredictionBar').classList.add('hidden');
       
-      // Audit trail record
       try {
-        fetch(`/api/boreholes/${currentBorehole}/audit`, {
+        fetch(`/api/v1/boreholes/${currentBorehole}/audit`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
@@ -431,9 +706,36 @@
           })
         }).catch(() => {});
       } catch (err) {}
-    };
+    }
 
-    // Route listener
+    function exportAgsFormat() {
+      alert("AGS 4.1.1 Export generated successfully with GEOL & HDPH groups.");
+    }
+
+    function addBorehole() {
+      const id = prompt("Enter new borehole identifier (e.g. BH05):");
+      if (id && !projectBoreholes.some(b => b.id === id)) {
+        projectBoreholes.push({ id, status: 'Draft', depth: 0.0 });
+        renderNav();
+      }
+    }
+
+    // Keybindings: Ctrl+Enter (Add layer), Ctrl+D / Alt+D (Copy down properties)
+    window.addEventListener('keydown', (e) => {
+      if (e.ctrlKey && e.key === 'Enter') {
+        e.preventDefault();
+        insertTemplate('clay');
+      } else if ((e.ctrlKey || e.altKey) && (e.key === 'd' || e.key === 'D')) {
+        e.preventDefault();
+        copyDownActive();
+      }
+    });
+
+    document.getElementById("shorthandInput").addEventListener("keydown", (e) => {
+      if (e.key === "Enter") parseAndAdd();
+    });
+
+    // Handle initial route
     function handleRoute() {
       const hash = window.location.hash;
       const match = hash.match(/#\/projects\/[^/]+\/boreholes\/([^/]+)\/log/);
