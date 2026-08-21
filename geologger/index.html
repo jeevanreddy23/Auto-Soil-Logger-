@@ -5771,6 +5771,50 @@ if (consistencyColumn17) consistencyColumn17.optsFn=row=>D17.isGranular(row.mate
 blankSoil=function(prev){
   return { from:prev&&num(prev.to)!=null?prev.to:"", to:"", material:"", secondary:"", colour:"", moisture:"", consistency:"", plasticity:"", structure:"", origin:"", inclusions:"", fillNatural:"", uscs:"", description:"", descTouched:false, descBasis:"", samples:"", sptN:"", dcp:"", envNotes:"", remarks:"" };
 };
+function parseSoilShorthand17(val, lastRow){
+  const tokens = String(val||"").split(/[, ]+/).map(t=>t.trim().toLowerCase()).filter(Boolean);
+  const from = lastRow && num(lastRow.to) != null ? lastRow.to : 0.0;
+  const to = Math.round((Number(from) + 1.2) * 100) / 100;
+  let material = "CLAY (CH)", consistency = "Very Stiff", colour = "Brown", moisture = "Moist", secondary = "", fillNatural = "Natural", plasticity = "High";
+  tokens.forEach(tok => {
+    if (tok === 'ch') { material = "CLAY (CH)"; consistency = "Very Stiff"; plasticity = "High"; }
+    else if (tok === 'cl') { material = "CLAY (CL)"; consistency = "Firm"; plasticity = "Low"; }
+    else if (tok === 'ci') { material = "CLAY (CI)"; consistency = "Stiff"; plasticity = "Medium"; }
+    else if (tok === 'sp' || tok === 'sand') { material = "SAND (SP)"; consistency = "Medium Dense"; plasticity = ""; }
+    else if (tok === 'sw') { material = "SAND (SW)"; consistency = "Dense"; plasticity = ""; }
+    else if (tok === 'gp' || tok === 'gravel') { material = "GRAVEL (GP)"; consistency = "Dense"; plasticity = ""; }
+    else if (tok === 'top' || tok === 'topsoil') { material = "TOPSOIL"; consistency = "Loose"; }
+    else if (tok === 'fill') { fillNatural = "Fill"; }
+    else if (tok === 'vst' || tok === 'vstiff') consistency = "Very Stiff";
+    else if (tok === 'st' || tok === 'stiff') consistency = "Stiff";
+    else if (tok === 'f' || tok === 'firm') consistency = "Firm";
+    else if (tok === 's' || tok === 'soft') consistency = "Soft";
+    else if (tok === 'h' || tok === 'hard') consistency = "Hard";
+    else if (tok === 'md' || tok === 'mdense') consistency = "Medium Dense";
+    else if (tok === 'd' || tok === 'dense') consistency = "Dense";
+    else if (tok === 'l' || tok === 'loose') consistency = "Loose";
+    else if (tok === 'm' || tok === 'moist') moisture = "Moist";
+    else if (tok === 'dry') moisture = "Dry";
+    else if (tok === 'wet' || tok === 'w') moisture = "Wet";
+    else if (tok === 'sat') moisture = "Saturated";
+    else if (tok === 'dk' || tok === 'dkbrn' || tok === 'dbr') colour = "Dark Brown";
+    else if (tok === 'ltbrn' || tok === 'lbr') colour = "Light Brown";
+    else if (tok === 'brn' || tok === 'brown') colour = "Brown";
+    else if (tok === 'rd' || tok === 'red' || tok === 'reddish') colour = "Reddish Brown";
+    else if (tok === 'gry' || tok === 'grey' || tok === 'gray') colour = "Grey";
+    else if (tok === 'dkgry' || tok === 'dkg') colour = "Dark Grey";
+    else if (tok.startsWith('tr') || tok.includes('trace') || tok.includes('with') || tok.includes('root')) {
+      secondary = tok.replace(/^tr\s*/, 'trace fine sand').replace(/^w\/\s*/, 'with rootlets');
+    }
+  });
+  const row = {
+    from, to, material, secondary, colour, moisture, consistency, plasticity,
+    structure: "", origin: "", inclusions: "", fillNatural, uscs: uscsFor(material),
+    description: "", descTouched: false, descBasis: "", samples: "", sptN: "", dcp: "", envNotes: "", remarks: ""
+  };
+  row.description = D17.soilDescription(row);
+  return row;
+}
 renderSoil=function(){
   const L=logs();
   const counts=D17.reportCounts(L);
@@ -5786,6 +5830,18 @@ renderSoil=function(){
       <span id="soilDescState">${hasRows?soilStateHtml17(L.soil[selected]):`<span class="slice-status empty">No interval selected</span>`}</span><button class="btn" id="soilRegenerate" ${hasRows?"":"disabled"}>Regenerate description</button>
       <span class="spacer"></span><button class="btn slice-export" id="soilXlsx" ${counts.soil?"":"disabled"}>Export XLSX</button><button class="btn slice-export" id="soilPdf" ${counts.soil?"":"disabled"}>Export PDF</button>
     </div>
+    <div class="qeBar" style="display:flex; gap:8px; align-items:center; padding:8px 12px; background:#f8fafc; border-bottom:1px solid #e2e8f0; flex-wrap:wrap;">
+      <span class="qe-label" style="font-weight:700; font-size:11px; color:#475569; display:flex; align-items:center; gap:4px;"><i data-lucide="zap"></i> QUICK LOG</span>
+      <input type="text" class="qeIn" id="soilShorthandIn" placeholder="Type shorthand: e.g. 'CH, VST, moist, dk brn, tr sd' or 'SP, MD, dry' — Press Enter" style="flex:1; min-width:260px; height:32px; padding:4px 10px; border:1px solid #cbd5e1; border-radius:6px; font-family:monospace; font-size:12px;">
+      <button type="button" class="btn primary qeGo" id="soilShorthandGo" style="height:32px; font-size:12px;">Add Layer</button>
+      <div style="display:flex; gap:4px; align-items:center; flex-wrap:wrap;">
+        <span style="font-size:11px; color:#64748b; font-weight:600;">Templates:</span>
+        <button type="button" class="btn" data-soil-tmpl="topsoil" style="height:28px; font-size:11px; padding:0 8px;">+ Topsoil 0.3m</button>
+        <button type="button" class="btn" data-soil-tmpl="pavement" style="height:28px; font-size:11px; padding:0 8px;">+ Base 0.4m</button>
+        <button type="button" class="btn" data-soil-tmpl="clay" style="height:28px; font-size:11px; padding:0 8px;">+ Clay (CH) 1.5m</button>
+        <button type="button" class="btn" data-soil-tmpl="sand" style="height:28px; font-size:11px; padding:0 8px;">+ Sand (SP) 1.2m</button>
+      </div>
+    </div>
     <div class="soil-mobile">${hasRows?soilMobileHtml17(L.soil[selected],selected,L.soil.length):`<div class="log-empty"><strong>No soil intervals entered</strong></div>`}</div>
     <div class="soil-desktop">${hasRows?gridHTML("soilGrid",SOIL_COLS,L.soil):`<div class="log-empty"><strong>No soil intervals entered</strong></div>`}</div></div>`;
   wireGrid("soilGrid",()=>logs().soil,{
@@ -5798,6 +5854,9 @@ renderSoil=function(){
       if (key==="material") {
         const uscs=tr.querySelector('[data-k="uscs"]'); if (uscs) uscs.value=row.uscs||"";
       }
+      if (key==="to" && i+1 < logs().soil.length && num(value)!=null) {
+        logs().soil[i+1].from = value;
+      }
       if (SOIL_STRUCTURED_KEYS17.includes(key) && !row.descTouched) {
         const description=tr.querySelector('[data-k="description"]'); if (description) description.value=row.description;
       }
@@ -5805,6 +5864,47 @@ renderSoil=function(){
     }
   });
   page.querySelector("#soilAdd").onclick=()=>{ L.soil.push(blankSoil(L.soil.at(-1))); soilMobileSelection17=L.soil.length-1; save(); renderSoil(); };
+  
+  // Shorthand and template triggers
+  const handleQuickAdd = () => {
+    const inp = page.querySelector("#soilShorthandIn");
+    if (!inp || !inp.value.trim()) return;
+    const newRow = parseSoilShorthand17(inp.value.trim(), L.soil.at(-1));
+    L.soil.push(newRow);
+    soilMobileSelection17 = L.soil.length - 1;
+    save();
+    renderSoil();
+  };
+  const shGo = page.querySelector("#soilShorthandGo");
+  if (shGo) shGo.onclick = handleQuickAdd;
+  const shInp = page.querySelector("#soilShorthandIn");
+  if (shInp) shInp.onkeydown = e => { if (e.key === "Enter") handleQuickAdd(); };
+
+  page.querySelectorAll("[data-soil-tmpl]").forEach(btn => {
+    btn.onclick = () => {
+      const type = btn.dataset.soilTmpl;
+      const last = L.soil.at(-1);
+      const from = last && num(last.to) != null ? last.to : 0.0;
+      let newRow;
+      if (type === "topsoil") {
+        newRow = { from, to: Math.round((Number(from)+0.3)*100)/100, material:"TOPSOIL", consistency:"Loose", colour:"Dark Brown", moisture:"Moist", secondary:"with rootlets", fillNatural:"Natural", uscs:"PT", description:"", descTouched:false, descBasis:"", samples:"", sptN:"", dcp:"", envNotes:"", remarks:"" };
+      } else if (type === "pavement") {
+        newRow = { from, to: Math.round((Number(from)+0.4)*100)/100, material:"GRAVEL (GP)", consistency:"Dense", colour:"Grey", moisture:"Dry", secondary:"crushed basalt base", fillNatural:"Fill", uscs:"GP", description:"", descTouched:false, descBasis:"", samples:"", sptN:"", dcp:"", envNotes:"", remarks:"" };
+      } else if (type === "clay") {
+        newRow = { from, to: Math.round((Number(from)+1.5)*100)/100, material:"CLAY (CH)", consistency:"Very Stiff", colour:"Reddish Brown", moisture:"Moist", secondary:"high plasticity, trace fine sand", fillNatural:"Natural", uscs:"CH", description:"", descTouched:false, descBasis:"", samples:"", sptN:"", dcp:"", envNotes:"", remarks:"" };
+      } else if (type === "sand") {
+        newRow = { from, to: Math.round((Number(from)+1.2)*100)/100, material:"SAND (SP)", consistency:"Medium Dense", colour:"Brown", moisture:"Dry", secondary:"trace fine gravel", fillNatural:"Natural", uscs:"SP", description:"", descTouched:false, descBasis:"", samples:"", sptN:"", dcp:"", envNotes:"", remarks:"" };
+      }
+      if (newRow) {
+        newRow.description = D17.soilDescription(newRow);
+        L.soil.push(newRow);
+        soilMobileSelection17 = L.soil.length - 1;
+        save();
+        renderSoil();
+      }
+    };
+  });
+
   page.querySelector("#soilSplit").onclick=()=>{
     const row=L.soil[selected]; if (!row||num(row.from)==null||num(row.to)==null) return setStatus("Select a layer with both depths first");
     const mid=Math.round((num(row.from)+num(row.to))/2*100)/100;
