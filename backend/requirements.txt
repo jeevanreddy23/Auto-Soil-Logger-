@@ -21,3 +21,4 @@ openpyxl
 langchain-community
 numpy
 opencv-python-headless
+pydantic-ai

@@ -1412,3 +1412,137 @@ async def geologger_save_log(req: GeologgerSaveRequest):
         raise HTTPException(status_code=500, detail=str(e))
     finally:
         conn.close()
+
+
+# --- Borehole QA, Prediction & Audit Endpoints (PydanticAI & AS 1726) ---
+
+from app.schemas.geotech import (
+    SoilLogInterval,
+    RockLogInterval,
+    BoreholeQAResult,
+    IntervalPrediction,
+    AuditEvent,
+)
+from app.agents.logging_agents import (
+    deterministic_as1726_qa,
+    deterministic_strata_prediction,
+)
+
+
+class BoreholeValidateRequest(BaseModel):
+    soil_intervals: list[SoilLogInterval] = []
+    rock_intervals: list[RockLogInterval] = []
+    use_ai: bool = False
+
+
+class BoreholePredictRequest(BaseModel):
+    depth: float
+    use_ai: bool = False
+
+
+def _borehole_audit_table(conn):
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS borehole_audits (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            borehole_id TEXT NOT NULL,
+            event_type TEXT NOT NULL,
+            payload TEXT NOT NULL,
+            created_at TEXT NOT NULL
+        )
+    """)
+    conn.commit()
+
+
+@router.post("/boreholes/{borehole_id}/validate", response_model=BoreholeQAResult)
+async def validate_borehole_strata(borehole_id: str, req: BoreholeValidateRequest):
+    # 1. Deterministic filter first (AS 1726 consistency)
+    qa_result = deterministic_as1726_qa(req.soil_intervals, req.rock_intervals)
+    
+    # 2. If AI reasoning requested and OpenAI/PydanticAI available, run agent
+    if req.use_ai and os.getenv("OPENAI_API_KEY"):
+        try:
+            from app.agents.logging_agents import logging_qa_agent
+            prompt = (
+                f"Borehole: {borehole_id}\n"
+                f"Soil intervals: {[s.model_dump() for s in req.soil_intervals]}\n"
+                f"Rock intervals: {[r.model_dump() for r in req.rock_intervals]}\n"
+            )
+            result = await logging_qa_agent.run(prompt)
+            if result and hasattr(result, "data"):
+                return result.data
+        except Exception:
+            pass  # fallback to deterministic result
+
+    return qa_result
+
+
+@router.post("/boreholes/{borehole_id}/predict", response_model=IntervalPrediction)
+async def predict_borehole_strata(borehole_id: str, req: BoreholePredictRequest):
+    # 1. Check AI reasoning if requested
+    if req.use_ai and os.getenv("OPENAI_API_KEY"):
+        try:
+            from app.agents.logging_agents import predictive_logging_agent
+            prompt = f"Predict subsequent stratum for Borehole {borehole_id} at depth {req.depth}m."
+            result = await predictive_logging_agent.run(prompt)
+            if result and hasattr(result, "data"):
+                return result.data
+        except Exception:
+            pass
+
+    # 2. Deterministic correlation prediction
+    prediction = deterministic_strata_prediction(borehole_id, req.depth)
+    return prediction
+
+
+@router.post("/boreholes/{borehole_id}/audit")
+async def record_borehole_audit(borehole_id: str, req: AuditEvent):
+    from datetime import datetime, timezone
+    from app.utils.db import get_sqlite_conn
+    conn = get_sqlite_conn()
+    try:
+        _borehole_audit_table(conn)
+        conn.execute(
+            "INSERT INTO borehole_audits (borehole_id, event_type, payload, created_at) VALUES (?, ?, ?, ?)",
+            (
+                borehole_id,
+                req.event_type,
+                json.dumps(req.payload),
+                datetime.now(timezone.utc).isoformat(),
+            ),
+        )
+        conn.commit()
+        return {"status": "success", "borehole_id": borehole_id, "event_type": req.event_type}
+    except Exception as e:
+        conn.rollback()
+        raise HTTPException(status_code=500, detail=str(e))
+    finally:
+        conn.close()
+
+
+@router.get("/boreholes/{borehole_id}/audits")
+async def get_borehole_audits(borehole_id: str):
+    from app.utils.db import get_sqlite_conn
+    conn = get_sqlite_conn()
+    try:
+        _borehole_audit_table(conn)
+        rows = conn.execute(
+            "SELECT id, borehole_id, event_type, payload, created_at FROM borehole_audits WHERE borehole_id=? ORDER BY id DESC",
+            (borehole_id,)
+        ).fetchall()
+        return {
+            "status": "success",
+            "borehole_id": borehole_id,
+            "audits": [
+                {
+                    "id": r[0],
+                    "borehole_id": r[1],
+                    "event_type": r[2],
+                    "payload": json.loads(r[3]),
+                    "created_at": r[4],
+                }
+                for r in rows
+            ]
+        }
+    finally:
+        conn.close()
+
