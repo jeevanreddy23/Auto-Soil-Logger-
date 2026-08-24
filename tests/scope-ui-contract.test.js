@@ -8,6 +8,7 @@ const html = fs.readFileSync(path.join(root, "geologger", "index.html"), "utf8")
 const scope = fs.readFileSync(path.join(root, "geologger", "geoflow-scope.js"), "utf8");
 const css = fs.readFileSync(path.join(root, "geologger", "geoflow-scope.css"), "utf8");
 const extractor = fs.readFileSync(path.join(root, "geologger", "geoflow-scope-extractor.js"), "utf8");
+const boreholeSync = fs.readFileSync(path.join(root, "geologger", "geoflow-scope-boreholes.js"), "utf8");
 
 test("loads the scope presentation layer after premium and before optional motion", () => {
   const premiumCss = html.lastIndexOf('href="geoflow-premium.css"');
@@ -26,6 +27,20 @@ test("loads the proposal extractor before the inline scope workflow", () => {
   assert.ok(extractorJs > 0 && extractorJs < inlineScope);
   assert.match(html, /GeoFlowScopeExtractor\.extract\(SC\(\)\.docs\)/);
   assert.match(extractor, /terms\\s\+of\\s\+agreement/);
+});
+
+test("materialises approved scope into boreholes with date calendars", () => {
+  const syncJs = html.indexOf('src="geoflow-scope-boreholes.js"');
+  const inlineScope = html.indexOf('<script id="v13-scope">');
+  assert.ok(syncJs > 0 && syncJs < inlineScope);
+  assert.match(html, /genPlan\(\);\s*syncScopeBoreholes\(\);/);
+  assert.match(html, /type:"date",cls:"date"/);
+  assert.match(html, /id="bhScheduleStart" type="date"/);
+  assert.match(html, /id="bhScheduleEnd" type="date"/);
+  assert.match(html, /Apply dates to all boreholes/);
+  assert.match(boreholeSync, /record\.plannedDepth = plannedDepth/);
+  assert.match(boreholeSync, /record\.planned = plannedDepth/);
+  assert.match(boreholeSync, /isBlankPlaceholder/);
 });
 
 test("uses DeepSeek only as an explicit, privacy-disclosed review layer", () => {

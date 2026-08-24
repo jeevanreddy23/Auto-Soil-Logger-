@@ -12,6 +12,7 @@
 <script src="vendor/jspdf.plugin.autotable.min.js"></script>
 <script src="geoflow-domain.js"></script>
 <script src="geoflow-scope-extractor.js"></script>
+<script src="geoflow-scope-boreholes.js"></script>
 <script src="ags41-export.js"></script>
 <script src="geoflow-sync.js"></script>
 <style>
@@ -195,12 +196,13 @@ const PROJECT_FIELDS = [
   ["groundRL","Ground surface RL (m AHD)",0],["datum","Datum",0],
   ["groundwater","Groundwater observations",0,"textarea"],["weather","Weather conditions",0],["notes","Notes",0,"textarea"]
 ];
-const BH_FLAGS = [["samplesReq","Samples"],["sptReq","SPT"],["dcpReq","DCP"],["coreReq","Rock core"],["standpipeReq","Standpipe/piezo"],["photoReq","Corebox photos"]];
+const BH_FLAGS = [["samplesReq","Samples"],["sptReq","SPT"],["dcpReq","DCP"],["gwReq","Groundwater observation"],["coreReq","Rock core"],["standpipeReq","Standpipe/piezo"],["photoReq","Corebox photos"]];
 
 /* ============ state ============ */
 function blankBh(id) {
-  return { id: id, plannedDepth:"", termDepth:"", termReason:"", startDate:"", endDate:"", rl:"", easting:"", northing:"",
-    surface:"", locationDesc:"", samplesReq:true, sptReq:true, dcpReq:false, coreReq:false, standpipeReq:false, photoReq:false };
+  return { id: id, plannedDepth:"", planned:"", termDepth:"", termReason:"", startDate:"", endDate:"", rl:"", easting:"", northing:"",
+    surface:"", locationDesc:"", scopeDetails:"", scopeSource:"", refusalAllowed:false,
+    samplesReq:true, sptReq:true, dcpReq:false, gwReq:false, coreReq:false, standpipeReq:false, photoReq:false };
 }
 function blankLogs() { return { soil:[], rock:[], spt:[], samples:[], corebox:{ img:null, natW:0, natH:0, topY:null, botY:null, topD:"", botD:"", defects:[] } }; }
 function pruneBlankLogRows(state) {
@@ -311,7 +313,7 @@ document.getElementById("syncStatus").addEventListener("click", ()=>{
 });
 
 /* ============ generic grid engine ============ */
-/* col: {key, label, w, type:"text|num|select|check|auto", opts|optsFn, cls} */
+/* col: {key, label, w, type:"text|num|date|select|check|auto", opts|optsFn, cls} */
 function gridHTML(id, cols, rows, opts={}) {
   let h = `<div class="grid-wrap"><table class="og" id="${id}"><colgroup><col style="width:30px">`;
   for (const c of cols) h += `<col style="width:${c.w||100}px">`;
@@ -331,7 +333,8 @@ function gridHTML(id, cols, rows, opts={}) {
       } else if (c.type==="auto") {
         h += `<td class="auto ${c.cls||""}"><input data-k="${c.key}" value="${esc(v)}" title="${esc(v)}"></td>`;
       } else {
-        h += `<td class="${c.type==="num"?"num":""} ${c.cls||""}"><input ${c.type==="num"?'type="number" step="0.01"':""} data-k="${c.key}" value="${esc(v)}" title="${esc(v)}"></td>`;
+        const inputType=c.type==="num"?"number":c.type==="date"?"date":"text";
+        h += `<td class="${c.type==="num"?"num":""} ${c.cls||""}"><input type="${inputType}" ${c.type==="num"?'step="0.01"':""} data-k="${c.key}" value="${esc(v)}" title="${esc(v)}"></td>`;
       }
     }
     h += `<td class="act"><button data-del="${i}" title="Delete row">&#128465;</button></td></tr>`;
@@ -441,10 +444,13 @@ function renderProject() {
 const BH_COLS = [
   {key:"id",label:"Borehole ID",w:80},
   {key:"plannedDepth",label:"Planned depth (m)",w:90,type:"num"},
+  {key:"refusalAllowed",label:"Refusal allowed",w:90,type:"check"},
   {key:"termDepth",label:"Terminated depth (m)",w:100,type:"num"},
   {key:"termReason",label:"Termination reason",w:150},
-  {key:"startDate",label:"Start date",w:105,cls:"date"},
-  {key:"endDate",label:"End date",w:105,cls:"date"},
+  {key:"startDate",label:"Start date",w:125,type:"date",cls:"date"},
+  {key:"endDate",label:"End date",w:125,type:"date",cls:"date"},
+  {key:"scopeDetails",label:"Scope requirements",w:300},
+  {key:"scopeSource",label:"Scope source",w:150},
   {key:"rl",label:"Ground level RL (m)",w:95,type:"num"},
   {key:"easting",label:"Easting",w:90},
   {key:"northing",label:"Northing",w:90},
@@ -453,8 +459,15 @@ const BH_COLS = [
 ];
 function renderBoreholes() {
   const page = document.getElementById("page-boreholes");
+  const schedule=S.boreholeSchedule||{};
   let h = `<div class="panel"><div class="panel-header"><span>Borehole setup — ${S.boreholes.length} borehole(s)</span></div>
-    <div class="toolbar"><button class="btn" id="bhAdd">+ Add borehole</button><span class="hint">Set requirements per borehole below the table. Dates: yyyy-mm-dd.</span></div>`;
+    <div class="toolbar"><button class="btn" id="bhAdd">+ Add borehole</button><span class="hint">Scope-approved boreholes and requirements appear automatically.</span></div>
+    <div class="toolbar" style="align-items:end;gap:12px;flex-wrap:wrap">
+      <label style="font-size:11.5px;color:#5a6675;font-weight:600">Fieldwork start<br><input id="bhScheduleStart" type="date" value="${esc(schedule.startDate||"")}" style="margin-top:3px;min-height:36px;border:1px solid #ccd5e3;border-radius:6px;padding:5px 8px"></label>
+      <label style="font-size:11.5px;color:#5a6675;font-weight:600">Fieldwork end<br><input id="bhScheduleEnd" type="date" value="${esc(schedule.endDate||"")}" min="${esc(schedule.startDate||"")}" style="margin-top:3px;min-height:36px;border:1px solid #ccd5e3;border-radius:6px;padding:5px 8px"></label>
+      <button class="btn" id="bhApplyDates">Apply dates to all boreholes</button>
+      <span class="hint">Each row also has its own start and end calendar.</span>
+    </div>`;
   h += gridHTML("bhGrid", BH_COLS, S.boreholes);
   h += `<div class="checks" id="bhFlags"></div></div>`;
   page.innerHTML = h;
@@ -462,12 +475,26 @@ function renderBoreholes() {
     rerender: renderBoreholes,
     addRow: ()=>document.getElementById("bhAdd").click(),
     onChange: (i,k,v)=>{
+      const row=S.boreholes[i];
+      if (k==="plannedDepth") row.planned=v;
+      if (k==="startDate" && row.endDate && v && row.endDate<v) row.endDate="";
+      if (k==="endDate" && row.startDate && v && v<row.startDate){ row.endDate=""; alert("End date cannot be before the start date."); renderBoreholes(); return; }
       if (k==="id") { const old = Object.keys(S.logs).find(x=>!S.boreholes.some(b=>b.id===x));
         if (old!=null) { S.logs[v]=S.logs[old]; delete S.logs[old]; if (S.activeBh===old) S.activeBh=v; } }
     },
     onSelect: (i)=>{ S.activeBh = S.boreholes[i].id; renderFlags(i); refreshLeftPanel(); }
   });
   document.getElementById("bhAdd").addEventListener("click", ()=>document.getElementById("lpAddBh").click());
+  document.getElementById("bhScheduleStart").addEventListener("input",e=>{ document.getElementById("bhScheduleEnd").min=e.target.value; });
+  document.getElementById("bhApplyDates").addEventListener("click",()=>{
+    const startDate=document.getElementById("bhScheduleStart").value;
+    const endDate=document.getElementById("bhScheduleEnd").value;
+    if (startDate&&endDate&&endDate<startDate){ alert("Fieldwork end date cannot be before the start date."); return; }
+    S.boreholeSchedule={startDate,endDate};
+    for (const record of S.boreholes){ record.startDate=startDate; record.endDate=endDate; }
+    if (S.scope&&S.scope.plan) S.scope.plan.schedule={startDate,endDate};
+    save(); renderBoreholes();
+  });
   renderFlags(S.boreholes.findIndex(b=>b.id===S.activeBh));
   function renderFlags(i) {
     if (i<0) i=0; const b = S.boreholes[i]; if (!b) return;
@@ -4436,6 +4463,8 @@ function wireScReview(el){
   const aa=el.querySelector("#scAccAll"); if (aa) aa.addEventListener("click",()=>{ sc.items.forEach(i=>{ if (i.conf>=0.8 && i.status==="rev") i.status="acc"; }); scSave(); renderScope(); });
   const ap=el.querySelector("#scApprove"); if (ap) ap.addEventListener("click",()=>{
     if (applyMaster()===false) return;   /* master-record diff declined → stay on review */
+    genPlan();
+    syncScopeBoreholes();
     sc.step=4; scSave(); renderScope();
     try{ if (typeof buildSide==="function") buildSide(); }catch(e){}
     if (window.v16After) window.v16After("scope");
@@ -4503,6 +4532,7 @@ function genPlan(){
   const sampleCats=acc.filter(i=>i.cat==="sampling");
   const labs=acc.filter(i=>i.cat==="lab").map(l=>({ test:l.name, qty:l.qty||n||1, note:l.details }));
   const dcp=acc.find(i=>i.name==="DCP tests");
+  const core=acc.find(i=>i.name==="Rock coring");
   const totalSpt = spt.reduce((a,s)=>a+(typeof s.tests==="number"?s.tests:0),0);
   const fieldDays = Math.max(1, Math.ceil((n*(depth||6))/25));
   const reports=acc.filter(i=>i.cat==="reporting");
@@ -4510,11 +4540,31 @@ function genPlan(){
     "Sample containers and labels packed", "SPT hammer calibration current", "Camera / tablet charged (GeoFlow field app)",
     ...(gw.length?["Water level dipper packed"]:[]), ...(dcp?["DCP kit packed"]:[]) ];
   sc.plan = { bhs, spt, gw, samples:sampleCats.map(s2=>({ type:s2.name, note:s2.details, qty:s2.qty||null })),
-    labs, dcp: dcp?{qty:dcp.qty}:null, reports:reports.map(r=>r.details), checklist,
+    labs, dcp: dcp?{qty:dcp.qty, note:dcp.details||"", perBorehole:/per\s+borehole|each\s+borehole/i.test((dcp.details||"")+" "+(dcp.snippet||""))}:null,
+    core:core?{required:true,note:core.details||""}:null, reports:reports.map(r=>r.details), checklist,
     totals:{ bh:n, metres: depth? +(n*depth).toFixed(1):null, spt:totalSpt, dcp:dcp?.qty||0,
       samples:sampleCats.reduce((a,s2)=>a+(s2.qty||0),0)||null, labs:labs.reduce((a,l)=>a+l.qty,0) },
-    fieldDays, qa:scQa(), created:new Date().toISOString() };
+    schedule:Object.assign({},S.boreholeSchedule||{}), fieldDays, qa:scQa(), created:new Date().toISOString() };
   scSave();
+}
+function syncScopeBoreholes(){
+  const sc=SC();
+  if (!sc.plan||!window.GeoFlowScopeBoreholes) return {added:0,updated:0,total:0,ids:[]};
+  const result=window.GeoFlowScopeBoreholes.materialise(S,sc.plan,{
+    blankBorehole:blankBh, blankLogs,
+    source:sc.docs.map(d=>d.name).filter(Boolean).join(", "),
+    approvedAt:S.masterLock?.at||new Date().toISOString(),
+    version:S.scopeVersions?.[0]?.v??null
+  });
+  const schedule=S.boreholeSchedule||sc.plan.schedule||{};
+  if (schedule.startDate||schedule.endDate){
+    for (const id of result.ids){ const record=S.boreholes.find(b=>b.id===id); if (!record) continue;
+      if (!record.startDate&&schedule.startDate) record.startDate=schedule.startDate;
+      if (!record.endDate&&schedule.endDate) record.endDate=schedule.endDate; }
+  }
+  sc.boreholeSync={added:result.added,updated:result.updated,total:result.total,at:new Date().toISOString()};
+  scSave(); refreshLeftPanel();
+  return result;
 }
 function renderScPlan(el){
   const sc=SC();
@@ -4522,6 +4572,7 @@ function renderScPlan(el){
   const p=sc.plan; const t=p.totals;
   const ready = Math.round(100*(1 - p.qa.length/9));
   el.innerHTML=`
+  ${sc.boreholeSync?`<div class="sc-ok">✓ ${sc.boreholeSync.total} approved borehole(s) linked to the Boreholes section · ${sc.boreholeSync.added} created · ${sc.boreholeSync.updated} updated</div>`:""}
   <div class="sc-card"><h3>Field plan summary</h3>
     <div class="sc-kpi">
       <div class="k"><b>${t.bh}</b><span>Boreholes</span></div>
@@ -4564,7 +4615,8 @@ function renderScPlan(el){
     </div>
   </div>
   <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:4px">
-    <button class="sc-btn pri" id="scTasks">Create Project Tasks (boreholes → app)</button>
+    <button class="sc-btn pri" id="scTasks">Sync Approved Boreholes</button>
+    <button class="sc-btn" id="scOpenBoreholes">Open Boreholes</button>
     <button class="sc-btn pri" id="scTower">Send to Project Control Tower</button>
     <button class="sc-btn" id="scRegen">Regenerate plan</button>
     <button class="sc-btn" id="scExport2">Export Scope Summary</button>
@@ -4572,19 +4624,13 @@ function renderScPlan(el){
   $id("scSptRule").addEventListener("input",e=>{ sc.sptRule=e.target.value; scSave(); });
   $id("scRepTpl").addEventListener("input",e=>{ sc.meta.reportTemplate=e.target.value; scSave(); });
   $id("scStatus").addEventListener("change",e=>{ sc.status=e.target.value; scSave(); });
-  $id("scRegen").addEventListener("click",()=>{ genPlan(); renderScope(); });
+  $id("scRegen").addEventListener("click",()=>{ genPlan(); syncScopeBoreholes(); renderScope(); });
   $id("scExport2").addEventListener("click",exportScopeSummary);
   $id("scTasks").addEventListener("click",()=>{
-    let added=0;
-    for (const b of sc.plan.bhs){
-      if (!S.boreholes.some(x=>x.id===b.id)){
-        S.boreholes.push({ id:b.id, easting:"", northing:"", rl:"", termDepth:"", termReason:"", planned:b.depth||"", logger:S.project.loggedBy||"" });
-        if (S.logs && !S.logs[b.id]) S.logs[b.id]={soil:[],rock:[],spt:[],samples:[],corebox:{img:null,natW:0,natH:0,rows:[],defects:[],snap:0.01,layers:{scale:true,grid:true,defects:true,zones:true,labels:true,rows:true},includeMB:false}};
-        added++;
-      } else { const ex=S.boreholes.find(x=>x.id===b.id); if (b.depth && !ex.planned) ex.planned=b.depth; }
-    }
-    scSave(); alert(added+" borehole(s) created from scope. Open the Boreholes tab to see them.");
+    const result=syncScopeBoreholes();
+    alert(result.total+" approved borehole(s) are now in the Boreholes section ("+result.added+" created, "+result.updated+" updated)." );
   });
+  $id("scOpenBoreholes").addEventListener("click",()=>showTab("boreholes"));
   $id("scTower").addEventListener("click",()=>{
     sc.sentToTower=new Date().toISOString(); sc.step=5; scSave(); renderScope();
   });
