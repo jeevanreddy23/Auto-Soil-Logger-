@@ -31,3 +31,7 @@ test("uses the requested primary material vocabulary", () => {
   }
   assert.match(soilColumns, /key:"material",label:"Primary"/);
 });
+
+test("includes pale grey in the shared logging colour vocabulary", () => {
+  assert.match(html, /const COLOURS = \[[^\]]*"light grey","pale grey","blue-grey"/);
+});
