@@ -639,16 +639,41 @@ function renderRock() {
   const counts = GeoFlowDomain.reportCounts(L);
   const openRows = L.rock.filter(row=>["empty","draft"].includes(GeoFlowDomain.classifyRockRow(row))).length;
   const hasEntered = counts.rock || counts.coreRuns || counts.defects;
+  const enteredRows=L.rock.filter(row=>GeoFlowDomain.classifyRockRow(row)!=="empty");
+  const depthMidpoints=L.rock.map(row=>{ const from=num(row.from),to=num(row.to); return from!=null&&to!=null&&to>from?(from+to)/2:null; }).filter(value=>value!=null);
+  const averageDepth=depthMidpoints.length?depthMidpoints.reduce((sum,value)=>sum+value,0)/depthMidpoints.length:null;
+  const rqdValues=L.rock.map(row=>num(row.rqd)).filter(value=>value!=null&&value>=0&&value<=100);
+  const averageRqd=rqdValues.length?rqdValues.reduce((sum,value)=>sum+value,0)/rqdValues.length:null;
+  const dataIssues=L.rock.filter(row=>{ const from=num(row.from),to=num(row.to),rqd=num(row.rqd),tcr=num(row.tcr);
+    return (from!=null&&to!=null&&to<=from)||(rqd!=null&&(rqd<0||rqd>100))||(tcr!=null&&(tcr<0||tcr>100))||(rqd!=null&&tcr!=null&&rqd>tcr); }).length;
+  const statusBadges=[
+    `<span class="status-badge info">${esc(S.activeBh)}</span>`,
+    hasEntered?`<span class="status-badge success">Logging active</span>`:`<span class="status-badge info">Not started</span>`,
+    openRows?`<span class="status-badge warning">${openRows} open ${openRows===1?"row":"rows"}</span>`:"",
+    dataIssues?`<span class="status-badge danger">${dataIssues} QA ${dataIssues===1?"issue":"issues"}</span>`:`<span class="status-badge success">QA checks clear</span>`
+  ].filter(Boolean).join("");
   const page = document.getElementById("page-rock");
-  page.innerHTML = `<div class="panel"><div class="panel-header"><span>Rock log — ${esc(S.activeBh)} (AS 1726:2017)</span><span class="hint" style="color:#dce9f5">${counts.rock} geology · ${counts.coreRuns} core runs · ${counts.defects} defects${openRows?` · ${openRows} open`:""}</span></div>
-    <div class="toolbar">
+  page.innerHTML = `<div class="rock-page">
+    <header class="rock-page-header">
+      <div><div class="rock-eyebrow">${esc(S.activeBh)} / AS 1726:2017</div><h2>Rock Logs</h2>
+        <p>Capture lithology, weathering, strength, defects and core-recovery measurements in a structured, review-ready register.</p></div>
+      <div class="rock-statuses" role="status" aria-label="Rock log status">${statusBadges}</div>
+    </header>
+    <section class="rock-stat-grid" role="list" aria-label="Rock log summary metrics">
+      <article class="rock-stat-card" role="listitem"><span class="rock-stat-label">Total Logs</span><strong class="rock-stat-value">${enteredRows.length}</strong><span class="rock-stat-meta">${counts.rock} geology · ${counts.defects} defects</span></article>
+      <article class="rock-stat-card depth" role="listitem"><span class="rock-stat-label">Avg Depth</span><strong class="rock-stat-value">${averageDepth==null?"—":averageDepth.toFixed(2)+" m"}</strong><span class="rock-stat-meta">${depthMidpoints.length?`Mean of ${depthMidpoints.length} interval ${depthMidpoints.length===1?"midpoint":"midpoints"}`:"No complete intervals yet"}</span></article>
+      <article class="rock-stat-card rqd" role="listitem"><span class="rock-stat-label">RQD %</span><strong class="rock-stat-value">${averageRqd==null?"—":averageRqd.toFixed(1)+"%"}</strong><span class="rock-stat-meta">${rqdValues.length?`Mean of ${rqdValues.length} recorded ${rqdValues.length===1?"value":"values"}`:"No RQD values recorded"}</span></article>
+    </section>
+    <section class="panel rock-log-card" aria-labelledby="rockRegisterTitle">
+      <div class="panel-header rock-log-card-header"><div><h3 id="rockRegisterTitle">Rock interval register</h3><p>Editable factual records; columns remain available through horizontal scrolling.</p></div><span class="rock-record-count">${counts.rock} geology · ${counts.coreRuns} core runs · ${counts.defects} defects</span><button class="btn sv-btn" type="button" id="rockSave">Save</button></div>
+    <div class="toolbar rock-toolbar" aria-label="Rock log actions">
       <button class="btn" id="rockAdd">+ Add unit</button>
       <button class="btn" id="rockDefect">+ Add defect row</button>
       <button class="btn" id="rockFromCb">Pull TCR/SCR/RQD from Corebox</button>
       <span class="spacer"></span>
       <button class="btn" id="rockXlsx" ${hasEntered?"":"disabled"}>Export XLSX</button>
       <button class="btn" id="rockPdf" ${hasEntered?"":"disabled"}>Export PDF</button>
-    </div>${L.rock.length?gridHTML("rockGrid", ROCK_COLS, L.rock):`<div class="log-empty"><strong>No rock records entered</strong></div>`}</div>`;
+    </div>${L.rock.length?gridHTML("rockGrid", ROCK_COLS, L.rock):`<div class="rock-empty-state"><div><strong>No rock records entered</strong><span>Add a rock unit or defect row to begin the factual log for ${esc(S.activeBh)}.</span></div></div>`}</section></div>`;
   wireGrid("rockGrid", ()=>logs().rock, {
     rerender: renderRock,
     addRow: ()=>{ logs().rock.push(blankRock(logs().rock.at(-1))); save(); renderRock(); },
@@ -664,6 +689,15 @@ function renderRock() {
       markDepthValidity("rockGrid", logs().rock);
     }
   });
+  const rockTable=document.getElementById("rockGrid");
+  if (rockTable){
+    rockTable.setAttribute("aria-label",`Rock log entries for ${S.activeBh}`);
+    rockTable.querySelectorAll("thead th").forEach(header=>header.setAttribute("scope","col"));
+    rockTable.querySelectorAll("tbody tr").forEach((row,index)=>row.querySelectorAll("[data-k]").forEach(control=>{
+      const column=ROCK_COLS.find(item=>item.key===control.dataset.k);
+      if (column) control.setAttribute("aria-label",`${column.label}, row ${index+1}`);
+    }));
+  }
   document.getElementById("rockAdd").onclick = ()=>{ L.rock.push(blankRock(L.rock.at(-1))); save(); renderRock(); };
   document.getElementById("rockDefect").onclick = ()=>{
     const prev = L.rock.at(-1); const r = blankRock(prev);
@@ -673,6 +707,7 @@ function renderRock() {
   document.getElementById("rockFromCb").onclick = ()=>{ syncCoreboxMetrics(); renderRock(); };
   document.getElementById("rockXlsx").onclick = ()=>exportModuleXlsx("rock", ROCK_COLS, L.rock);
   document.getElementById("rockPdf").onclick = ()=>exportModulePdf("rock", ROCK_COLS, L.rock);
+  document.getElementById("rockSave").onclick = e=>saveNow(e.currentTarget);
   markDepthValidity("rockGrid", L.rock);
 }
 function markDepthValidity(gridId, rows) {
@@ -683,7 +718,8 @@ function markDepthValidity(gridId, rows) {
   for (let j=1;j<sorted.length;j++) if (sorted[j].f < sorted[j-1].t - 1e-9) { bad.add(sorted[j].i); bad.add(sorted[j-1].i); }
   rows.forEach((r,i)=>{
     const tr = t.querySelector(`tr[data-i="${i}"]`); if (!tr) return;
-    ["from","to"].forEach(k=>{ const inp = tr.querySelector(`[data-k="${k}"]`); if (inp) inp.classList.toggle("invalid", bad.has(i)); });
+    ["from","to"].forEach(k=>{ const inp = tr.querySelector(`[data-k="${k}"]`); if (inp) { inp.classList.toggle("invalid", bad.has(i));
+      if (bad.has(i)) inp.setAttribute("aria-invalid","true"); else inp.removeAttribute("aria-invalid"); } });
   });
 }
 function exportModuleXlsx(name, cols, rows) {
@@ -6610,6 +6646,7 @@ table.og td.auto { background:#f0f7f3 !important; }
 </style>
 <link rel="stylesheet" href="geoflow-premium.css">
 <link rel="stylesheet" href="geoflow-scope.css">
+<link rel="stylesheet" href="geoflow-fresh.css">
 <link rel="stylesheet" href="geoflow-motion.css">
 <script src="vendor/lucide.min.js"></script>
 <script id="v20-sts-professional-ui">
