@@ -59,3 +59,54 @@ test("adds the native origin to successful API responses", async () => {
   assert.equal(response.headers.get("Access-Control-Allow-Origin"), "https://localhost");
   assert.equal(body.boreholes.BH01.rows.length, 1);
 });
+
+test("keeps the DeepSeek scope reviewer same-origin and server-side", async () => {
+  const originalFetch = global.fetch;
+  const writes = [];
+  global.fetch = async (url, init) => {
+    assert.equal(url, "https://api.deepseek.com/chat/completions");
+    assert.match(init.headers.Authorization, /^Bearer /);
+    assert.doesNotMatch(init.body, /secret-test-key/);
+    return new Response(JSON.stringify({
+      choices: [{ message: { content: JSON.stringify({ decisions: [
+        { id: "scope-1", keep: true, reason: "Explicit borehole scope." },
+        { id: "scope-2", keep: false, reason: "Separate environmental programme." }
+      ] }) } }]
+    }), { status: 200, headers: { "Content-Type": "application/json" } });
+  };
+  try {
+    const env = {
+      DEEPSEEK_API_KEY: "secret-test-key",
+      GEOFLOW: {
+        get: async () => null,
+        put: async (...args) => writes.push(args)
+      }
+    };
+    const request = new Request("https://autosoillogger.poreddyjeevanreddy.workers.dev/api/v1/scope/review", {
+      method: "POST",
+      headers: { "Content-Type": "application/json", Origin: "https://autosoillogger.poreddyjeevanreddy.workers.dev" },
+      body: JSON.stringify({ candidates: [
+        { id: "scope-1", cat: "drilling", name: "Boreholes", details: "29 boreholes", qty: 29, page: 1, snippet: "We propose 29 boreholes." },
+        { id: "scope-2", cat: "env", name: "Environmental samples", page: 3, snippet: "Work takes longer than separate environmental sampling." }
+      ] })
+    });
+    const response = await worker.fetch(request, env);
+    const body = await response.json();
+    assert.equal(response.status, 200);
+    assert.equal(body.decisions.length, 2);
+    assert.equal(body.decisions[1].keep, false);
+    assert.equal(writes.length, 1);
+  } finally {
+    global.fetch = originalFetch;
+  }
+});
+
+test("rejects direct cross-origin access to the DeepSeek scope reviewer", async () => {
+  const request = new Request("https://autosoillogger.poreddyjeevanreddy.workers.dev/api/v1/scope/review", {
+    method: "POST",
+    headers: { "Content-Type": "application/json", Origin: "https://untrusted.example" },
+    body: JSON.stringify({ candidates: [{ id: "scope-1", name: "Boreholes" }] })
+  });
+  const response = await worker.fetch(request, { DEEPSEEK_API_KEY: "configured" });
+  assert.equal(response.status, 403);
+});

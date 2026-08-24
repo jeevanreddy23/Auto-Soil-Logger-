@@ -1,6 +1,7 @@
 /* STS GeoFlow — Cloudflare Worker
    Serves the geologger/ static app and stores all project data in Workers KV
-   (namespace binding: GEOFLOW). The Worker IS the backend — no third-party API.
+   (namespace binding: GEOFLOW). Proposal scope candidates can optionally be
+   reviewed by DeepSeek after an explicit user confirmation in the app.
 
    Data model (mirrors the original API exactly, so web + field apps are untouched):
      GET  /api/v1/geologger/logs            → { boreholes: { <location>: { rows:[...] } } }
@@ -387,6 +388,98 @@ function apiFailure(error) {
 async function safely(handler) {
   try { return await handler(); }
   catch (error) { return apiFailure(error); }
+}
+
+const SCOPE_AI_RATE_PREFIX = "rate:scope-ai:";
+
+async function scopeAiRateKey(request) {
+  const address = request.headers.get("CF-Connecting-IP") || "unknown";
+  const bytes = new TextEncoder().encode(address);
+  const digest = await crypto.subtle.digest("SHA-256", bytes);
+  const token = [...new Uint8Array(digest)].slice(0, 8).map(value => value.toString(16).padStart(2, "0")).join("");
+  return SCOPE_AI_RATE_PREFIX + token + ":" + Math.floor(Date.now() / 60_000);
+}
+
+function parseDeepSeekJson(content) {
+  const text = String(content || "").replace(/^```(?:json)?\s*/i, "").replace(/\s*```$/i, "").trim();
+  const start = text.indexOf("{");
+  const end = text.lastIndexOf("}");
+  if (start < 0 || end <= start) throw new Error("DeepSeek returned no JSON object.");
+  return JSON.parse(text.slice(start, end + 1));
+}
+
+function cleanScopeCandidates(input) {
+  const rows = Array.isArray(input) ? input.slice(0, 120) : [];
+  return rows.map(row => ({
+    id: accessText(row && row.id).slice(0, 80),
+    category: accessText(row && row.cat).slice(0, 40),
+    name: accessText(row && row.name).slice(0, 120),
+    details: accessText(row && row.details).slice(0, 500),
+    quantity: Number.isFinite(Number(row && row.qty)) ? Number(row.qty) : null,
+    unit: accessText(row && row.unit).slice(0, 30),
+    page: Number.isFinite(Number(row && row.page)) ? Number(row.page) : null,
+    evidence: accessText(row && row.snippet).slice(0, 700)
+  })).filter(row => row.id && row.name);
+}
+
+async function handleScopeAiReview(request, env) {
+  if (request.method !== "POST") return json({ error: "method not allowed" }, 405);
+  const origin = request.headers.get("Origin");
+  if (!origin || !MOBILE_ORIGINS.has(origin)) return json({ error: "origin not allowed" }, 403);
+  if (!env.DEEPSEEK_API_KEY) return json({ error: "DeepSeek is not configured" }, 503);
+
+  const length = Number(request.headers.get("Content-Length") || 0);
+  if (length > 180_000) return json({ error: "request too large" }, 413);
+  let body;
+  try { body = await request.json(); }
+  catch (error) { return json({ error: "invalid json" }, 400); }
+  const candidates = cleanScopeCandidates(body && body.candidates);
+  if (!candidates.length) return json({ decisions: [], provider: "deepseek" });
+
+  const rateKey = await scopeAiRateKey(request);
+  const used = Number(await env.GEOFLOW.get(rateKey) || 0);
+  if (used >= 5) return json({ error: "AI review rate limit reached; use the local extraction or try again shortly." }, 429);
+  await env.GEOFLOW.put(rateKey, String(used + 1), { expirationTtl: 120 });
+
+  const response = await fetch("https://api.deepseek.com/chat/completions", {
+    method: "POST",
+    headers: {
+      "Authorization": `Bearer ${env.DEEPSEEK_API_KEY}`,
+      "Content-Type": "application/json"
+    },
+    body: JSON.stringify({
+      model: env.DEEPSEEK_MODEL || "deepseek-chat",
+      temperature: 0,
+      max_tokens: 3000,
+      response_format: { type: "json_object" },
+      messages: [{
+        role: "system",
+        content: "You are a conservative geotechnical proposal scope reviewer. Review only the supplied deterministic candidates. Keep an item only when its evidence states a base-scope field task, investigation, sampling/testing requirement, engineering assessment, report deliverable, or genuine project assumption. Reject generic contract terms, acceptance forms, prices, background facts, marketing text, work belonging to another proposal, conditional extras/options, and duplicates. Do not invent items or change quantities. Return strict JSON with exactly one decision per supplied id: {\"decisions\":[{\"id\":\"candidate id\",\"keep\":true,\"reason\":\"brief evidence-based reason\"}]}"
+      }, {
+        role: "user",
+        content: JSON.stringify({ candidates })
+      }]
+    }),
+    signal: AbortSignal.timeout(30_000)
+  });
+  if (!response.ok) {
+    const detail = (await response.text()).slice(0, 500);
+    console.error("DeepSeek scope review failed", response.status, detail);
+    return json({ error: "DeepSeek review failed", status: response.status }, 502);
+  }
+
+  const payload = await response.json();
+  const reviewed = parseDeepSeekJson(payload && payload.choices && payload.choices[0] && payload.choices[0].message && payload.choices[0].message.content);
+  const validIds = new Set(candidates.map(candidate => candidate.id));
+  const seen = new Set();
+  const decisions = [];
+  for (const row of Array.isArray(reviewed.decisions) ? reviewed.decisions : []) {
+    const id = accessText(row && row.id);
+    if (!validIds.has(id) || seen.has(id) || typeof row.keep !== "boolean") continue;
+    seen.add(id);
+    decisions.push({ id, keep: row.keep, reason: accessText(row.reason).slice(0, 240) });
+  }
+  return json({ decisions, provider: "deepseek", model: env.DEEPSEEK_MODEL || "deepseek-chat" });
 }
 
 function visibleProjectIds(context) {
@@ -1461,6 +1554,7 @@ export default {
     if (url.pathname === "/api/v1/control/directory") return withCors(await safely(() => handleControlDirectory(request, env)), request);
     if (url.pathname === "/api/v1/geologger/logs") return withCors(await safely(() => handleLogs(request, env)), request);
     if (url.pathname === "/api/v1/files") return withCors(await safely(() => handleFiles(request, env)), request);
+    if (url.pathname === "/api/v1/scope/review") return withCors(await safely(() => handleScopeAiReview(request, env)), request);
     if (url.pathname === "/api/v1/share") return withCors(await safely(() => handleShare(request, env)), request);
     if (url.pathname.startsWith("/share/")) return handleShareView(url.pathname.slice(7), env);
 

@@ -11,6 +11,7 @@
 <script src="vendor/jspdf.umd.min.js"></script>
 <script src="vendor/jspdf.plugin.autotable.min.js"></script>
 <script src="geoflow-domain.js"></script>
+<script src="geoflow-scope-extractor.js"></script>
 <script src="ags41-export.js"></script>
 <script src="geoflow-sync.js"></script>
 <style>
@@ -4137,6 +4138,8 @@ function sentenceAround(text, idx){
   return text.slice(s, Math.min(e+1, s+420)).trim();
 }
 function extractScope(){
+  if (window.GeoFlowScopeExtractor && typeof window.GeoFlowScopeExtractor.extract==="function")
+    return window.GeoFlowScopeExtractor.extract(SC().docs);
   const sc=SC(); const items=[]; const seen=new Set();
   for (const doc of sc.docs) for (const pg of doc.pages){
     const text=pg.text||"";
@@ -4155,6 +4158,29 @@ function extractScope(){
   }
   /* client special requirements: lines with "must", "required to" */
   return items;
+}
+async function reviewScopeWithDeepSeek(items){
+  if (!items.length) return {items, reviewed:false, rejected:0};
+  const consent=confirm("Review the extracted candidates with DeepSeek?\n\nOnly the candidate details and supporting proposal snippets will be sent to DeepSeek. The PDF file itself is not sent. Choose Cancel to keep the local extraction only.");
+  if (!consent) return {items, reviewed:false, rejected:0};
+  const response=await fetch("/api/v1/scope/review",{
+    method:"POST", headers:apiHeaders(),
+    body:JSON.stringify({candidates:items.map(it=>({id:it.id,cat:it.cat,name:it.name,details:it.details,qty:it.qty,unit:it.unit,page:it.page,snippet:it.snippet}))})
+  });
+  if (!response.ok){
+    let message="DeepSeek review was unavailable; the local extraction has been kept.";
+    try{ const problem=await response.json(); if(problem&&problem.error) message+="\n\n"+problem.error; }catch(error){}
+    alert(message); return {items, reviewed:false, rejected:0};
+  }
+  const result=await response.json();
+  const decisions=new Map((result.decisions||[]).map(row=>[row.id,row]));
+  const kept=[], rejected=[];
+  for (const item of items){
+    const decision=decisions.get(item.id);
+    if (decision&&decision.keep===false) rejected.push(Object.assign({},item,{aiReason:decision.reason||"Filtered by DeepSeek"}));
+    else kept.push(item);
+  }
+  return {items:kept, reviewed:true, rejected:rejected.length, rejectedItems:rejected, model:result.model||"deepseek-chat"};
 }
 const confCls = c => c>=0.8?"hi":c>=0.55?"md":"lo";
 
@@ -4257,12 +4283,17 @@ function renderScExtract(el){
       <button class="sc-btn pri" id="scRunEx">${sc.items.length?"Re-extract (replaces items)":"Extract Scope"}</button>
       ${sc.items.length?`<button class="sc-btn" id="scKeep">Keep existing ${sc.items.length} items →</button>`:""}
     </div><div id="scExOut" style="margin-top:10px"></div></div>`;
-  $id("scRunEx").addEventListener("click",()=>{
+  $id("scRunEx").addEventListener("click",async()=>{
+    const runButton=$id("scRunEx"); runButton.disabled=true; runButton.textContent="Extracting scope...";
     const mN=extractMetaFromDocs();
-    sc.items = extractScope(); scSave();
+    const localItems=extractScope();
+    let review;
+    try{ review=await reviewScopeWithDeepSeek(localItems); }
+    catch(error){ review={items:localItems,reviewed:false,rejected:0}; alert("DeepSeek review was unavailable; the local extraction has been kept."); }
+    sc.items=review.items; sc.aiReview=review.reviewed?{provider:"deepseek",model:review.model,rejected:review.rejected,rejectedItems:review.rejectedItems,ts:new Date().toISOString()}:null; scSave();
     const byCat={}; sc.items.forEach(i=>byCat[i.cat]=(byCat[i.cat]||0)+1);
     $id("scExOut").innerHTML = sc.items.length?
-      `<div class="sc-ok">✓ ${sc.items.length} scope items extracted${mN?` · ${mN} project detail(s) auto-filled from the proposal (review on step 1)`:""}</div>`+
+      `<div class="sc-ok">✓ ${sc.items.length} scope items extracted${review.reviewed?` · DeepSeek filtered ${review.rejected} irrelevant candidate(s)`:" · local rules only"}${mN?` · ${mN} project detail(s) auto-filled from the proposal (review on step 1)`:""}</div>`+
       Object.entries(byCat).map(([c,n])=>`<span style="font-size:12px;margin-right:12px"><i class="sc-cat" style="background:${CATS[c].col}"></i>${CATS[c].label}: <b>${n}</b></span>`).join("")+
       `<div style="margin-top:12px"><button class="sc-btn pri" id="scToRev">Review & Confirm →</button></div>`
       : `<div class="sc-warn">No scope items found — the document may be scanned (no text). Paste the text on step 1 or add items manually in Review.</div>
