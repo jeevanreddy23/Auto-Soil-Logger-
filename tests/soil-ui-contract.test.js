@@ -21,6 +21,13 @@ test("preserves existing values and the dedicated testing modules", () => {
   assert.match(premium, /function renderDcp\(/i);
 });
 
-test("offers concrete as a Soil Logs material", () => {
-  assert.match(html, /const SOIL_MATERIALS = \["FILL","CONCRETE","TOPSOIL"/);
+test("uses the requested primary material vocabulary", () => {
+  const materials = html.match(/const SOIL_MATERIALS = \[([^\]]+)\];/)[1];
+  for (const material of ["CONCRETE", "SHALE", "SANDSTONE", "SILTSTONE"]) {
+    assert.match(materials, new RegExp(`"${material}"`));
+  }
+  for (const removed of ["FILL", "TOPSOIL", "Residual soil"]) {
+    assert.doesNotMatch(materials, new RegExp(`"${removed}"`));
+  }
+  assert.match(soilColumns, /key:"material",label:"Primary"/);
 });
