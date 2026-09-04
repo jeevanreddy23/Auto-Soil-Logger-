@@ -640,7 +640,7 @@ function renderRock() {
   const rqdValues=L.rock.map(row=>num(row.rqd)).filter(value=>value!=null&&value>=0&&value<=100);
   const averageRqd=rqdValues.length?rqdValues.reduce((sum,value)=>sum+value,0)/rqdValues.length:null;
   const dataIssues=L.rock.filter(row=>{ const from=num(row.from),to=num(row.to),rqd=num(row.rqd),tcr=num(row.tcr);
-    return (from!=null&&to!=null&&to<=from)||(rqd!=null&&(rqd<0||rqd>100))||(tcr!=null&&(tcr<0||tcr>100))||(rqd!=null&&tcr!=null&&rqd>tcr); }).length;
+    return (from!=null&&(from<0||(to!=null&&(row.defectType?to<from:to<=from))))||(rqd!=null&&(rqd<0||rqd>100))||(tcr!=null&&(tcr<0||tcr>100))||(rqd!=null&&tcr!=null&&rqd>tcr); }).length;
   const statusBadges=[
     `<span class="status-badge info">${esc(S.activeBh)}</span>`,
     hasEntered?`<span class="status-badge success">Logging active</span>`:`<span class="status-badge info">Not started</span>`,
@@ -1040,11 +1040,11 @@ function validate() {
   for (const b of S.boreholes) {
     const L = S.logs[b.id]; if (!L) continue;
     const isPointDefect = r => r.defectType && (num(r.to)==null || num(r.to)===num(r.from));
-    const layers = [...L.soil.map(r=>({...r,mod:"Soil"})), ...L.rock.filter(r=>!isPointDefect(r) && num(r.from)!==num(r.to)).map(r=>({...r,mod:"Rock"}))]
+    const layers = [...L.soil.map(r=>({...r,mod:"Soil"})), ...L.rock.filter(r=>!r.defectType && GeoFlowDomain.classifyRockRow(r)!=="core-run").map(r=>({...r,mod:"Rock"}))]
       .filter(r=>num(r.from)!=null || num(r.to)!=null);
     for (const r of layers) {
       if (num(r.from)==null || num(r.to)==null) { errs.push(`${b.id} ${r.mod}: layer missing From or To depth`); continue; }
-      if (num(r.to) <= num(r.from)) errs.push(`${b.id} ${r.mod}: From ${r.from} must be < To ${r.to}`);
+      if (num(r.from)<0 || num(r.to) <= num(r.from)) errs.push(`${b.id} ${r.mod}: From ${r.from} must be < To ${r.to}`);
     }
     for (const r of L.rock) if (r.defectType && num(r.from)==null) errs.push(`${b.id} Rock defect (${r.defectType}): missing depth`);
     const sorted = layers.filter(r=>num(r.from)!=null&&num(r.to)!=null).sort((a,b2)=>num(a.from)-num(b2.from));
@@ -2174,15 +2174,15 @@ function pdfDefectList(L) {
   for (const d of (c.defects||[])) {
     const f = num(d.from); if (f==null) continue;
     const t = num(d.to)!=null&&num(d.to)>f ? num(d.to) : null;
-    out.push({ from:f, to:t, code:d.code });
+    out.push({ from:f, to:t, code:[d.code,d.angle!=null&&d.angle!==""?d.angle+" deg":"",d.shape,d.rough,d.infill].filter(Boolean).join(" ") });
   }
   for (const r of L.rock) {
     if (!r.defectType || r._cbid) continue;
     const f = num(r.from); if (f==null) continue;
     const t = num(r.to)!=null&&num(r.to)>f ? num(r.to) : null;
     const code = ({"Joint":"JT","Bedding parting":"BP","Clay seam":"CS","Sheared seam":"SZ","Crushed seam":"CZ","Infilled seam":"IS",
-      "Fracture zone":"FZ","Drilling break":"DB","Natural break":"NB","Mechanical break":"MB","Core loss":"CL","Void":"V"})[r.defectType]||"JT";
-    out.push({ from:f, to:t, code });
+      "Fracture zone":"FZ","Drilling break":"DB","Natural break":"NB","Mechanical break":"MB","Core loss":"CL","Void":"V"})[r.defectType]||r.defectType;
+    out.push({ from:f, to:t, code:[code,r.defectAngle!==""&&r.defectAngle!=null?r.defectAngle+" deg":"",r.defectRough,r.defectInfill,r.defectAperture,r.defectPersist].filter(Boolean).join(" ") });
   }
   return out.sort((a,b)=>a.from-b.from);
 }
@@ -3151,7 +3151,7 @@ save = function() {
 /* typography tokens */
 const T = { title:19, bhid:20, metaL:8, metaV:8, colHead:4.8, desc:6.0, code:5, defect:6.0, depth:6, foot:6.8, sheet:10 };
 /* line-weight tokens — measured from issued STS logs: columns 0.13 mm, majors 0.26 mm */
-const LW = { frame:0.26, section:0.26, col:0.132, interval:0.132, tick:0.09 };
+const LW = { frame:0.265, section:0.265, col:0.132, interval:0.132, tick:0.132 };
 /* ---- reference-font engine: Carlito is metric-compatible with Calibri (OFL licence).
    Loaded once from CDN, cached, registered per-document. Falls back to helvetica. ---- */
 let _carlito = null;
@@ -3248,7 +3248,15 @@ function pdfHatch(doc, x, w, y1, y2, m) { /* B/W lithology patterns */
   }
   return true;
 }
-function gwDepth(P,B){ const src=(B&&B.gwDepth)||P.groundwater||""; const m2=String(src).match(/(\d+(?:\.\d+)?)\s*m/); return m2? parseFloat(m2[1]) : null; }
+function gwDepth(P,B,L={}){
+  const observed=L.gw||{};
+  if (/GWNE|not encountered|dry/i.test(observed.state||"")) return null;
+  const direct=GeoFlowDomain.numberOrNull(observed.depth) ?? GeoFlowDomain.numberOrNull(B&&B.gwDepth);
+  if (direct!==null) return direct;
+  if (observed.state) return null;
+  const match=String(P.groundwater||"").match(/(\d+(?:\.\d+)?)\s*m/);
+  return match?Number(match[1]):null;
+}
 /* SPT second line per issued-log grammar: "2,3,4 N=7" · "35/150 mm HB N=R" · "20,31,17 HB N=48" */
 function sptLine2(t2){
   const parts=[t2.b1,t2.b2,t2.b3].filter(v=>v!==""&&v!=null);
@@ -3265,25 +3273,34 @@ function buildPdf(bhId) {
   const { jsPDF } = window.jspdf;
   const doc = new jsPDF({ unit:"mm", format:"a4" });
   const B = S.boreholes.find(x=>x.id===bhId), L = S.logs[bhId], P = S.project;
+  if (!B || !L) throw new Error(`Borehole ${bhId} has no logging record.`);
   const W=210, MX=17, RX=196;
   /* ---- validation-engine gate: source values are reported, never silently rewritten ---- */
   const repaired=[];
   const gate = (typeof validate==="function")? validate() : {errs:[],warns:[]};
-  doc.__validation = { errors: gate.errs.filter(e=>e.startsWith(bhId)||e.startsWith("Project")),
-                       warnings: gate.warns.filter(w=>w.startsWith(bhId)), repaired };
+  doc.__validation = { errors: gate.errs.filter(e=>e.startsWith(bhId+" ")||e.startsWith(bhId+":")||e.startsWith("Project")),
+                       warnings: gate.warns.filter(w=>w.startsWith(bhId+" ")||w.startsWith(bhId+":")), repaired };
+  if (typeof GeoFlowUICore!=="undefined") {
+    for (const issue of GeoFlowUICore.collectValidation(S).filter(i=>!i.boreholeId||i.boreholeId===bhId)) {
+      const target=issue.severity==="error"?doc.__validation.errors:doc.__validation.warnings;
+      if (!target.includes(issue.message)) target.push(issue.message);
+    }
+  }
   const soil = L.soil.filter(r=>GeoFlowDomain.classifySoilRow(r)==="geology").sort((a,b)=>num(a.from)-num(b.from));
   const rockU = L.rock.filter(r=>["geology","core-run"].includes(GeoFlowDomain.classifyRockRow(r))).sort((a,b)=>num(a.from)-num(b.from));
   const rockReport = GeoFlowDomain.partitionRockForReport({ borehole:B, project:P, rock:rockU, corebox:L.corebox||{} });
   const materialRock = rockReport.material;
   const coredRock = rockReport.cored;
   const defs = pdfDefectList(L);
-  const termD = num(B.termDepth);
-  const maxD = Math.max(termD||0, ...soil.map(r=>num(r.to)), ...rockU.map(r=>num(r.to)), 1);
+  const termD = num(B.termDepth) ?? num(B.finalDepth);
+  const observations=[...L.samples.map(r=>Math.max(num(r.to)||0,num(r.from)||0)), ...L.spt.map(r=>Math.max(num(r.depth)||0,GeoFlowDomain.deriveSpt(r).endDepth||0))];
+  const maxD = Math.max(termD||0, ...soil.map(r=>num(r.to)), ...rockU.map(r=>num(r.to)), ...observations, ...defs.map(r=>r.to??r.from), 1);
   const soilEnd = soil.length? Math.max(...soil.map(r=>num(r.to))) : 0;
   const coreStart = rockReport.coreStart;
   const materialRockEnd = materialRock.length ? Math.max(...materialRock.map(r=>Math.min(num(r.to),coreStart??num(r.to)))) : 0;
   const materialEnd = Math.max(soilEnd,materialRockEnd);
-  const materialPages = materialEnd>0 ? Math.max(1,Math.ceil(Math.min(materialEnd+0.001,maxD)/10)) : 0;
+  const materialExtent=coreStart===null?maxD:materialEnd;
+  const materialPages = materialExtent>0 ? Math.max(1,Math.ceil((materialExtent-1e-9)/10)) : 0;
   const rockWins = [];
   if (coreStart!=null && coredRock.length) { const w0=Math.floor(coreStart/10)*10; for (let d=w0; d<maxD-0.001; d+=10) rockWins.push(d); }
   const totalSheets = materialPages + rockWins.length || 1;
@@ -3292,7 +3309,7 @@ function buildPdf(bhId) {
      every log, putting y=77 at 0.00 m and y=271 at exactly 10.00 m. The previous 1000/52
      (19.2308) placed 10 m at y 269.31 — a 1.7 mm drift at the foot of every sheet. */
   const HY=17, HH=42, bandY=59, bandH=18, bodyY=77, bodyB=271, SC=19.4;
-  const GW = gwDepth(P,B);
+  const GW = gwDepth(P,B,L);
   let sheet = 0, qaLogo = false;
   /* Use a PDF-native face on every sheet; embedded Carlito was unreliable in multi-page renderers. */
   const CF = "helvetica";
@@ -3300,7 +3317,7 @@ function buildPdf(bhId) {
   const isTP = /^(TP|PIT)/i.test(bhId) || B.holeType==="TP" || B.holeType==="Test pit";
   const TITLE = isTP ? "TEST PIT LOG" : "BOREHOLE LOG";
   const IDLBL = isTP ? "PIT ID:" : "BH ID:";
-  const isDraft = !(P.reviewBy || P.checkedBy);
+  const isDraft = !(P.reviewBy || P.checkedBy) || doc.__validation.errors.length>0;
   const hasPdfValue = value=>value!==null&&value!==undefined&&String(value).trim()!=="";
   const surfaceRlValue = hasPdfValue(B.rl)?B.rl:P.groundRL;
   const surfaceRlText = hasPdfValue(surfaceRlValue)
@@ -3308,14 +3325,46 @@ function buildPdf(bhId) {
     : "";
   const inclinationText = hasPdfValue(P.inclination)?`${P.inclination} deg`:"";
 
+  const detailNotes=[];
+  function detail(label, text) {
+    const existing=detailNotes.find(n=>n.label===label&&n.text===text);
+    if (existing) return existing.id;
+    const id=`D${detailNotes.length+1}`;
+    detailNotes.push({id,label,text:String(text)}); return id;
+  }
+  function descriptionText(text,x,y,width,height,label) {
+    if (!text) return;
+    doc.setFont("helvetica","normal"); doc.setFontSize(T.desc);
+    const lines=doc.splitTextToSize(String(text),width);
+    const capacity=Math.max(0,Math.min(Math.floor((height+0.8)/2.7),Math.floor((bodyB-y-0.5)/2.7)+1));
+    if (lines.length<=capacity) { doc.text(lines,x,y); return; }
+    const id=detail(label,text), marker=`[${id}] Full text in log details`;
+    if (capacity===0) return; // The scaled graphic identifies this interval; its full record is in the detail register.
+    if (capacity>1) doc.text(lines.slice(0,capacity-1),x,y);
+    doc.text(marker,x,Math.min(bodyB-1.2,y+Math.max(0,capacity-1)*2.7));
+  }
+  function endNote(text,x,y,width) {
+    doc.setFontSize(T.desc);
+    const lines=doc.splitTextToSize(text,width);
+    if (y+lines.length*2.7>bodyB-1) {
+      const id=detail("Termination / continuation",text);
+      doc.text(`[${id}] ${text.startsWith("Terminated")?`Terminated at ${termD.toFixed(2)}m.`:"Log continued on next page."}`,x,bodyB-1.2);
+    } else doc.text(lines,x,y);
+  }
   function vtext(t,x,y,fs){ doc.setFontSize(fs||T.colHead); doc.text(String(t), x, y, {angle:90}); }
   function pdfTri(x,y,filled,size=1.25) {
     const h=size*0.86;
     doc.setDrawColor(0); doc.setFillColor(0);
     doc.triangle(x-size/2,y-h/2,x+size/2,y-h/2,x,y+h/2,filled?"F":"S");
   }
-  function header() {
+  function header(kind,d0) {
     sheet++;
+    doc.setFont("helvetica","bold"); doc.setFontSize(8); doc.setTextColor(23,102,72);
+    doc.text("STS / GEOFLOW",MX,11);
+    doc.setFont("helvetica","normal"); doc.setFontSize(7); doc.setTextColor(70);
+    doc.text("GEOTECHNICAL FIELD RECORD",RX,11,{align:"right"});
+    doc.setFontSize(6);
+    doc.text(`Depth window ${d0.toFixed(2)}-${(d0+10).toFixed(2)} m${sheet>1?" | Log continued from previous page.":""}`,MX,14.5);
     doc.setTextColor(0); doc.setDrawColor(0);
     doc.setLineWidth(LW.frame); doc.rect(MX, HY, RX-MX, bodyB-HY);   // outer frame full page block
     doc.setLineWidth(LW.section); doc.rect(MX, HY, RX-MX, HH);
@@ -3336,8 +3385,9 @@ function buildPdf(bhId) {
     doc.setTextColor(0);
     /* title cell 61–150 mm, BH ID cell 150–196 mm — fitted, never crossing */
     doc.setFont(CF,"normal");
-    doc.setFontSize(fitSize(doc, TITLE, 86, T.title, 14));
-    doc.text(TITLE, 106, HY+13.5, {align:"center"});
+    const pageTitle=isTP?TITLE:kind==="rock"?"CORED ROCK LOG":"SOIL / MATERIAL LOG";
+    doc.setFontSize(fitSize(doc, pageTitle, 86, T.title, 14));
+    doc.text(pageTitle, 106, HY+13.5, {align:"center"});
     doc.setFontSize(10);
     doc.text(IDLBL, RX-1.5, HY+8, {align:"right"});
     doc.setFontSize(fitSize(doc, bhId, 43, T.bhid, 10));
@@ -3346,21 +3396,25 @@ function buildPdf(bhId) {
     doc.setLineWidth(LW.section); doc.line(MX, HY+20, RX, HY+20);
     doc.setFontSize(T.metaL);
     const rows = [
-      [["Client",P.clientName,MX+0.5,12,110],["Date",P.dateInvestigation||P.dateLogged,131.5,16,30]],
-      [["Job No.",P.projectNumber,MX+0.5,12,110],["Logged By",P.loggedBy,131.5,16,16],["Review By",P.reviewBy||P.checkedBy,166,15,13]],
-      [["Address",[P.siteAddress,P.suburb].filter(Boolean).join(", "),MX+0.5,12,110],["Location #",P.locationNo||P.lga,131.5,16,30]],
+      [["Client",P.clientName,MX+0.5,12,98],["Date",P.dateInvestigation||P.dateLogged,131.5,16,30]],
+      [["Job No.",P.projectNumber,MX+0.5,12,98],["Logged By",P.loggedBy,131.5,16,16],["Review By",P.reviewBy||P.checkedBy,166,15,13]],
+      [["Address",[P.siteAddress,P.suburb].filter(Boolean).join(", "),MX+0.5,12,98],["Location #",P.locationNo||P.lga,131.5,16,30]],
       [[isTP?"Excavation Contractor":"Drilling Contractor",P.drillingContractor,MX+0.5,27,52],["Surface RL",surfaceRlText,100,16,32],[isTP?"Pit Dimensions":"Drill Bit",isTP?(B.pitDims||P.pitDims||""):(P.drillBit||""),152,12,30]],
-      [["Plant",P.drillRig,MX+0.5,27,52],["Inclination",inclinationText,100,16,32],["Hole dia. (mm)",P.holeDia,152,16,26]],
+      [["Plant",P.drillRig,MX+0.5,27,52],["Inclination",inclinationText,100,16,32],["Hole dia. (mm)",P.holeDia,152,25,17]],
     ];
-    let y=HY+23.4;
+    let rowIndex=0;
     for (const row of rows) {
+      const y=[40.1,44.1,48.1,53.4,57.8][rowIndex++];
       for (const [l,v,x,lw2,vw] of row) {
         doc.setFont(CF,"bold"); doc.text(l, x, y);
         doc.setFont(CF,"normal");
-        doc.text(trimToW(doc, String(v??""), vw||40), x+lw2, y);
+        const value=String(v??"");
+        if (doc.getTextWidth(value)>(vw||40)) {
+          const id=detail(`Header: ${l}`,value), suffix=` [${id}]`;
+          doc.text(trimToW(doc,value,(vw||40)-doc.getTextWidth(suffix))+suffix,x+lw2,y);
+        } else doc.text(value,x+lw2,y);
         doc.setFont("helvetica","normal");
       }
-      y+=4.3;
     }
     // header meta divider (reference: full grid line at 49 mm)
     doc.setLineWidth(LW.col); doc.line(MX, HY+32, RX, HY+32);
@@ -3378,14 +3432,14 @@ function buildPdf(bhId) {
     leg("S - jar sample", 65.5, 276.7, 47); leg("B - bulk sample", 65.5, 279.3, 47);
     leg("WT - level of water table or free water", 112.5, 276.7, 46); leg("N - Standard Penetration Test (SPT)", 112.5, 279.3, 46);
     doc.setFontSize(T.sheet); doc.text(`Sheet ${sheet} of ${totalSheets}`, (157+RX)/2, 278.3, {align:"center"});
-    if (isDraft) {
-      doc.setFont(CF,"bold"); doc.setFontSize(5.5); doc.setTextColor(90);
-      doc.text("DRAFT - UNREVIEWED", RX-1.5, 273.4, {align:"right"});
-      doc.setTextColor(0);
-    }
+    doc.setFont(CF,"normal"); doc.setFontSize(6.5); doc.setTextColor(70);
+    doc.text(`${isDraft?"DRAFT - REVIEW REQUIRED":"REVIEWED"}  |  Rev ${S.reportMeta?.[bhId]?.revision||"P01"}  |  Depth scale 1:51.55`,MX,286);
+    doc.text("GeoFlow / Soil and rock logging",RX,286,{align:"right"});
+    if (sheet<totalSheets) { doc.setFontSize(6); doc.text("Log continued on next page.",MX,290); }
     doc.setFont("helvetica","normal");
   }
   function band(cols, segs) {
+    doc.setFillColor(245,247,246); doc.rect(MX,bandY,RX-MX,bandH,"F");
     doc.setDrawColor(0); doc.setLineWidth(LW.col);
     if (segs) { for (const [a,b] of segs) { doc.line(a, bandY, b, bandY); doc.line(a, bandY+bandH, b, bandY+bandH); } }
     else doc.rect(MX, bandY, RX-MX, bandH);
@@ -3428,7 +3482,7 @@ function buildPdf(bhId) {
       {x:MX+140,w:7,label:"CLASSIFICATION\nSYMBOL",rot:1},
       {x:MX+147,w:20,label:"CONSISTENCY /\nREL. DENSITY",rot:1},
       {x:MX+167,w:RX-(MX+167),label:"MOISTURE\nCONDITION",rot:1} ];
-    header(); band(C); grid(C);
+    header("soil",d0); band(C); grid(C);
     depthCol(C[2].x, C[2].w, d0, 0.5);
     // groundwater
     doc.setFontSize(T.depth);
@@ -3436,7 +3490,7 @@ function buildPdf(bhId) {
       const y=yOf(GW); doc.setLineWidth(LW.interval);
       pdfTri(C[0].x+C[0].w/2, y+0.6, true, 1.5);
       doc.text("WT", C[0].x+C[0].w/2, y+4, {align:"center"});
-    } else if (!GW && /GWNE|not encountered|none observed/i.test(String(P.groundwater||""))) vtext("GWNE", C[0].x+C[0].w/2+1, bodyY+58, T.depth);
+    } else if (GW===null && /GWNE|not encountered|none observed/i.test(String(L.gw?.state||P.groundwater||""))) vtext("GWNE", C[0].x+C[0].w/2+1, bodyY+58, T.depth);
     for (const r of soil) {
       const f=Math.max(num(r.from),d0), t=Math.min(num(r.to),d0+10);
       if (t<=d0||f>=d0+10) continue;
@@ -3444,12 +3498,11 @@ function buildPdf(bhId) {
       pdfHatch(doc, C[3].x, C[3].w, y1, y2, r.fillNatural==="FILL"?"FILL":r.material);
       doc.setDrawColor(0); doc.setLineWidth(LW.interval);
       doc.line(C[3].x, y1, RX, y1);
-      if (num(r.from)>=d0) {
+      { // Repeat the observed description and codes on continuation sheets.
         doc.setFontSize(T.desc); doc.setTextColor(0);
         const description=r.description||soilDescription(r);
         if (description) {
-          const txt=doc.splitTextToSize(description, C[4].w-3);
-          doc.text(txt.slice(0, Math.max(1, Math.floor((y2-y1-1.4)/2.7))), C[4].x+1.5, y1+2.8);
+          descriptionText((num(r.from)<d0?"(continued) ":"")+description,C[4].x+1.5,y1+2.8,C[4].w-3,y2-y1-1.4,`Soil ${r.from}-${r.to} m`);
         }
         const cy=(y1+y2)/2+1;
         doc.setFontSize(T.code);
@@ -3466,12 +3519,11 @@ function buildPdf(bhId) {
       const y1=yOf(f), y2=yOf(t);
       pdfHatch(doc,C[3].x,C[3].w,y1,y2,r.rockType);
       doc.setDrawColor(0); doc.setLineWidth(LW.interval); doc.line(C[3].x,y1,RX,y1);
-      if (num(r.from)>=d0) {
+      { // Repeat non-cored rock on continuation sheets.
         doc.setFontSize(T.desc); doc.setTextColor(0);
         const description=r.description||rockDescription(r);
         if (description) {
-          const txt=doc.splitTextToSize(description,C[4].w-3);
-          doc.text(txt.slice(0,Math.max(1,Math.floor((y2-y1-1.4)/2.7))),C[4].x+1.5,y1+2.8);
+          descriptionText((num(r.from)<d0?"(continued) ":"")+description,C[4].x+1.5,y1+2.8,C[4].w-3,y2-y1-1.4,`Rock ${r.from}-${r.to} m`);
         }
         if (r.rockClass) { doc.setFontSize(T.code); doc.text(String(r.rockClass),C[5].x+C[5].w/2,(y1+y2)/2+1,{align:"center"}); }
       }
@@ -3485,18 +3537,25 @@ function buildPdf(bhId) {
     for (const m2 of marks) {
       const y=yOf(m2.d);
       let ty=Math.max(y+1.5, lastY+3);
+      if (ty+(m2.lines.length-1)*2.6>bodyB-2) {
+        detail(`Sample / test at ${m2.d.toFixed(2)} m`,m2.lines.join("; ")); continue;
+      }
+      if (m2.lines.some(line=>doc.getTextWidth(line)>C[1].w-3)) {
+        const id=detail(`Sample / test at ${m2.d.toFixed(2)} m`,m2.lines.join("; "));
+        m2.lines=[`[${id}] ${m2.d.toFixed(2)} m`];
+      }
       if (ty>y+2) { doc.setLineWidth(LW.tick); doc.line(C[1].x+0.5, y, C[1].x+1.6, ty-1); }
       m2.lines.forEach((ln,li)=>doc.text(trimToW(doc, ln, C[1].w-3), C[1].x+2, ty+li*2.6));
       lastY = ty + (m2.lines.length-1)*2.6;
     }
     if (materialEnd<=d0+10 && coreStart!=null) {
       doc.setFont("helvetica","italic"); doc.setFontSize(T.desc);
-      doc.text("Log continued on next page.", C[4].x+C[4].w/2, yOf(Math.min(materialEnd,d0+10))+4, {align:"center"});
+      endNote("Log continued on next page.",C[4].x+1.5,yOf(Math.min(materialEnd,d0+10))+4,C[4].w-3);
       doc.setFont("helvetica","normal");
     }
-    if (termD!=null && termD>=d0 && termD<d0+10 && coreStart==null) {
+    if (termD!=null && (termD>d0 || (termD===0&&d0===0)) && termD<=d0+10 && coreStart==null) {
       const y=yOf(termD); doc.setLineWidth(LW.section); doc.line(MX,y,RX,y);
-      doc.setFontSize(T.desc); doc.text(`Terminated at ${termD.toFixed(2)}m${B.termReason?`. ${B.termReason}`:"."}`, C[4].x+1.5, y+3.2);
+      endNote(`Terminated at ${termD.toFixed(2)}m${B.termReason?`. ${B.termReason}`:"."}`,C[4].x+1.5,y+3.2,C[4].w-3);
     }
   }
 
@@ -3515,14 +3574,13 @@ function buildPdf(bhId) {
       {x:MX+101,w:6,label:"WEATHERING",rot:1},
       {x:MX+107,w:15,label:"",fs:5},
       {x:MX+122,w:42,label:"DISCONTINUITIES\n& ADDITIONAL DATA",fs:6,mid:1},
-      {x:MX+164,w:RX-(MX+164),label:"FRACTURE\nSPACING",rot:1} ];
-    header(); band(C, [[MX+43,MX+101],[MX+107,RX]]); grid(C);
+      {x:MX+164,w:RX-(MX+164),label:"FRACTURE\nSPACING (mm)",fs:4.8} ];
+    header("rock",d0); band(C, [[MX+43,MX+101],[MX+107,RX]]); grid(C);
     doc.setFontSize(4.6); doc.setFont("helvetica","bold");
     doc.text("ESTIMATED", C[9].x+C[9].w/2, bandY+2.4, {align:"center"});
     doc.text("STRENGTH Is(50)", C[9].x+C[9].w/2, bandY+4.6, {align:"center"});
     doc.setFontSize(3.9); doc.setFont("helvetica","normal");
-    pdfTri(C[9].x+2.2, bandY+6.4, true, 1.05); doc.text("- Axial", C[9].x+3.1, bandY+6.8);
-    pdfTri(C[9].x+8.2, bandY+6.4, false, 1.05); doc.text("- Diametral", C[9].x+9.1, bandY+6.8);
+    doc.circle(C[9].x+1.5,bandY+6.3,0.3,"F"); doc.text("Class estimate",C[9].x+2.4,bandY+6.8);
     doc.setFont("helvetica","normal");
     STR_ORDER.forEach((s2,i)=>{ const sw=C[9].w/6; vtext(s2, C[9].x+i*sw+sw/2+1, bandY+bandH-1, 4.3);
       doc.setLineWidth(LW.tick); doc.line(C[9].x+i*sw, bandY+7.5, C[9].x+i*sw, bodyB); });
@@ -3538,6 +3596,7 @@ function buildPdf(bhId) {
       const f=Math.max(num(r.from),d0), t=Math.min(num(r.to),d0+10);
       if (t<=d0||f>=d0+10) continue;
       const y1=yOf(f), y2=yOf(t);
+      if (GeoFlowDomain.classifyRockRow(r)==="geology") {
       pdfHatch(doc, C[5].x, C[5].w, y1, y2, r.rockType);
       /* unit boundary spans graphic log + description only (measured: 60–118 mm) */
       doc.setDrawColor(0); doc.setLineWidth(LW.interval); doc.line(C[5].x, y1, C[7].x+C[7].w, y1);
@@ -3547,18 +3606,18 @@ function buildPdf(bhId) {
         doc.line(C[5].x, y2, C[7].x+C[7].w, y2);
       }
       doc.setFontSize(T.depth); doc.setTextColor(0);
-      if (num(r.from)>=d0) {
+      { // Repeat cored geology on continuation sheets.
         if (Math.abs(num(r.from)-Math.round(num(r.from)))>0.011) {
           doc.setFontSize(5.2);
           doc.text(num(r.from).toFixed(2), C[4].x+C[4].w-0.6, y1+2.2, {align:"right"});
         }
-        if (RL0!=null) doc.text((RL0-num(r.from)).toFixed(2), C[6].x+0.8, y1+2.2);
+        if (RL0!=null) doc.text((RL0-f).toFixed(2), C[6].x+0.8, y1+2.2);
         doc.setFontSize(T.desc);
         const description=r.description||rockDescription(r);
         if (description) {
-          const txt=doc.splitTextToSize(description, C[7].w-3);
-          doc.text(txt.slice(0, Math.max(1, Math.floor((y2-y1-1.4)/2.7))), C[7].x+1.5, y1+2.8);
+          descriptionText((num(r.from)<d0?"(continued) ":"")+description,C[7].x+1.5,y1+2.8,C[7].w-3,y2-y1-1.4,`Cored rock ${r.from}-${r.to} m`);
         }
+      }
       }
       const cy=(y1+y2)/2;
       doc.setFontSize(T.code);
@@ -3570,8 +3629,9 @@ function buildPdf(bhId) {
       const si=STR_ORDER.indexOf(r.strength);
       if (si>=0) { const sw=C[9].w/6;
         doc.setTextColor(0);
-        pdfTri(C[9].x+si*sw+sw/2, cy, true, 1.35);
-        if (r.is50!==""&&r.is50!=null) pdfTri(C[9].x+si*sw+sw/2, cy+3, false, 1.35); }
+        doc.circle(C[9].x+si*sw+sw/2,cy,0.4,"F");
+      }
+      if (num(r.is50)!==null) detail(`Point load ${r.from}-${r.to} m`,`Is(50) = ${r.is50} MPa. Test orientation was not recorded.`);
     }
     doc.setFontSize(T.defect); doc.setTextColor(0);
     const pageDefs=defs.filter(d=>d.from>=d0&&d.from<d0+10);
@@ -3587,13 +3647,19 @@ function buildPdf(bhId) {
     }
     pageDefs.forEach((d,index)=>{
       const y=yOf(d.from), ty=labelYs[index];
+      const full=`${d.from.toFixed(2)}${d.to?("-"+d.to.toFixed(2)):""}: ${d.code}`;
+      if (ty>bodyB-2 || ty<bodyY+1 || doc.getTextWidth(full)>C[10].w-4) {
+        const id=detail(`Defect at ${d.from.toFixed(2)} m`,full);
+        if (ty>=bodyY+1&&ty<bodyB-2) doc.text(`[${id}] ${d.from.toFixed(2)} m`,C[10].x+3,ty);
+        return;
+      }
       doc.setDrawColor(0); doc.setLineWidth(LW.tick);
       doc.line(C[10].x+0.5, y, C[10].x+2.2, y);
       if (Math.abs(ty-y)>2) doc.line(C[10].x+2.2,y,C[10].x+2.8,ty-0.8);
       doc.text(trimToW(doc, `${d.from.toFixed(2)}${d.to?("-"+d.to.toFixed(2)):""}: ${d.code}`, C[10].w-4), C[10].x+3, ty);
     });
     // fracture spacing — stepped polyline on the log axis (reference style; no filled bars)
-    const bps=defs.filter(d=>!d.to).map(d=>d.from).filter(d=>d>=d0&&d<d0+10).sort((a,b)=>a-b);
+    const bps=defs.filter(d=>!d.to&&!/^(HB|MB|DB)\b/i.test(d.code||"")).map(d=>d.from).filter(d=>d>=d0&&d<d0+10).sort((a,b)=>a-b);
     const lo=Math.max(d0, coreStart??d0), hi=Math.min(d0+10, termD??maxD);
     const pts=[lo,...bps,hi];
     doc.setDrawColor(0); doc.setLineWidth(LW.interval);
@@ -3604,14 +3670,40 @@ function buildPdf(bhId) {
       doc.line(x, yOf(a), x, yOf(b));
       if (prevX!=null) doc.line(prevX, yOf(a), x, yOf(a));
       prevX=x; }
-    if (termD!=null && termD>=d0 && termD<d0+10) {
+    if (termD!=null && (termD>d0 || (termD===0&&d0===0)) && termD<=d0+10) {
       const y=yOf(termD); doc.setDrawColor(0); doc.setLineWidth(LW.interval);
       doc.line(C[5].x, y, C[7].x+C[7].w, y);   /* termination rule spans graphic+description, per reference */
       doc.setFontSize(T.desc);
-      doc.text(trimToW(doc, `Terminated at ${termD.toFixed(2)}m${B.termReason?`. ${B.termReason}`:"."}`, C[7].w-3), C[7].x+1.5, y+3.4);
+      endNote(`Terminated at ${termD.toFixed(2)}m${B.termReason?`. ${B.termReason}`:"."}`,C[7].x+1.5,y+3.4,C[7].w-3);
     }
-    if (d0===rockWins[0] && d0>0) { doc.setFont("helvetica","italic"); doc.setFontSize(T.desc);
-      doc.text("Log continued from previous page.", C[7].x+C[7].w/2, bodyY+4, {align:"center"}); doc.setFont("helvetica","normal"); }
+  }
+  // Cored sheets have no sample column; retain all those observations in the detail register.
+  if (coreStart!==null) {
+    L.samples.filter(r=>num(r.from)>=coreStart&&r.sid).forEach(r=>detail(`Sample ${r.from}-${r.to||r.from} m`,`${r.sid} | ${r.type||""} | ${r.remarks||""}`));
+    L.spt.filter(r=>num(r.depth)>=coreStart).forEach(r=>detail(`SPT at ${r.depth} m`,`${GeoFlowDomain.formatSptDepthLine(r)}; ${sptLine2(r)}`));
+  }
+  if (detailNotes.length) {
+    let y=999;
+    function detailPage() {
+      doc.addPage(); doc.setTextColor(23,102,72); doc.setFont("helvetica","bold"); doc.setFontSize(14);
+      doc.text("GEOFLOW / LOG DETAILS",MX,22);
+      doc.setTextColor(0); doc.setFontSize(9);
+      doc.text(`${bhId}  |  ${P.projectNumber||""}  |  ${isDraft?"DRAFT - REVIEW REQUIRED":"REVIEWED"}`,MX,30);
+      doc.setFont("helvetica","normal"); doc.setFontSize(8);
+      doc.text("Full records referenced from the scaled log sheets. Depths are in metres.",MX,37);
+      doc.setDrawColor(23,102,72); doc.setLineWidth(LW.section); doc.line(MX,41,RX,41); y=49;
+    }
+    for (const note of detailNotes) {
+      if (y>255) detailPage();
+      doc.setFont("helvetica","bold"); doc.setFontSize(9);
+      doc.text(`[${note.id}] ${note.label}`,MX,y); y+=6;
+      doc.setFont("helvetica","normal"); doc.setFontSize(9);
+      for (const line of doc.splitTextToSize(note.text,RX-MX-3)) {
+        if (y>270) { detailPage(); doc.setFontSize(9); }
+        doc.text(line,MX,y); y+=4.2;
+      }
+      y+=5;
+    }
   }
   if (B.photoReq && L.corebox && L.corebox.img) {
     doc.addPage(); doc.setFontSize(11); doc.setFont("helvetica","bold"); doc.setTextColor(0);
@@ -3619,7 +3711,13 @@ function buildPdf(bhId) {
     try { const ratio=L.corebox.natH/L.corebox.natW, iw=W-2*MX, ih=Math.min(iw*ratio,250);
       doc.addImage(L.corebox.img,"JPEG",MX,22,iw,ih); } catch(e){}
   }
-  doc.__qa = { logo: qaLogo, sheets: sheet, materialSheets:materialPages, coreSheets:rockWins.length, coreStart };
+  const documentPages=doc.getNumberOfPages();
+  for (let page=1;page<=documentPages;page++) {
+    doc.setPage(page); doc.setFont("helvetica","normal"); doc.setFontSize(6); doc.setTextColor(80);
+    doc.text(`${bhId} | Page ${page} of ${documentPages}${detailNotes.length?" | Includes log details":""}`,RX,292,{align:"right"});
+  }
+  doc.__details=detailNotes;
+  doc.__qa = { documentPages, detailRecords:detailNotes.length, logo: qaLogo, sheets: sheet, materialSheets:materialPages, coreSheets:rockWins.length, coreStart };
   if (!qaLogo) setStatus("⚠ PDF QA: STS logo failed to render — check before issuing");
   return doc;
 }
@@ -6021,6 +6119,10 @@ renderSoil=function(){
   };
   page.querySelector("#soilMerge").onclick=()=>{
     if (selected>=L.soil.length-1) return setStatus("No layer below to merge");
+    const upper=L.soil[selected],lower=L.soil[selected+1];
+    if (num(upper.to)!==num(lower.from)) return setStatus("Only adjacent intervals can be merged");
+    const geologyKeys=["material","secondary","description","colour","plasticity","consistency","moisture","uscs","origin","fillNatural","inclusions","structure","remarks"];
+    if (geologyKeys.some(key=>String(upper[key]??"")!==String(lower[key]??""))) return setStatus("These intervals contain different observations. Review their descriptions before merging.");
     L.soil[selected].to=L.soil[selected+1].to; L.soil.splice(selected+1,1); save(); renderSoil();
   };
   page.querySelector("#soilRegenerate").onclick=()=>{ if (!L.soil[selected]) return; regenerateSoil17(L.soil[selected]); save(); renderSoil(); };
@@ -6157,13 +6259,9 @@ validate=function(){
 sptLine2=function(row){ return D17.formatSptLine(row); };
 const buildPdfBeforeSlice17=buildPdf;
 buildPdf=function(bhId){
-  const source=S.logs[bhId];
-  if (!source) return buildPdfBeforeSlice17(bhId);
-  const projection=JSON.parse(JSON.stringify(source));
-  (projection.spt||[]).forEach(applySptDerived17);
-  S.logs[bhId]=projection;
-  try { return buildPdfBeforeSlice17(bhId); }
-  finally { S.logs[bhId]=source; }
+  // SPT formatting derives values without rewriting the record. Validate the original
+  // observations so a stale entered N-value remains visible in the PDF review gate.
+  return buildPdfBeforeSlice17(bhId);
 };
 if (["soil","spt"].includes(S.activeTab)) showTab(S.activeTab);
 })();

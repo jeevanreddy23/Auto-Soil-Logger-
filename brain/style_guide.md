@@ -102,3 +102,5 @@ unverified and should be labelled a proposal until STS supplies a real test-pit 
 - 2026-07-10 — fixed line weights, footer geometry, band segmentation, TCR/RQD placement,
   fracture axis + stepped polyline, boundary spans; verified zero missing lines vs
   log-BH8-Cored. Added validation gate with auto-repairs.
+
+- 2026-09-05 - User-requested GeoFlow soil/rock PDF redesign: distinct titles, pale bands, revision/status footers, repeated continuation descriptions and full-text detail pages. Body geometry remains 77-271 mm at 19.4 mm/m; column positions verified against log-BH8-Cored within 0.5 mm. Class estimates use dots; Is(50) values with unspecified orientation remain in details. See docs/logging-pdf-audit-2026-09-05.md. Local verification only; not deployed.

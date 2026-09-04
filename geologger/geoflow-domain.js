@@ -42,7 +42,7 @@
   }
 
   function numberOrNull(value) {
-    if (!hasValue(value)) return null;
+    if (!hasValue(value) || typeof value === "boolean" || (typeof value === "string" && !value.trim())) return null;
     const valueNumber = Number(value);
     return Number.isFinite(valueNumber) ? valueNumber : null;
   }
@@ -100,7 +100,7 @@
   function validInterval(row) {
     const from = numberOrNull(row && row.from);
     const to = numberOrNull(row && row.to);
-    return from !== null && to !== null && to > from;
+    return from !== null && from >= 0 && to !== null && to > from;
   }
 
   function classifySoilRow(row = {}) {
@@ -147,7 +147,7 @@
   function penetration(value, blows) {
     const explicit = numberOrNull(value);
     if (explicit !== null) return explicit;
-    return hasValue(blows) ? 150 : null;
+    return numberOrNull(blows) !== null ? 150 : null;
   }
 
   function deriveSpt(row) {
@@ -159,14 +159,14 @@
     ];
     const hasTestData = [row.depth, row.b1, row.b2, row.b3, row.p1, row.p2, row.p3]
       .some(hasValue) || Boolean(row.refusal || row.hb);
-    const invalidBlows = blows.some(value => value !== null && (value < 0 || !Number.isInteger(value)));
-    const invalidPenetration = penetrations.some(value => value !== null && (value <= 0 || value > 150));
+    const invalidBlows = [row.b1, row.b2, row.b3].some((raw, i) => isEntered(raw) && (blows[i] === null || blows[i] < 0 || !Number.isInteger(blows[i])));
+    const invalidPenetration = [row.p1, row.p2, row.p3].some((raw, i) => isEntered(raw) && (numberOrNull(raw) === null || penetrations[i] < 0 || penetrations[i] > 150));
     const invalid = invalidBlows || invalidPenetration;
     const partial = penetrations.some(value => value !== null && value < 150);
-    const nIncrementsComplete = blows[1] !== null && blows[2] !== null && penetrations[1] === 150 && penetrations[2] === 150;
+    const nIncrementsComplete = blows.every(value => value !== null) && penetrations.every(value => value === 150);
     const totalPenetration = penetrations.reduce((sum, value) => sum + (value || 0), 0);
     const startDepth = numberOrNull(row.depth);
-    const endDepth = startDepth !== null && totalPenetration
+    const endDepth = startDepth !== null && penetrations.some(value => value !== null)
       ? Math.round((startDepth + totalPenetration / 1000) * 1000) / 1000
       : null;
 
@@ -231,9 +231,10 @@
     const result = deriveSpt(row);
     const issues = [];
     if (!result.hasTestData) return issues;
-    if (numberOrNull(row.depth) === null) issues.push({ severity: "error", message: "test depth is required" });
-    if (result.status === "invalid") issues.push({ severity: "error", message: "blows must be whole non-negative values and penetration must be 1-150 mm" });
-    if (result.status === "incomplete") issues.push({ severity: "error", message: "2nd and 3rd test increments are required for an N-value" });
+    if (numberOrNull(row.depth) === null || numberOrNull(row.depth) < 0) issues.push({ severity: "error", message: "a non-negative test depth is required" });
+    if (result.status === "invalid") issues.push({ severity: "error", message: "blows must be whole non-negative values and penetration must be 0-150 mm" });
+    if (result.status === "incomplete") issues.push({ severity: "error", message: "seating, 2nd and 3rd increments are required for an N-value" });
+    if (result.penetrations.some((value, i) => value !== null && result.blows[i] === null)) issues.push({ severity: "error", message: "each penetration needs its recorded blow count" });
     if (result.status === "partial" && !row.refusal) issues.push({ severity: "warning", message: "partial penetration is reported as N=R; confirm refusal or hammer bounce" });
     if (hasValue(row.n) && String(row.n) !== result.n) issues.push({ severity: "warning", message: `stored N=${row.n} differs from derived N=${result.n || "-"}` });
     const suppliedEnd = numberOrNull(row.endDepth);
@@ -254,7 +255,7 @@
         issues.push({ severity: "error", index, message: "interval needs both From and To depths" });
         return;
       }
-      if (to <= from) issues.push({ severity: "error", index, message: "From depth must be less than To depth" });
+      if (from < 0 || to <= from) issues.push({ severity: "error", index, message: "From depth must be non-negative and less than To depth" });
       else complete.push({ index, from, to });
     });
     complete.sort((left, right) => left.from - right.from);
@@ -288,7 +289,7 @@
     });
 
     const explicitCoring = Boolean(borehole.coreReq) || /\b(?:core|coring|nmlc|h(?:q|q3)|p(?:q|q3)|diamond)\b/i.test(String(project.drillingMethod || ""));
-    if (!candidates.length && explicitCoring && units.length) add(units[0].from);
+    if (!candidates.length && explicitCoring) units.forEach(row => add(row.from));
 
     return candidates.length ? Math.min(...candidates) : null;
   }

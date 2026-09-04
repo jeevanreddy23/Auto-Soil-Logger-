@@ -1016,7 +1016,7 @@ function wire(m, s){
     m.querySelectorAll("[data-dri]").forEach(b=>b.addEventListener("click",()=>{ (L().rock||[]).splice(+b.dataset.dri,1); save(); render(); }));
     const mf=m.querySelector("#dMatFree"); if (mf) mf.addEventListener("input",()=>{ d.material=mf.value; upd(); });
     ["dDefSp","dTcr","dRqd"].forEach(id=>{ const el=m.querySelector("#"+id); if (el) el.addEventListener("input",()=>{
-      d.defSpacing=m.querySelector("#dDefSp")?.value||d.defSpacing; d.tcr=m.querySelector("#dTcr")?.value||d.tcr; d.rqd=m.querySelector("#dRqd")?.value||d.rqd; }); });
+      d.defSpacing=m.querySelector("#dDefSp")?.value??d.defSpacing; d.tcr=m.querySelector("#dTcr")?.value??d.tcr; d.rqd=m.querySelector("#dRqd")?.value??d.rqd; debSave(); }); });
     m.querySelectorAll("[data-ex]").forEach(c=>c.addEventListener("click",()=>{
       const v=c.dataset.ex; d.extras=d.extras||[];
       d.extras.includes(v)? d.extras.splice(d.extras.indexOf(v),1) : d.extras.push(v);
@@ -1028,7 +1028,7 @@ function wire(m, s){
     ["dFrom","dTo","dRem"].forEach(id=>{ const el=m.querySelector("#"+id); if(el) el.addEventListener("input",()=>{ d.from=num(document.getElementById("dFrom").value)??d.from; d.to=document.getElementById("dTo").value; d.remarks=document.getElementById("dRem").value; }); });
     m.querySelector("#saveIv").addEventListener("click",()=>{
       d.from=num(document.getElementById("dFrom").value); d.to=num(document.getElementById("dTo").value);
-      if (d.from==null||d.to==null||d.to<=d.from) return alert("Check From/To depths");
+      if (d.from==null||d.to==null||d.from<0||d.to<=d.from) return alert("Check From/To depths: From must be non-negative and To must be deeper");
       if (d.kind==="rock"){
         if (!d.rockType) return alert("Pick a rock type");
         d.desc=rockDesc(d);

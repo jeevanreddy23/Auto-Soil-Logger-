@@ -244,13 +244,15 @@
   }
 
   function ensureGenerated(row, regenerate) {
-    if (!regenerate && generated.has(row.id)) return generated.get(row.id);
+    const source=state();
+    const fingerprint=JSON.stringify([source.project,source.boreholes?.find(b=>b.id===row.boreholeId),source.logs?.[row.boreholeId],source.reportMeta?.[row.boreholeId]]);
+    if (!regenerate && generated.get(row.id)?.fingerprint===fingerprint) return generated.get(row.id);
     if (typeof buildPdf !== "function") throw new Error("The PDF engine is unavailable.");
     const doc = buildPdf(row.boreholeId);
     const previous = generated.get(row.id);
     if (previous && previous.url) URL.revokeObjectURL(previous.url);
     const blob = doc.output("blob");
-    const item = { doc, blob, url: URL.createObjectURL(blob), pages: doc.getNumberOfPages(), at: new Date().toISOString() };
+    const item = { doc, blob, fingerprint, url: URL.createObjectURL(blob), pages: doc.getNumberOfPages(), at: new Date().toISOString() };
     generated.set(row.id, item);
     return item;
   }

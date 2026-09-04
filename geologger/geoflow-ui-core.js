@@ -1,8 +1,8 @@
 (function (root, factory) {
-  const api = factory();
+  const api = factory(typeof module === "object" && module.exports ? require("./geoflow-domain.js") : root.GeoFlowDomain);
   if (typeof module === "object" && module.exports) module.exports = api;
   if (root) root.GeoFlowUICore = api;
-})(typeof globalThis !== "undefined" ? globalThis : this, function () {
+})(typeof globalThis !== "undefined" ? globalThis : this, function (Domain) {
   "use strict";
 
   const SEVERITY_ORDER = { error: 0, warning: 1, suggestion: 2 };
@@ -14,7 +14,7 @@
   ];
 
   function num(value) {
-    if (value === "" || value === null || value === undefined || typeof value === "boolean") return null;
+    if (value === "" || value === null || value === undefined || typeof value === "boolean" || (typeof value === "string" && !value.trim())) return null;
     const parsed = Number(value);
     return Number.isFinite(parsed) ? parsed : null;
   }
@@ -60,6 +60,11 @@
     return Math.max(num(row && row.to) || 0, num(row && row.from) || 0, num(row && row.depth) || 0);
   }
 
+  function normaliseSpt(row = {}) {
+    return { ...row, b1: row.b1 ?? row.first150, b2: row.b2 ?? row.second150,
+      b3: row.b3 ?? row.third150, hb: row.hb || row.hammerBounce };
+  }
+
   function loggedBoreholeDepth(state, boreholeId) {
     const borehole = (state && state.boreholes || []).find((item) => item.id === boreholeId) || {};
     const log = normaliseLog(state && state.logs && state.logs[boreholeId]);
@@ -68,7 +73,7 @@
       num(borehole.finalDepth) || 0,
       ...log.soil.map(rowDepth),
       ...log.rock.map(rowDepth),
-      ...log.spt.map(rowDepth),
+      ...log.spt.map(row => Math.max(rowDepth(row), Domain.deriveSpt(normaliseSpt(row)).endDepth || 0)),
       ...log.samples.map(rowDepth),
       ...dcpProfile(log.dcp).map((point) => point.to)
     ];
@@ -96,12 +101,13 @@
     const first = num(source.b1 != null ? source.b1 : source.first150);
     const second = num(source.b2 != null ? source.b2 : source.second150);
     const third = num(source.b3 != null ? source.b3 : source.third150);
-    const hasData = entered(source, ["depth", "to", "seat", "seating", "b1", "b2", "b3", "first150", "second150", "third150", "refusal", "hammerBounce", "hb", "remarks"]);
-    const calculatedN = second != null && third != null ? second + third : null;
+    const hasData = entered(source, ["depth", "to", "seat", "seating", "b1", "b2", "b3", "p1", "p2", "p3", "first150", "second150", "third150", "refusal", "hammerBounce", "hb", "remarks"]);
+    const derived = Domain.deriveSpt(normaliseSpt(source));
+    const calculatedN = derived.n !== "" && derived.n !== "R" ? Number(derived.n) : null;
     const refusal = Boolean(source.refusal);
     const hammerBounce = Boolean(source.hammerBounce || source.hb);
     let status = "Not started";
-    if (hasData) status = refusal ? "Refusal" : hammerBounce ? "Hammer bounce" : calculatedN != null ? "Complete" : "Incomplete";
+    if (hasData) status = derived.label;
     return { first, second, third, calculatedN, refusal, hammerBounce, hasData, status };
   }
 
@@ -172,7 +178,7 @@
         }));
         return;
       }
-      if (to <= from) {
+      if (from < 0 || to <= from) {
         issues.push(makeIssue({
           id: `${config.nav}-${config.boreholeId}-${rowIndex}-depth-order`,
           severity: "error",
@@ -260,7 +266,21 @@
 
       const log = normaliseLog(source.logs && source.logs[id]);
       issues.push(...intervalIssues(log.soil, { area: "Soil", nav: "soil", boreholeId: id, keys: ["material", "description"] }));
-      issues.push(...intervalIssues(log.rock, { area: "Rock", nav: "rock", boreholeId: id, keys: ["rockType", "description", "weathering", "strength", "tcr", "rqd"], allowPointRows: true }));
+      // Recovery runs and defect zones are independent of geological interval boundaries.
+      const rockGeology = log.rock.map(row => row.defectType || Domain.classifyRockRow(row) === "core-run" ? {} : row);
+      issues.push(...intervalIssues(rockGeology, { area: "Rock", nav: "rock", boreholeId: id, keys: ["rockType", "description", "weathering", "strength", "tcr", "rqd"], allowPointRows: true }));
+      log.rock.forEach((row, rowIndex) => {
+        const add = (code, message, severity="error") => issues.push(makeIssue({id:`rock-${id}-${rowIndex}-${code}`, severity, area:"Rock", nav:"rock", boreholeId:id, rowIndex, depth:num(row.from), code, message:`${id} rock row ${rowIndex+1}: ${message}`}));
+        if (row.defectType && (num(row.from) === null || num(row.from) < 0)) add("defect-depth", "a non-negative defect depth is required.");
+        if (row.defectType && num(row.to) !== null && num(row.to) < num(row.from)) add("defect-order", "defect end is above its start.");
+        for (const key of ["tcr", "scr", "rqd"]) {
+          if (text(row[key]) && (num(row[key]) === null || num(row[key]) < 0 || (key !== "tcr" && num(row[key]) > 100))) add(`recovery-range-${key}`, `${key.toUpperCase()} is invalid.`);
+        }
+        if (num(row.tcr) > 100) add("tcr-review", "TCR exceeds 100%; confirm the recovery measurement.", "warning");
+        if (num(row.rqd) !== null && num(row.tcr) !== null && num(row.rqd) > num(row.tcr)) add("recovery-order", "RQD exceeds TCR.");
+        if (num(row.scr) !== null && num(row.tcr) !== null && num(row.scr) > num(row.tcr)) add("scr-order", "SCR exceeds TCR.");
+        if (Domain.classifyRockRow(row) === "core-run") Domain.intervalIssues([row]).forEach(issue => add("core-depth", issue.message));
+      });
 
       if (!log.soil.some((row) => entered(row, ["material", "description"])) && !log.rock.some((row) => entered(row, ["rockType", "description"]))) {
         issues.push(makeIssue({
@@ -272,6 +292,9 @@
       log.spt.forEach((row, rowIndex) => {
         const result = deriveSpt(row);
         if (!result.hasData) return;
+        Domain.sptIssues(normaliseSpt(row)).filter(issue => issue.severity === "error").forEach((issue, index) => issues.push(makeIssue({
+          id:`spt-${id}-${rowIndex}-domain-${index}`, severity:"error", area:"SPT", nav:"spt", boreholeId:id, rowIndex, depth:num(row.depth), code:"spt-invalid", message:`${id} SPT: ${issue.message}.`
+        })));
         if (result.status === "Incomplete") {
           issues.push(makeIssue({
             id: `spt-${id}-${rowIndex}-incomplete`, severity: "warning", area: "SPT", nav: "spt",
@@ -321,7 +344,7 @@
         }
       });
 
-      const finalDepth = num(borehole.termDepth != null ? borehole.termDepth : borehole.finalDepth);
+      const finalDepth = num(borehole.termDepth) ?? num(borehole.finalDepth);
       if (finalDepth != null) {
         const deepest = maxBoreholeDepth(Object.assign({}, source, {
           boreholes: [Object.assign({}, borehole, { plannedDepth: "", planned: "" })]
