@@ -73,11 +73,15 @@
       const meta = state().reportMeta && state().reportMeta[row.boreholeId] || {};
       const transient = activity[row.id];
       let status = row.file ? "Ready" : "Draft";
+      const currentSource = root.GeoFlowWorkflow?.sourceKey(state(), row.boreholeId);
+      const stale = Boolean(row.file && currentSource && meta.sourceKey !== currentSource);
+      if (stale) status = "Needs regeneration";
       if (meta.archived) status = "Superseded";
       if (transient && transient.status) status = transient.status;
       return Object.assign({}, row, {
         revision: meta.revision || row.revision,
         status,
+        approval: !stale && row.approval && row.approval.revision === (meta.revision || "P01") && Date.parse(row.approval.at) >= Date.parse(meta.generatedDate) ? row.approval : null,
         generatedBy: row.file && (row.file.generatedBy || meta.generatedBy) || meta.generatedBy || "-",
         generatedDate: row.file && (row.file.ts || row.file.generatedDate) || meta.generatedDate || null,
         meta
@@ -258,25 +262,30 @@
   }
 
   async function generateAndSave(row) {
+    const source = state();
+    const destination = projectKey();
+    const sourceKey = root.GeoFlowWorkflow?.sourceKey(source, row.boreholeId);
     const stayInPreview = Boolean(previewState && previewState.row.id === row.id);
     activity[row.id] = { status: "Generating", message: "" };
     if (!stayInPreview) renderReports({ preserveLoad: true });
     try {
       const item = ensureGenerated(row, true);
       const data = item.doc.output("datauristring");
-      const source = state();
-      source.reportMeta = source.reportMeta || {};
-      source.reportMeta[row.boreholeId] = Object.assign({}, source.reportMeta[row.boreholeId], {
-        generatedBy: source.project.loggedBy || "Current user",
-        generatedDate: item.at,
-        archived: false
-      });
       const response = await fetch("/api/v1/files", {
         method: "POST", headers: headers(),
-        body: JSON.stringify({ project: projectKey(), id: row.id, name: `log-${row.boreholeId}.pdf`, kind: "report-pdf", data })
+        body: JSON.stringify({ project: destination, id: row.id, name: `log-${row.boreholeId}.pdf`, kind: "report-pdf", data })
       });
       if (!response.ok) throw new Error(response.status === 401 ? "Cloudflare save requires the project API key." : `Cloudflare save failed (${response.status}).`);
       delete activity[row.id];
+      if (state() !== source || projectKey() !== destination) {
+        notify("PDF saved to the original project. Reopen that project to review it.", "info");
+        return item;
+      }
+      source.reportMeta = source.reportMeta || {};
+      source.reportMeta[row.boreholeId] = Object.assign({}, source.reportMeta[row.boreholeId], {
+        generatedBy: source.project.loggedBy || "Current user",
+        generatedDate: item.at, sourceKey, archived: false
+      });
       saveState();
       notify(`${row.name} generated and saved to Cloudflare.`, "success");
       await loadFiles(true);
@@ -473,7 +482,12 @@
     if (state().activeTab === "preview" && isVisible()) renderReports();
   }
 
-  root.GeoFlowReports = Object.freeze({ render: renderReports, loadFiles, generateAndSave, openPreview, rows: rowsForCategory });
+  function selectBorehole(id) {
+    selectedCategory = "Borehole Logs";
+    selectedId = `report-${id}`;
+    renderReports();
+  }
+  root.GeoFlowReports = Object.freeze({ render: renderReports, loadFiles, generateAndSave, openPreview, rows: rowsForCategory, selectBorehole });
   if (document.readyState === "loading") document.addEventListener("DOMContentLoaded", mount, { once: true });
   else mount();
 })(window);

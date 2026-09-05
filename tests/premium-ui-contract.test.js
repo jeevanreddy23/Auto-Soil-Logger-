@@ -11,8 +11,8 @@ const html = fs.readFileSync(path.join(root, "geologger", "index.html"), "utf8")
 
 test("loads the premium UI modules after the existing application shell", () => {
   const coreIndex = html.lastIndexOf('<script src="geoflow-ui-core.js"></script>');
-  const premiumIndex = html.lastIndexOf('<script src="geoflow-premium.js"></script>');
-  const reportsIndex = html.lastIndexOf('<script src="geoflow-reports.js"></script>');
+  const premiumIndex = html.lastIndexOf('<script src="geoflow-premium.js');
+  const reportsIndex = html.lastIndexOf('<script src="geoflow-reports.js');
   assert.ok(coreIndex > 0);
   assert.ok(coreIndex < premiumIndex);
   assert.ok(premiumIndex < reportsIndex);

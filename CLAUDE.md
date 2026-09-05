@@ -15,6 +15,13 @@ active PDF exports. Preserve domain values and source records independently of s
 
 ## What STS GeoFlow is
 
+Workflow update (September 2026): `geoflow-workflow.js` now owns delivery-stage
+evaluation, dependencies, laboratory row enumeration and report-source change
+detection. `v24-flow` remains its UI adapter. See `docs/workflow-architecture.md`
+for the contract and migration notes. No stage with blockers is complete; field
+and laboratory work are parallel branches. Handover readiness requires current
+saved/reviewed reports, not merely a client share link.
+
 Geotechnical project-delivery platform for STS Geotechnics (NSW, AS 1726:2017):
 proposal → scope extraction → field plan → field logging (phone/tablet PWA) →
 soil/rock/corebox logging → samples/lab tracking → daily progress email →

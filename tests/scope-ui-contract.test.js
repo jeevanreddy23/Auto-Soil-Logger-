@@ -14,7 +14,7 @@ test("loads the scope presentation layer after premium and before optional motio
   const premiumCss = html.lastIndexOf('href="geoflow-premium.css"');
   const scopeCss = html.lastIndexOf('href="geoflow-scope.css"');
   const motionCss = html.lastIndexOf('href="geoflow-motion.css"');
-  const reportsJs = html.lastIndexOf('src="geoflow-reports.js"');
+  const reportsJs = html.lastIndexOf('src="geoflow-reports.js');
   const scopeJs = html.lastIndexOf('src="geoflow-scope.js"');
   const motionJs = html.lastIndexOf('src="geoflow-motion.js"');
   assert.ok(premiumCss > 0 && premiumCss < scopeCss && scopeCss < motionCss);

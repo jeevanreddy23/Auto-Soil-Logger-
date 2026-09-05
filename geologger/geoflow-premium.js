@@ -5,8 +5,9 @@
 
   const Core = root.GeoFlowUICore;
   const document = root.document;
-  const EXTRA_TABS = ["bh-overview", "dcp", "groundwater", "site-map", "documents", "team", "validation"];
+  const EXTRA_TABS = ["bh-overview", "dcp", "groundwater", "site-map", "documents", "team", "validation", "pipeline"];
   const EXTRA_SLUGS = {
+    pipeline: "pipeline",
     "bh-overview": "borehole-overview",
     dcp: "dcp",
     groundwater: "groundwater",
@@ -16,6 +17,7 @@
     validation: "validation"
   };
   const PROJECT_TABS = [
+    ["pipeline", "git-branch", "Workflow"],
     ["dashboard", "layout-dashboard", "Overview"],
     ["boreholes", "map-pin", "Boreholes"],
     ["site-map", "map", "Site Map"],
@@ -42,6 +44,7 @@
   ];
   const BOREHOLE_CONTEXT = new Set(["bh-overview", "soil", "rock", "corebox", "spt", "dcp", "groundwater", "validation"]);
   const SECTION_LABELS = {
+    pipeline: "Delivery Workflow",
     "bh-overview": "Borehole Overview",
     dcp: "DCP",
     groundwater: "Groundwater",
@@ -1084,7 +1087,7 @@
 
   function afterTab(tab) {
     if (BOREHOLE_CONTEXT.has(tab)) navigationLayer = "borehole";
-    else if (["projects", "dashboard", "scope", "project", "boreholes", "site-map", "fieldwork", "laboratory", "documents", "team", "settings", "daily"].includes(tab)) navigationLayer = "project";
+    else if (["projects", "dashboard", "scope", "project", "boreholes", "site-map", "fieldwork", "laboratory", "documents", "team", "settings", "daily", "pipeline"].includes(tab)) navigationLayer = "project";
     document.body.classList.toggle("sts-reports-mode", tab === "preview");
     document.body.classList.toggle("sts-premium-page-mode", EXTRA_TABS.includes(tab));
     ensureShellTools();

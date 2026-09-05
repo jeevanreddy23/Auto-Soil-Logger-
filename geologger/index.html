@@ -4912,14 +4912,12 @@ function renderLaboratory(){
   if (!S.labStatus) S.labStatus={};
   const plan=S.scope?.plan; const labs=plan?.labs||[];
   /* rows: one per planned lab test type, plus sample-linked tests from logs */
-  const sampleTests=[];
-  for (const b of S.boreholes){ const l=(S.logs||{})[b.id]||{};
-    for (const s of (l.samples||[])) if (s.tests || s.mc||s.att||s.psd||s.cbr)
-      sampleTests.push({ bh:b.id, sid:s.sid||`${b.id}_${s.from}`, tests: typeof s.tests==="string"? s.tests : (s.tests||[]).join(", ") }); }
+  const workflowRows=window.GeoFlowWorkflow?GeoFlowWorkflow.labRows(S):[];
+  const sampleTests=workflowRows.filter(r=>r.kind==='sample');
   const st=k=>S.labStatus[k]||"Pending";
   const sel=k=>`<select data-lab="${e14(k)}" style="border:1px solid #ccd5e3;border-radius:6px;padding:4px 6px;font-size:12px">
     ${["Pending","Submitted","Returned"].map(o=>`<option ${st(k)===o?"selected":""}>${o}</option>`).join("")}</select>`;
-  const counts={Pending:0,Submitted:0,Returned:0}; labs.forEach((l,i)=>counts[st("plan-"+i)]++);
+  const counts={Pending:0,Submitted:0,Returned:0}; workflowRows.forEach(r=>counts[st(r.key) in counts?st(r.key):"Pending"]++);
   el.innerHTML=`<h2 style="font-size:19px;margin:6px 0 12px">Laboratory register</h2>
   <div class="sc-kpi" style="margin-bottom:12px">
     <div class="k"><b>${labs.reduce((a,l)=>a+(l.qty||0),0)||labs.length}</b><span>Tests planned</span></div>
@@ -5121,12 +5119,12 @@ const e16=s=>String(s??"").replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/"
 const PIPES=["Geotechnical Investigation","Construction Phase Verification","Environmental & Contamination Services","Pavement & DCP Testing","Pile / Footing Inspections"];
 const SLUG={dashboard:"tower",scope:"scope",project:"setup",boreholes:"boreholes",fieldwork:"fieldwork",soil:"soil-logs",
   rock:"rock-logs",corebox:"corebox",spt:"spt",samples:"samples",laboratory:"laboratory",daily:"daily-report",
-  preview:"reports",export:"export",settings:"settings",photos:"photos",qa:"qa-alerts",history:"history"};
+  preview:"reports",export:"export",settings:"settings",photos:"photos",qa:"qa-alerts",history:"history",pipeline:"pipeline"};
 const UNSLUG={}; for (const k in SLUG) UNSLUG[SLUG[k]]=k;
 const SECTION={dashboard:"Project Control Tower",scope:"Scope & Plan",project:"Project Setup",boreholes:"Boreholes",
   fieldwork:"Fieldwork",soil:"Soil Logs",rock:"Rock Logs",corebox:"Corebox Viewer",spt:"SPT & Field Tests",
   samples:"Samples",laboratory:"Laboratory",daily:"Daily Report",preview:"Report Assembly",export:"Data Export",
-  settings:"Settings",photos:"Photos",qa:"QA Alerts",history:"Project History",projects:"All Projects"};
+  settings:"Settings",photos:"Photos",qa:"QA Alerts",history:"Project History",projects:"All Projects",pipeline:"Delivery Workflow"};
 const LOGTABS=["boreholes","soil","rock","corebox","spt","samples"];
 function pjMeta(){ try{ return (typeof pjActive==="function" && pjActive())||null; }catch(e){ return null; } }
 function readiness(){
@@ -6070,7 +6068,7 @@ renderSoil=function(){
     }
   });
   page.querySelector("#soilAdd").onclick=()=>{ L.soil.push(blankSoil(L.soil.at(-1))); soilMobileSelection17=L.soil.length-1; save(); renderSoil(); };
-  
+
   // Shorthand and template triggers
   const handleQuickAdd = () => {
     const inp = page.querySelector("#soilShorthandIn");
@@ -6822,8 +6820,8 @@ paintIcons();
 })();
 </script>
 <script src="geoflow-ui-core.js"></script>
-<script src="geoflow-premium.js"></script>
-<script src="geoflow-reports.js"></script>
+<script src="geoflow-premium.js?v=workflow-20260905"></script>
+<script src="geoflow-reports.js?v=workflow-20260905"></script>
 <script src="geoflow-scope.js"></script>
 <script src="geoflow-motion.js"></script>
 <script id="v21-tenx">
@@ -7416,138 +7414,27 @@ window.__pro22=buildPro;
 if (S.activeTab==="section" && document.getElementById("page-section")) showTab("section");
 })();
 </script>
+<script src="geoflow-workflow.js"></script>
 <script id="v24-flow">
 "use strict";
 /* ============ v24: workflow engine — deterministic stage DAG, gates, critical-path router ============
    Every stage computes its own completeness and blockers from project data (arithmetic only, no
    judgement). Every blocker knows the screen that fixes it. Read-only over existing state. */
 (function(){
-const E=s=>String(s??"").replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/"/g,"&quot;");
-const N=v=>{ const n=parseFloat(v); return isNaN(n)? null:n; };
-const pc=(a,b)=>b? Math.max(0,Math.min(100,Math.round(a/b*100))) : 0;
-const LG=()=>S.logs||{};
-const BH=()=>S.boreholes||[];
-const dOf=id=>{ const l=LG()[id]||{}; const b=BH().find(x=>x.id===id)||{};
-  return Math.max(...((l.soil||[]).map(r=>N(r.to)||0)), ...((l.rock||[]).map(r=>N(r.to)||0)), N(b.termDepth)||0, 0); };
-const anyLog=id=>{ const l=LG()[id]||{}; return ((l.soil||[]).length+(l.rock||[]).length)>0; };
-const cnt=k=>Object.values(LG()).reduce((a,l)=>a+((l&&l[k])||[]).length,0);
-/* two planned-depth fields exist in this codebase: plannedDepth (borehole grid, manual + field
-   imports) and planned (scope-plan generator). Read BOTH or the gate can never be cleared. */
-const PLAN=b=>{ const a=N(b.plannedDepth); return a!=null? a : N(b.planned); };
-/* mirror renderLaboratory's own row enumeration exactly — same keys, so counts can never disagree.
-   Samples with no requested tests are excluded there and here (blank auto-rows must not inflate). */
-function labKeys(){
-  const plan=S.scope&&S.scope.plan; const labs=(plan&&plan.labs)||[];
-  const keys=labs.map((l,i)=>"plan-"+i);
-  for (const b of BH()){ const l=LG()[b.id]||{};
-    for (const s of (l.samples||[])) if (s.tests || s.mc||s.att||s.psd||s.cbr)
-      keys.push("smp-"+(s.sid||`${b.id}_${s.from}`)); }
-  return keys;
-}
-
-/* ---------- stage definitions: id · gate · blockers with their fix route ---------- */
-const ST=[
- { id:"master", ic:"◆", label:"Project record", why:"Extract once, reuse everywhere — every log, email and report reads these fields.",
-   check(){ const P=S.project||{};
-     const req=[["projectNumber","Project number"],["clientName","Client name"],["siteAddress","Site address"],["projectName","Project name"]];
-     const miss=req.filter(([k])=>!String(P[k]||"").trim());
-     return { pct:pc(req.length-miss.length,req.length),
-       blk:miss.map(([k,l])=>({msg:l+" is not set", act:{tab:"project"}, fix:"Open Project Setup"})) }; } },
-
- { id:"scope", ic:"⛭", label:"Scope agreed", why:"The proposal defines what must be delivered — everything downstream is checked against it.",
-   check(){ const sc=S.scope||{}; const it=sc.items||[]; const docs=sc.docs||[];
-     if (!docs.length) return { pct:0, blk:[{msg:"No proposal uploaded", act:{tab:"scope",step:1}, fix:"Upload proposal"}] };
-     if (!it.length) return { pct:25, blk:[{msg:"Proposal uploaded but scope not extracted", act:{tab:"scope",step:2}, fix:"Extract scope"}] };
-     const open=it.filter(i=>!i.status||i.status==="new");
-     const acc=it.filter(i=>i.status==="acc").length;
-     return { pct: open.length? 25+pc(it.length-open.length,it.length)*0.5 : (acc? 100:75),
-       blk: open.length? [{msg:`${open.length} scope item${open.length>1?"s":""} awaiting review`, act:{tab:"scope",step:3}, fix:"Review scope"}]
-            : (acc? [] : [{msg:"No scope items accepted", act:{tab:"scope",step:3}, fix:"Accept items"}]) }; } },
-
- { id:"plan", ic:"▤", label:"Field plan", why:"Turns the agreed scope into boreholes, depths and test intervals the crew can execute.",
-   check(){ const p=S.scope&&S.scope.plan; const t=p&&p.totals;
-     if (!t || !(t.bh>0)) return { pct:0, blk:[{msg:"Field plan not generated from scope", act:{tab:"scope",step:4}, fix:"Generate plan"}] };
-     if (!BH().length) return { pct:50, blk:[{msg:"Plan exists but no boreholes created", act:{tab:"boreholes"}, fix:"Create boreholes"}] };
-     const unplanned=BH().filter(b=>PLAN(b)==null).length;
-     return { pct: unplanned? 75:100,
-       blk: unplanned? [{msg:`${unplanned} borehole${unplanned>1?"s":""} without a planned depth`, act:{tab:"boreholes"}, fix:"Set depths"}]:[] }; } },
-
- { id:"field", ic:"⛏", label:"Fieldwork", why:"Crews log on the phone app; this stage closes when every hole is logged and terminated.",
-   check(){ const bs=BH(); if (!bs.length) return { pct:0, blk:[{msg:"No boreholes to log", act:{tab:"boreholes"}, fix:"Create boreholes"}] };
-     const done=bs.filter(b=>b.termDepth && anyLog(b.id));
-     const started=bs.filter(b=>anyLog(b.id));
-     const blk=[];
-     const notStarted=bs.filter(b=>!anyLog(b.id));
-     if (notStarted.length) blk.push({msg:`${notStarted.length} not started: ${notStarted.slice(0,4).map(b=>b.id).join(", ")}${notStarted.length>4?"…":""}`, act:{tab:"fieldwork"}, fix:"Fieldwork"});
-     const openHoles=started.filter(b=>!b.termDepth);
-     if (openHoles.length) blk.push({msg:`${openHoles.length} logged but not terminated: ${openHoles.slice(0,4).map(b=>b.id).join(", ")}`, act:{tab:"boreholes"}, fix:"Set termination"});
-     const shortHoles=bs.filter(b=>PLAN(b)!=null && b.termDepth && dOf(b.id) < PLAN(b)-0.05 && !String(b.termReason||"").trim());
-     if (shortHoles.length) blk.push({msg:`${shortHoles.length} terminated short of plan without a reason: ${shortHoles.slice(0,3).map(b=>b.id).join(", ")}`, act:{tab:"boreholes"}, fix:"Add reason"});
-     return { pct:pc(done.length,bs.length), blk }; } },
-
- { id:"lab", ic:"⚗", label:"Laboratory", why:"Every planned lab test and every sample carrying a test request must come back before sign-off.",
-   check(){ const plan=S.scope&&S.scope.plan;
-     /* no approved plan → the lab requirement is UNKNOWN, never assume satisfied */
-     if (!plan) return { pct:0, blk:[{msg:"Lab requirement unknown until the field plan is approved", act:{tab:"scope",step:4}, fix:"Generate plan"}] };
-     const keys=labKeys();
-     if (!keys.length) return { pct:100, blk:[] };            /* plan approved and requires no lab work */
-     const ls=S.labStatus||{}; const stt=k=>ls[k]||"Pending";
-     const ret=keys.filter(k=>stt(k)==="Returned").length;
-     const sub=keys.filter(k=>stt(k)!=="Pending").length;
-     const blk=[];
-     if (sub<keys.length) blk.push({msg:`${keys.length-sub} lab item${keys.length-sub>1?"s":""} not submitted`, act:{tab:"laboratory"}, fix:"Laboratory"});
-     else if (ret<keys.length) blk.push({msg:`${keys.length-ret} lab result${keys.length-ret>1?"s":""} outstanding`, act:{tab:"laboratory"}, fix:"Laboratory"});
-     return { pct:pc(ret,keys.length), blk }; } },
-
- { id:"qa", ic:"⚠", label:"QA clean", why:"Blocking validation errors and AS 1726 logic conflicts must be zero before logs are issued.",
-   check(){ const blk=[];
-     /* validate() returns {errs,warns} — NOT an array. Reading the wrong key made this gate blind. */
-     let v=null, vOk=true; try{ v=(typeof validate==="function")? validate() : null; }catch(e){ vOk=false; }
-     const eArr = Array.isArray(v)? v : ((v && (v.errs||v.errors)) || []);
-     if (!vOk || v==null) blk.push({msg:"Validation engine unavailable — cannot certify QA", act:{tab:"export"}, fix:"Data Export"});
-     /* an unavailable engine is UNKNOWN, never silently clean */
-     let logic=null; try{ logic=(window.__logic22? window.__logic22() : null); }catch(e){ logic=null; }
-     const hard=Array.isArray(logic)? logic.filter(x=>x&&x.sev==="err") : [];
-     if (!Array.isArray(logic)) blk.push({msg:"Logic engine unavailable — AS 1726 conflicts unchecked", act:{tab:"qa"}, fix:"QA Alerts"});
-     let low=0, scoreOk=true;
-     for (const b of BH()){ let s2=null; try{ s2=window.__score22? window.__score22(b.id) : null; }catch(e){ s2=null; }
-       if (typeof s2!=="number"){ scoreOk=false; break; } if (s2<85) low++; }
-     if (!scoreOk) blk.push({msg:"Completeness scoring unavailable", act:{tab:"qa"}, fix:"QA Alerts"});
-     if (eArr.length) blk.push({msg:`${eArr.length} blocking validation error${eArr.length>1?"s":""}`, act:{tab:"export"}, fix:"Data Export"});
-     if (hard.length) blk.push({msg:`${hard.length} logic conflict${hard.length>1?"s":""} (RQD/overlap)`, act:{tab:"qa"}, fix:"QA Alerts"});
-     if (low) blk.push({msg:`${low} borehole${low>1?"s":""} below 85% completeness`, act:{tab:"qa"}, fix:"QA Alerts"});
-     return { pct: blk.length? Math.max(10,100-blk.length*15) : 100, blk }; } },
-
- { id:"report", ic:"▥", label:"Sign-off", why:"Logs carry a DRAFT watermark until a reviewer is recorded.",
-   check(){ const P=S.project||{}; const blk=[];
-     if (!String(P.reportNumber||"").trim()) blk.push({msg:"Report number not set", act:{tab:"project"}, fix:"Project Setup"});
-     if (!String(P.loggedBy||"").trim()) blk.push({msg:"Logged By not recorded", act:{tab:"project"}, fix:"Project Setup"});
-     if (!String(P.reviewBy||P.checkedBy||"").trim()) blk.push({msg:"Review By not recorded — logs print DRAFT", act:{tab:"project"}, fix:"Project Setup"});
-     return { pct:pc(3-blk.length,3), blk }; } },
-
- { id:"issue", ic:"⇧", label:"Client handover", why:"A live read-only link for the client. Issue logs from Reports and AGS4/section from Data Export.",
-   check(){ const loc=(typeof pjSyncKey==="function"? pjSyncKey():"__autosoil_project__");
-     const shared=!!(S.share&&S.share[loc]);
-     const blk=[];
-     if (!shared) blk.push({msg:"No client share link created", act:{tab:"dashboard"}, fix:"Tower"});
-     return { pct: shared?100:0, blk }; } }
-];
-
-let _memo=null, _memoT=0;
 function state(){
-  if (_memo && Date.now()-_memoT<1200) return _memo;     /* one pass per navigation, not three */
-  _memo=ST.map(s=>{ let r={pct:0,blk:[]}; try{ r=s.check()||r; }catch(e){ r={pct:0,blk:[{msg:"Stage check unavailable",act:null,fix:""}]}; }
-    return { id:s.id, ic:s.ic, label:s.label, why:s.why, pct:Math.round(r.pct||0), blk:r.blk||[] }; });
-  _memoT=Date.now(); return _memo; }
-window.__flowBust=()=>{ _memo=null; };
-function critical(st){ return st.find(s=>s.pct<100) || st[st.length-1]; }
+ return GeoFlowWorkflow.evaluate(S,{validate:()=>{const v=validate();const issues=GeoFlowUICore.collectValidation(S);return {errs:[...(v.errs||v.errors||[]),...issues.filter(i=>i.severity==='error').map(i=>i.message)]};},logic:window.__logic22,score:window.__score22}).stages;
+}
+const E=s=>String(s??'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/"/g,'&quot;');
+window.__flowBust=()=>{};
+function critical(st){return st.find(s=>s.status==='action-needed')||st.find(s=>s.status!=='complete')||st[st.length-1];}
 window.__flow24=state;
-
 /* ---------- router: every blocker knows its fix screen ---------- */
 function jump(act){
   if (!act) return;
+  if (act.boreholeId && S.boreholes.some(b=>b.id===act.boreholeId)) S.activeBh=act.boreholeId;
   if (act.tab==="scope" && act.step && S.scope) S.scope.step=act.step;
   showTab(act.tab);
+  if (act.tab==="preview" && act.boreholeId) window.GeoFlowReports?.selectBorehole(act.boreholeId);
   setTimeout(()=>{ const el=document.querySelector(".content .tabpage.show"); if (el) el.scrollIntoView({block:"start"}); },60);
 }
 window.__flowJump=jump;
@@ -7566,19 +7453,20 @@ const css=document.createElement("style"); css.textContent=`
  #flowBar .dots i{width:16px;height:5px;border-radius:3px;background:#334155;display:block}
  #flowBar .dots i.on{background:#22c55e} #flowBar .dots i.cur{background:#f59e0b}
  #flowBar.done{background:linear-gradient(90deg,#052e1a,#0b3f26)}
- #page-pipeline .pl-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(300px,1fr));gap:12px}
+ #page-pipeline .pl-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,300px),1fr));gap:16px}
  #page-pipeline .pl{background:#fff;border:1px solid #e2e8f0;border-radius:12px;padding:14px;box-shadow:0 1px 2px rgba(15,23,42,.05);position:relative}
  #page-pipeline .pl.cur{border-color:#2563eb;box-shadow:0 0 0 3px rgba(37,99,235,.10)}
  #page-pipeline .pl.ok{border-color:#bbf7d0}
- #page-pipeline .pl.wait{opacity:.62}
+ #page-pipeline .pl.wait{border-style:dashed}
  #page-pipeline .pl h4{font-size:13.5px;margin:0 0 2px;display:flex;align-items:center;gap:8px}
  #page-pipeline .pl .num{font-size:10px;color:#94a3b8;font-weight:700}
  #page-pipeline .pl .why{font-size:11.5px;color:#64748b;margin:2px 0 8px}
  #page-pipeline .bar{height:7px;background:#eef2f6;border-radius:5px;overflow:hidden;margin-bottom:8px}
  #page-pipeline .bar i{display:block;height:100%;border-radius:5px}
- #page-pipeline .bk{display:flex;align-items:center;gap:8px;font-size:12px;padding:5px 0;border-top:1px solid #f1f5f9;color:#92400e}
+ #page-pipeline .bk{display:flex;flex-wrap:wrap;align-items:center;gap:8px;font-size:12px;padding:8px 0;border-top:1px solid #f1f5f9;color:#92400e;overflow-wrap:anywhere}
  #page-pipeline .bk button{margin-left:auto;border:1px solid #cbd5e1;background:#fff;border-radius:6px;padding:4px 10px;font-size:11.5px;font-weight:600;cursor:pointer;white-space:nowrap}
  #page-pipeline .clean{font-size:12px;color:#16a34a;padding-top:4px;border-top:1px solid #f1f5f9}
+ @media(max-width:720px){#flowBar{flex-wrap:wrap}#flowBar .msg{flex-basis:100%;white-space:normal}#flowBar button,#page-pipeline .bk button{min-height:44px}#flowBar .dots{display:none}}
 `; document.head.appendChild(css);
 
 function buildBar(){
@@ -7598,9 +7486,9 @@ function buildBar(){
     pill.textContent=`Stage ${allDone?st.length:idx}/${st.length} · ${overall}%`;
     pill.title=`${cur.label} — ${overall}% of the delivery pipeline complete`;
     pill.className="pill16 "+(overall>=70?"rdy":"mid"); }
-  bar.innerHTML=`<span class="stg"><i>${cur.ic}</i>${allDone?"Delivered":E(cur.label)}</span>
+  bar.innerHTML=`<span class="stg"><i>${cur.ic}</i>${allDone?"Handover ready":E(cur.label)}</span>
     <span class="dots">${st.map(s=>`<i class="${s.pct===100?"on":(s.id===cur.id?"cur":"")}" title="${E(s.label)} ${s.pct}%"></i>`).join("")}</span>
-    <span class="msg">${allDone?"All stages complete — project ready to issue."
+    <span class="msg">${allDone?"Handover checks complete — open Reports for final issue."
       : (b0? `Next: <b>${E(b0.msg)}</b>` : `<b>${E(cur.label)}</b> in progress — ${cur.pct}%`)}</span>
     ${b0&&b0.act?`<button class="go" id="flowGo">${E(b0.fix||"Fix")} →</button>`:""}
     <button class="pipe" id="flowPipe">Pipeline</button>`;
@@ -7624,16 +7512,16 @@ function renderPipeline(){
   el.innerHTML=`<h2 style="font-size:19px;margin:6px 0 4px">Delivery pipeline <span style="font-size:13px;color:#64748b;font-weight:500">— ${overall}% complete</span></h2>
     <div style="font-size:12.5px;color:#64748b;margin-bottom:12px">Every gate is computed from project data — no status is typed by hand. Click any blocker to jump straight to the screen that clears it.</div>
     <div class="pl-grid">${st.map((s,i)=>{
-      const isCur=s.id===cur.id; const cls=s.pct===100?"ok":(isCur?"cur":(reached?"":"wait"));
+      const isCur=s.id===cur.id; const cls=s.status==="complete"?"ok":(isCur?"cur":(s.status==="waiting"?"wait":""));
       if (isCur) reached=false;   /* stages after the critical one render dimmed (not yet actionable) */
       const col=s.pct===100?"#16a34a":(s.pct>=50?"#f59e0b":"#dc2626");
       return `<div class="pl ${cls}">
-        <div class="num">STAGE ${i+1}${isCur?" · CURRENT":""}</div>
+        <div class="num">STAGE ${i+1} · ${E(s.status.replace(/-/g," ").toUpperCase())}</div>
         <h4>${s.ic} ${E(s.label)} <span style="margin-left:auto;color:${col};font-weight:700">${s.pct}%</span></h4>
-        <div class="why">${E(s.why)}</div>
+        <div class="why">${E(s.why)}</div>${s.waitingOn.length?`<p class="why">Waiting for: ${s.waitingOn.map(id=>E(st.find(x=>x.id===id).label)).join(", ")}</p>`:""}
         <div class="bar"><i style="width:${s.pct}%;background:${col}"></i></div>
         ${s.blk.length? s.blk.map((b,j)=>`<div class="bk">⚠ ${E(b.msg)}${b.act?`<button data-fx="${i}-${j}">${E(b.fix||"Open")} →</button>`:""}</div>`).join("")
-          : '<div class="clean">✓ Gate satisfied</div>'}
+          : `<div class="clean">${s.status==='complete'?'✓ Gate satisfied':'Local checks satisfied; upstream work remains'}</div>`}
       </div>`; }).join("")}</div>`;
   el.querySelectorAll("[data-fx]").forEach(btn=>btn.addEventListener("click",()=>{
     const [i,j]=btn.dataset.fx.split("-").map(Number); jump(st[i].blk[j].act); }));
@@ -7653,7 +7541,8 @@ function side(){
 }
 
 const _p24=showTab;
-showTab=function(tab){ _p24(tab); _memo=null;                    /* fresh gates after every navigation */
+window.__flowRefresh=()=>{buildBar();if(S.activeTab==="pipeline")renderPipeline();};
+showTab=function(tab){ _p24(tab);                    /* fresh gates after every navigation */
   try{ if (tab==="pipeline") renderPipeline(); }catch(e){}
   try{ buildBar(); side(); }catch(e){} };
 try{ buildBar(); side(); }catch(e){}
@@ -7823,7 +7712,8 @@ function dlReport(){
   <table class="hdr"><tr><td>${E(m.by||"")}</td><td>${E(m.reviewer||"")}</td></tr>
   <tr><td>Geotechnical Site Engineer</td><td>Senior Geotechnical Engineer</td></tr>
   <tr><td>STS Geotechnics Pty Ltd</td><td>STS Geotechnics Pty Ltd</td></tr></table>
-  </body></html>`;
+
+</body></html>`;
   const a=document.createElement("a");
   a.href=URL.createObjectURL(new Blob(["﻿"+html],{type:"application/msword"}));
   a.download=(m.reportNo||"pile-inspection").replace(/\//g,"-")+"-pile-inspection.doc"; a.click();
@@ -7902,6 +7792,17 @@ buildPdf=function(bhId){
   const validation={errors:[...new Set([...legacy.errs.filter(owned),...issues.filter(i=>i.severity==='error').map(i=>i.message)])],warnings:[...new Set([...legacy.warns.filter(owned),...issues.filter(i=>i.severity!=='error').map(i=>i.message)])]};
   return GeoFlowLogPDF.build(S,bhId,{jsPDF:window.jspdf.jsPDF,validation,defects:pdfDefectList(S.logs[bhId]||{rock:[]}),rockDescription});
 };
+</script>
+<script id="geoflow-workflow-refresh">
+(function(){
+ let timer;
+ function schedule(){clearTimeout(timer);timer=setTimeout(()=>window.__flowRefresh?.(),120);}
+ const originalSave=save;
+ save=function(){const result=originalSave.apply(this,arguments);schedule();return result;};
+ document.addEventListener('change',schedule);
+ window.addEventListener('focus',schedule);
+ schedule();
+})();
 </script>
 </body>
 </html>
