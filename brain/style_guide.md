@@ -1,4 +1,6 @@
-# STS GeoFlow — Borehole Log Style Guide (learned specification)
+# STS GeoFlow — Historical Borehole Log Style Guide
+
+> Superseded for active PDF exports by [GeoFlow Timeline](../docs/geoflow-timeline-layout.md), September 2026. The measurements below document the retired reference template, not requirements for the new renderer.
 
 Source of truth for the PDF engine. Every rule below was **measured** from the issued
 reference set (13 logs: BH1-Cored…BH9-Cored, BH201–BH206, TP1; jobs 32917/9295D-G,

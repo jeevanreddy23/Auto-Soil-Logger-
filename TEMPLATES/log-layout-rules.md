@@ -1,5 +1,7 @@
 # STS borehole log — layout blueprint (measured)
 
+> Historical reference only. The active PDF design follows [GeoFlow Timeline](../docs/geoflow-timeline-layout.md), as requested by the product owner in September 2026.
+
 Every number here was measured from the issued reference logs with pdfplumber on
 2026-07-25, not copied from documentation. Units are millimetres from the top-left of an
 A4 page (210 × 297 mm, portrait). Where this file disagrees with `brain/style_guide.md`,

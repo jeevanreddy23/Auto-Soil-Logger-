@@ -37,7 +37,7 @@ test('coring fallback uses the earliest interval in unsorted input',()=>{
 });
 test('10 m termination is present without a phantom material sheet',()=>{
   const {doc,text}=build(fixture());
-  assert.equal(doc.__qa.materialSheets,1);
+  assert.equal(doc.__qa.materialSheets,2);
   assert.match(text,/Terminated at 10.00m/);
   assert.match(text,/Target depth reached/);
 });
@@ -51,12 +51,12 @@ test('rock lithology continues across sheets and preserves defect attributes',()
   assert.ok(drawn.some(t=>t.page===2&&t.text.includes('(continued) SANDSTONE')));
   assert.match(text,/35 deg rough clean/);
   assert.match(text,/Terminated at 20.00m/);
-  assert.equal(doc.__qa.coreSheets,2);
+  assert.equal(doc.__qa.coreSheets,4);
 });
 test('groundwater at zero and per-hole observations override project text',()=>{
   // Use a soil sheet to inspect the water column.
   const soil=fixture();soil.project.groundwater='GWNE';soil.logs['BH-S01'].gw={state:'Observed',depth:0};
-  assert.ok(build(soil).drawn.some(t=>t.text==='WT'&&t.y===81));
+  assert.match(build(soil).text,/Observed at 0.00 m/);
   soil.logs['BH-S01'].gw={state:'GWNE',depth:''};soil.project.groundwater='Observed at 5 m';
   assert.match(build(soil).text,/GWNE/);
 });
@@ -84,8 +84,8 @@ test('crowded defects and sample labels remain inside the frame or move to detai
   for(let i=0;i<90;i++)log.rock.push({from:9+i/1000,to:9+i/1000,defectType:`Special defect ${i}`});
   const {doc,drawn}=build(state);
   assert.ok(doc.__details.length>20);
-  const pageDefects=drawn.filter(t=>t.page<=2&&t.x===142);
-  assert.ok(pageDefects.every(t=>t.y>=78&&t.y<=269.8));
+  const pageDefects=drawn.filter(t=>t.page<=4&&t.x===139&&t.text.startsWith('DEFECT'));
+  assert.ok(pageDefects.every(t=>t.y>=101&&t.y<=251));
   for(let i=0;i<90;i++)assert.ok(drawn.some(t=>t.text.includes(`Special defect ${i}`)));
 });
 
@@ -93,9 +93,9 @@ test('mixed soil and cored rock retain the engineering template transition',()=>
   const state=fixture('rock');const log=state.logs['BH-R01'];
   log.soil=[{from:0,to:2,material:'CLAY',description:'CLAY: brown'}];log.rock[0].from=2;
   const {doc,drawn}=build(state);
-  assert.equal(doc.__qa.materialSheets,1);assert.equal(doc.__qa.coreSheets,2);
-  assert.ok(drawn.some(t=>t.page===1&&t.text==='SOIL / MATERIAL LOG'));
-  assert.ok(drawn.some(t=>t.page===2&&t.text==='CORED ROCK LOG'));
+  assert.equal(doc.__qa.materialSheets,0);assert.equal(doc.__qa.coreSheets,4);
+  assert.ok(drawn.some(t=>t.page===1&&t.text==='SOIL + ROCK PROFILE'));
+  assert.ok(drawn.some(t=>t.page===2&&t.text==='ROCK PROFILE'));
 });
 test('reviewer name cannot clear a draft with factual validation errors',()=>{
   const state=fixture();state.project.reviewBy='Reviewer';state.logs['BH-S01'].spt=[{depth:-1,b1:1,b2:2,b3:3}];

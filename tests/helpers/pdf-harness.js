@@ -41,7 +41,8 @@ function build(state) {
   vm.runInContext(/var STS_LOGO = "[^"]*";/.exec(html)[0],context);
   const constants=html.slice(html.indexOf('const CONS_ABBR'),html.indexOf('function buildPdf',html.indexOf('const CONS_ABBR')));
   vm.runInContext(constants,context);
-  vm.runInContext(/<script id="pdf-v3">([\s\S]*?)<\/script>/.exec(html)[1],context);
+  vm.runInContext(fs.readFileSync(path.join(__dirname, '../../geologger/geoflow-log-pdf.js'),'utf8'),context);
+  vm.runInContext(/<script id="geoflow-timeline-pdf">([\s\S]*?)<\/script>/.exec(html)[1],context);
   context.sptLine2=Domain.formatSptLine;
   const before=JSON.stringify(state);
   const doc=context.buildPdf(state.boreholes[0].id);

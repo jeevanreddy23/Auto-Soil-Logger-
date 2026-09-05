@@ -7892,5 +7892,16 @@ if (location.protocol==="file:"){ const _f=window.fetch.bind(window);
   window.fetch=(u,o)=> _f(typeof u==="string" && u.startsWith("/api/")? "https://autosoillogger.poreddyjeevanreddy.workers.dev"+u : u, o);
   document.title="STS GeoFlow (local copy) — live data via Worker"; }
 </script>
+<script src="geoflow-log-pdf.js"></script>
+<script id="geoflow-timeline-pdf">
+/* The active PDF renderer is isolated from the historical, inline reference engines. */
+buildPdf=function(bhId){
+  const legacy=validate();
+  const owned=message=>message.startsWith(bhId+' ')||message.startsWith(bhId+':')||message.startsWith('Project');
+  const issues=GeoFlowUICore.collectValidation(S).filter(i=>!i.boreholeId||i.boreholeId===bhId);
+  const validation={errors:[...new Set([...legacy.errs.filter(owned),...issues.filter(i=>i.severity==='error').map(i=>i.message)])],warnings:[...new Set([...legacy.warns.filter(owned),...issues.filter(i=>i.severity!=='error').map(i=>i.message)])]};
+  return GeoFlowLogPDF.build(S,bhId,{jsPDF:window.jspdf.jsPDF,validation,defects:pdfDefectList(S.logs[bhId]||{rock:[]}),rockDescription});
+};
+</script>
 </body>
 </html>

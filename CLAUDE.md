@@ -4,6 +4,15 @@ Read this before changing anything. It encodes the real, working system and the
 hard-won rules from its construction. When advice conflicts with this file,
 this file wins.
 
+## September 2026 PDF design update
+
+The product owner explicitly requested replacing the reference-log appearance.
+`geologger/geoflow-log-pdf.js`, connected by the final `geoflow-timeline-pdf`
+script, is now the ACTIVE PDF engine. `pdf-v3` is superseded. Follow
+`docs/geoflow-timeline-layout.md` for layout and validation. Historical requirements
+below to match OpenGround/STS geometry, wording and line sets no longer apply to
+active PDF exports. Preserve domain values and source records independently of style.
+
 ## What STS GeoFlow is
 
 Geotechnical project-delivery platform for STS Geotechnics (NSW, AS 1726:2017):
